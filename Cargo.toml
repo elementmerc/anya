@@ -1,0 +1,29 @@
+[package]
+name = "anya"
+version = "0.2.0"
+edition = "2024"
+authors = ["Daniel Iwugo <daniel@themalwarefiles.com>"]
+authors_note = "Christ is King"
+license = "AGPL-3.0-or-later"
+description = "A malware analysis platform built in Rust"
+
+[dependencies]
+# For command-line argument parsing
+clap = { version = "4.5", features = ["derive"] }
+
+# For hashing algorithms
+md-5 = "0.10"
+sha1 = "0.10"
+sha2 = "0.10"
+
+# For hexadecimal encoding
+hex = "0.4"
+
+# For better error handling
+anyhow = "1.0"
+
+# For parsing PE/ELF/Mach-O files
+goblin = "0.8"
+
+# For colored terminal output
+colored = "2.1"
