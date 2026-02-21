@@ -1,4 +1,4 @@
-// Anya - Malware Analysis Platform
+// Ányá - Malware Analysis Platform
 // Copyright (C) 2026 Daniel Iwugo
 //
 // This program is free software: you can redistribute it and/or modify
@@ -32,22 +32,52 @@ use sha2::Sha256;
 // Goblin for file format detection
 use goblin::Object;
 
-// Our PE parser module
+// The PE parser module
 mod pe_parser;
 
-/// Ányá - A basic malware static analysis tool
-/// This is our CLI structure using Clap
+/// CLI structure using Clap
 #[derive(Parser, Debug)]
 #[command(name = "Anya")]
+#[command(version)]
 #[command(about = "Static analysis tool for suspicious files", long_about = None)]
+#[command(after_help = "EXAMPLES:
+    anya --file suspicious.exe
+        Analyze a Windows executable
+    
+    anya --file malware.dll --min-string-length 8
+        Analyze with custom string length threshold
+    
+    anya --file sample.exe --json > report.json
+        Export results as JSON
+
+For more information, visit: https://github.com/elementmerc/anya
+")]
+
 struct Args {
     /// Path to the file to analyze
-    #[arg(short, long)]
+    #[arg(short, long, value_name = "FILE")]
     file: PathBuf,
 
     /// Minimum string length to extract (default: 4)
-    #[arg(short, long, default_value_t = 4)]
+    #[arg(short, long, default_value_t = 4, value_name = "LENGTH")]
     min_string_length: usize,
+
+    /// Output results in JSON format
+    #[arg(short, long)]
+    json: bool,
+
+    /// Save output to file instead of stdout
+    #[arg(short, long, value_name = "FILE")]
+    output: Option<PathBuf>,
+
+    /// Verbose output (show additional details)
+    #[arg(short, long)]
+    verbose: bool,
+
+    /// Quiet mode (only show warnings and errors)
+    #[arg(short, long, conflicts_with = "verbose")]
+    quiet: bool,
+
 }
 
 fn main() -> Result<()> {
