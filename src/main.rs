@@ -233,8 +233,8 @@ fn print_file_info(path: &PathBuf, data: &[u8], output_level: OutputLevel) -> Re
     }
     
     // Verbose mode: show more details
-    if output_level.should_print_verbose() {
-        if let Ok(metadata) = fs::metadata(path) {
+    if output_level.should_print_verbose()
+        && let Ok(metadata) = fs::metadata(path) {
             if let Ok(created) = metadata.created() {
                 println!("Created: {:?}", created);
             }
@@ -243,7 +243,6 @@ fn print_file_info(path: &PathBuf, data: &[u8], output_level: OutputLevel) -> Re
             }
             println!("Read-only: {}", metadata.permissions().readonly());
         }
-    }
     
     println!();
 
@@ -349,14 +348,13 @@ fn print_strings(data: &[u8], min_length: usize) {
 
     for (idx, &byte) in data.iter().enumerate() {
         // Update progress every 1MB for large files
-        if is_large && idx % (1024 * 1024) == 0 {
-            if let Some(ref pb) = pb {
+        if is_large && idx % (1024 * 1024) == 0
+            && let Some(ref pb) = pb {
                 pb.set_position(idx as u64);
             }
-        }
 
         // Check if byte is printable ASCII (space to tilde)
-        if byte >= 32 && byte <= 126 {
+        if (32..=126).contains(&byte) {
             current_string.push(byte as char);
         } else {
             // We hit a non-printable character
