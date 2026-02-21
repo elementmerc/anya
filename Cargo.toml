@@ -31,3 +31,6 @@ goblin = "0.8"
 
 # For colored terminal output
 colored = "2.1"
+
+# For progress bars
+indicatif = "0.17"
