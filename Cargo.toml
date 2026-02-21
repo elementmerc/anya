@@ -1,5 +1,5 @@
 [package]
-name = "anya"
+name = "anya-security-core"
 version = "0.2.0"
 edition = "2024"
 authors = ["Daniel Iwugo <daniel@themalwarefiles.com>"]
