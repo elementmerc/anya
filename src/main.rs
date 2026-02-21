@@ -23,6 +23,7 @@ use std::fs;       // For file system operations
 use std::path::PathBuf;  // For handling file paths
 use anyhow::{Context, Result};  // For better error handling
 use colored::*;    // For colored terminal output
+use indicatif::{ProgressBar, ProgressStyle};  // For progress indicators
 
 // Hashing libraries
 use md5::{Md5, Digest};
@@ -105,11 +106,36 @@ struct Args {
     #[arg(short, long, conflicts_with = "verbose")]
     quiet: bool,
 
+    /// Disable colored output
+    #[arg(long)]
+    no_color: bool,
+
 }
+
+/// Create a progress bar for operations on large files
+fn create_progress_bar(len: u64, message: &str) -> ProgressBar {
+    let pb = ProgressBar::new(len);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{msg} [{bar:40.cyan/blue}] {percent}% ({eta})")
+            .unwrap()
+            .progress_chars("█▓▒░ ")
+    );
+    pb.set_message(message.to_string());
+    pb
+}
+
+/// Threshold for showing progress (1 MB)
+const LARGE_FILE_THRESHOLD: u64 = 1024 * 1024;
 
 fn main() -> Result<()> {
     // Parse command-line arguments
     let args = Args::parse();
+
+    // Handle color settings
+    if args.no_color {
+        colored::control::set_override(false);
+    }
 
     // Determine output level
     let output_level = OutputLevel::from_args(args.verbose, args.quiet);
@@ -121,13 +147,23 @@ fn main() -> Result<()> {
 
     // Only show banner in normal/verbose mode
     if output_level.should_print_info() {
-        println!("{}", "=== Ányá v0.2 ===".bold().green());
+        println!("{}", "=== Ányá v0.3.0 ===".bold().green());
         println!("Analyzing: {:?}\n", args.file);
     }
 
-    // Read the file into memory
-    let file_data = fs::read(&args.file)
-        .context("Failed to read file")?;
+    // Get file size to determine if we should show progress
+    let file_size = fs::metadata(&args.file)?.len();
+    let is_large_file = file_size > LARGE_FILE_THRESHOLD;
+
+    // Read the file into memory with optional progress
+    let file_data = if is_large_file && output_level.should_print_info() {
+        let pb = create_progress_bar(file_size, "Reading file");
+        let data = fs::read(&args.file).context("Failed to read file")?;
+        pb.finish_and_clear();
+        data
+    } else {
+        fs::read(&args.file).context("Failed to read file")?
+    };
 
     // Display basic file information
     if output_level.should_print_info() {
@@ -197,8 +233,8 @@ fn print_file_info(path: &PathBuf, data: &[u8], output_level: OutputLevel) -> Re
     }
     
     // Verbose mode: show more details
-    if output_level.should_print_verbose()
-        && let Ok(metadata) = fs::metadata(path) {
+    if output_level.should_print_verbose() {
+        if let Ok(metadata) = fs::metadata(path) {
             if let Ok(created) = metadata.created() {
                 println!("Created: {:?}", created);
             }
@@ -207,6 +243,7 @@ fn print_file_info(path: &PathBuf, data: &[u8], output_level: OutputLevel) -> Re
             }
             println!("Read-only: {}", metadata.permissions().readonly());
         }
+    }
     
     println!();
 
@@ -221,22 +258,75 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
 
     println!("{}", "=== File Hashes ===".bold().cyan());
 
+    let is_large = data.len() as u64 > LARGE_FILE_THRESHOLD;
+
     // MD5
+    let pb = if is_large {
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap()
+        );
+        spinner.set_message("Calculating MD5...");
+        Some(spinner)
+    } else {
+        None
+    };
+    
     let mut hasher = Md5::new();
     hasher.update(data);
     let md5_result = hasher.finalize();
+    
+    if let Some(pb) = pb {
+        pb.finish_and_clear();
+    }
     println!("MD5:    {}", hex::encode(md5_result).green());
 
     // SHA1
+    let pb = if is_large {
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap()
+        );
+        spinner.set_message("Calculating SHA1...");
+        Some(spinner)
+    } else {
+        None
+    };
+    
     let mut hasher = Sha1::new();
     hasher.update(data);
     let sha1_result = hasher.finalize();
+    
+    if let Some(pb) = pb {
+        pb.finish_and_clear();
+    }
     println!("SHA1:   {}", hex::encode(sha1_result).green());
 
     // SHA256
+    let pb = if is_large {
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap()
+        );
+        spinner.set_message("Calculating SHA256...");
+        Some(spinner)
+    } else {
+        None
+    };
+    
     let mut hasher = Sha256::new();
     hasher.update(data);
     let sha256_result = hasher.finalize();
+    
+    if let Some(pb) = pb {
+        pb.finish_and_clear();
+    }
     println!("SHA256: {}", hex::encode(sha256_result).green());
     println!();
 }
@@ -245,13 +335,28 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
 fn print_strings(data: &[u8], min_length: usize) {
     println!("{}", format!("=== Extracted Strings (min length: {}) ===", min_length).bold().cyan());
 
+    let is_large = data.len() as u64 > LARGE_FILE_THRESHOLD;
+    let pb = if is_large {
+        let bar = create_progress_bar(data.len() as u64, "Extracting strings");
+        Some(bar)
+    } else {
+        None
+    };
+
     let mut current_string = String::new();
     let mut string_count = 0;
     const MAX_DISPLAY: usize = 50;  // Only show first 50 strings
 
-    for &byte in data {
+    for (idx, &byte) in data.iter().enumerate() {
+        // Update progress every 1MB for large files
+        if is_large && idx % (1024 * 1024) == 0 {
+            if let Some(ref pb) = pb {
+                pb.set_position(idx as u64);
+            }
+        }
+
         // Check if byte is printable ASCII (space to tilde)
-        if (32..=126).contains(&byte) {
+        if byte >= 32 && byte <= 126 {
             current_string.push(byte as char);
         } else {
             // We hit a non-printable character
@@ -266,6 +371,10 @@ fn print_strings(data: &[u8], min_length: usize) {
             }
             current_string.clear();
         }
+    }
+
+    if let Some(pb) = pb {
+        pb.finish_and_clear();
     }
 
     // Don't forget the last string if file doesn't end with non-printable
@@ -289,6 +398,20 @@ fn print_entropy(data: &[u8]) {
         return;
     }
 
+    let is_large = data.len() as u64 > LARGE_FILE_THRESHOLD;
+    let pb = if is_large {
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap()
+        );
+        spinner.set_message("Calculating entropy...");
+        Some(spinner)
+    } else {
+        None
+    };
+
     // Count frequency of each byte value (0-255)
     let mut frequency = [0u64; 256];
     for &byte in data {
@@ -304,6 +427,10 @@ fn print_entropy(data: &[u8]) {
             let probability = count as f64 / len;
             entropy -= probability * probability.log2();
         }
+    }
+
+    if let Some(pb) = pb {
+        pb.finish_and_clear();
     }
 
     println!("Shannon Entropy: {:.4} / 8.0", entropy);

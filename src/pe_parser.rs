@@ -23,6 +23,7 @@ use goblin::pe::PE;
 use anyhow::Result;
 use colored::*;
 use crate::OutputLevel;
+use indicatif::{ProgressBar, ProgressStyle};
 
 /// Suspicious Windows APIs commonly used by malware
 /// They aren't necessarily malicious, but warrant attention
@@ -83,7 +84,26 @@ const SUSPICIOUS_APIS: &[&str] = &[
 
 /// Analyse and display detailed information
 pub fn analyze_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
+    // Show spinner for large files
+    let is_large = data.len() > 5 * 1024 * 1024; // 5MB
+    let pb = if is_large && output_level.should_print_info() {
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap()
+        );
+        spinner.set_message("Parsing PE structure...");
+        Some(spinner)
+    } else {
+        None
+    };
+
     let pe = PE::parse(data)?;
+    
+    if let Some(pb) = pb {
+        pb.finish_and_clear();
+    }
     
     // In quiet mode, just check for critical issues
     if output_level == OutputLevel::Quiet {
@@ -168,11 +188,12 @@ fn print_pe_header_info(pe: &PE, output_level: OutputLevel) {
     println!("  Number of Sections: {}", pe.sections.len());
     
     // Verbose mode: show more details
-    if output_level.should_print_verbose()
-        && let Some(header) = &pe.header.optional_header {
+    if output_level.should_print_verbose() {
+        if let Some(header) = &pe.header.optional_header {
             println!("  Size of Image: 0x{:X}", header.windows_fields.size_of_image);
             println!("  Size of Headers: 0x{:X}", header.windows_fields.size_of_headers);
         }
+    }
     
     // Check for some characteristics
     if let Some(header) = &pe.header.optional_header {
