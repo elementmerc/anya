@@ -80,7 +80,6 @@ impl OutputLevel {
 
 For more information, visit: https://github.com/elementmerc/anya
 ")]
-
 struct Args {
     /// Path to the file to analyze
     #[arg(short, long, value_name = "FILE")]
@@ -198,8 +197,8 @@ fn print_file_info(path: &PathBuf, data: &[u8], output_level: OutputLevel) -> Re
     }
     
     // Verbose mode: show more details
-    if output_level.should_print_verbose() {
-        if let Ok(metadata) = fs::metadata(path) {
+    if output_level.should_print_verbose()
+        && let Ok(metadata) = fs::metadata(path) {
             if let Ok(created) = metadata.created() {
                 println!("Created: {:?}", created);
             }
@@ -208,7 +207,6 @@ fn print_file_info(path: &PathBuf, data: &[u8], output_level: OutputLevel) -> Re
             }
             println!("Read-only: {}", metadata.permissions().readonly());
         }
-    }
     
     println!();
 
@@ -253,7 +251,7 @@ fn print_strings(data: &[u8], min_length: usize) {
 
     for &byte in data {
         // Check if byte is printable ASCII (space to tilde)
-        if byte >= 32 && byte <= 126 {
+        if (32..=126).contains(&byte) {
             current_string.push(byte as char);
         } else {
             // We hit a non-printable character
