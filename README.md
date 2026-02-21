@@ -118,10 +118,6 @@ Static analysis is safer than dynamic analysis but not risk-free:
 - Don't analyse on production systems
 - Maintain VM snapshots for quick recovery
 
-## Next update
-
-**v0.4.0** - ELF support for Linux binaries  
-
 ## Technical Details
 
 **Tested on:**
