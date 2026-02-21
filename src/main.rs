@@ -155,11 +155,20 @@ fn main() -> Result<()> {
     let file_size = fs::metadata(&args.file)?.len();
     let is_large_file = file_size > LARGE_FILE_THRESHOLD;
 
-    // Read the file into memory with optional progress
+    // Read the file into memory with optional spinner for large files
     let file_data = if is_large_file && output_level.should_print_info() {
-        let pb = create_progress_bar(file_size, "Reading file");
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap()
+        );
+        spinner.set_message(format!("Reading file ({:.2} MB)...", file_size as f64 / (1024.0 * 1024.0)));
+        spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+        
         let data = fs::read(&args.file).context("Failed to read file")?;
-        pb.finish_and_clear();
+        
+        spinner.finish_and_clear();
         data
     } else {
         fs::read(&args.file).context("Failed to read file")?
@@ -233,8 +242,8 @@ fn print_file_info(path: &PathBuf, data: &[u8], output_level: OutputLevel) -> Re
     }
     
     // Verbose mode: show more details
-    if output_level.should_print_verbose()
-        && let Ok(metadata) = fs::metadata(path) {
+    if output_level.should_print_verbose() {
+        if let Ok(metadata) = fs::metadata(path) {
             if let Ok(created) = metadata.created() {
                 println!("Created: {:?}", created);
             }
@@ -243,6 +252,7 @@ fn print_file_info(path: &PathBuf, data: &[u8], output_level: OutputLevel) -> Re
             }
             println!("Read-only: {}", metadata.permissions().readonly());
         }
+    }
     
     println!();
 
@@ -268,6 +278,7 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
                 .unwrap()
         );
         spinner.set_message("Calculating MD5...");
+        spinner.enable_steady_tick(std::time::Duration::from_millis(80));
         Some(spinner)
     } else {
         None
@@ -291,6 +302,7 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
                 .unwrap()
         );
         spinner.set_message("Calculating SHA1...");
+        spinner.enable_steady_tick(std::time::Duration::from_millis(80));
         Some(spinner)
     } else {
         None
@@ -314,6 +326,7 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
                 .unwrap()
         );
         spinner.set_message("Calculating SHA256...");
+        spinner.enable_steady_tick(std::time::Duration::from_millis(80));
         Some(spinner)
     } else {
         None
@@ -345,16 +358,18 @@ fn print_strings(data: &[u8], min_length: usize) {
     let mut current_string = String::new();
     let mut string_count = 0;
     const MAX_DISPLAY: usize = 50;  // Only show first 50 strings
+    const UPDATE_INTERVAL: usize = 256 * 1024;  // Update every 256KB (more frequent updates)
 
     for (idx, &byte) in data.iter().enumerate() {
-        // Update progress every 1MB for large files
-        if is_large && idx % (1024 * 1024) == 0
-            && let Some(ref pb) = pb {
+        // Update progress more frequently for smoother progress bar
+        if is_large && idx % UPDATE_INTERVAL == 0 {
+            if let Some(ref pb) = pb {
                 pb.set_position(idx as u64);
             }
+        }
 
         // Check if byte is printable ASCII (space to tilde)
-        if (32..=126).contains(&byte) {
+        if byte >= 32 && byte <= 126 {
             current_string.push(byte as char);
         } else {
             // We hit a non-printable character
@@ -371,14 +386,16 @@ fn print_strings(data: &[u8], min_length: usize) {
         }
     }
 
-    if let Some(pb) = pb {
-        pb.finish_and_clear();
-    }
-
     // Don't forget the last string if file doesn't end with non-printable
     if current_string.len() >= min_length && string_count < MAX_DISPLAY {
         println!("  {}", current_string.bright_white());
         string_count += 1;
+    }
+
+    // Finish progress bar at 100% AFTER all processing is done
+    if let Some(pb) = pb {
+        pb.set_position(data.len() as u64);  // Ensure we're at 100%
+        pb.finish_and_clear();
     }
 
     println!("Total strings found: {}", string_count);
@@ -405,6 +422,7 @@ fn print_entropy(data: &[u8]) {
                 .unwrap()
         );
         spinner.set_message("Calculating entropy...");
+        spinner.enable_steady_tick(std::time::Duration::from_millis(80));
         Some(spinner)
     } else {
         None

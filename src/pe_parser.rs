@@ -84,8 +84,8 @@ const SUSPICIOUS_APIS: &[&str] = &[
 
 /// Analyse and display detailed information
 pub fn analyze_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
-    // Show spinner for large files
-    let is_large = data.len() > 5 * 1024 * 1024; // 5MB
+    // Show spinner for large files (1MB threshold to match main.rs)
+    let is_large = data.len() > 1024 * 1024;  // 1MB
     let pb = if is_large && output_level.should_print_info() {
         let spinner = ProgressBar::new_spinner();
         spinner.set_style(
@@ -94,6 +94,7 @@ pub fn analyze_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
                 .unwrap()
         );
         spinner.set_message("Parsing PE structure...");
+        spinner.enable_steady_tick(std::time::Duration::from_millis(80));
         Some(spinner)
     } else {
         None
@@ -188,11 +189,12 @@ fn print_pe_header_info(pe: &PE, output_level: OutputLevel) {
     println!("  Number of Sections: {}", pe.sections.len());
     
     // Verbose mode: show more details
-    if output_level.should_print_verbose()
-        && let Some(header) = &pe.header.optional_header {
+    if output_level.should_print_verbose() {
+        if let Some(header) = &pe.header.optional_header {
             println!("  Size of Image: 0x{:X}", header.windows_fields.size_of_image);
             println!("  Size of Headers: 0x{:X}", header.windows_fields.size_of_headers);
         }
+    }
     
     // Check for some characteristics
     if let Some(header) = &pe.header.optional_header {
