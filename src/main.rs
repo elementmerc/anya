@@ -16,17 +16,16 @@
 //
 // For commercial licensing, contact: daniel@themalwarefiles.com
 
-
 // Import necessary libraries
-use clap::Parser;  // For parsing command-line arguments
-use std::fs;       // For file system operations
-use std::path::PathBuf;  // For handling file paths
-use anyhow::{Context, Result};  // For better error handling
-use colored::*;    // For colored terminal output
-use indicatif::{ProgressBar, ProgressStyle};  // For progress indicators
+use anyhow::{Context, Result}; // For better error handling
+use clap::Parser; // For parsing command-line arguments
+use colored::*; // For colored terminal output
+use indicatif::{ProgressBar, ProgressStyle};
+use std::fs; // For file system operations
+use std::path::PathBuf; // For handling file paths // For progress indicators
 
 // Hashing libraries
-use md5::{Md5, Digest};
+use md5::{Digest, Md5};
 use sha1::Sha1;
 use sha2::Sha256;
 
@@ -109,7 +108,6 @@ struct Args {
     /// Disable colored output
     #[arg(long)]
     no_color: bool,
-
 }
 
 /// Create a progress bar for operations on large files
@@ -119,7 +117,7 @@ fn create_progress_bar(len: u64, message: &str) -> ProgressBar {
         ProgressStyle::default_bar()
             .template("{msg} [{bar:40.cyan/blue}] {percent}% ({eta})")
             .unwrap()
-            .progress_chars("█▓▒░ ")
+            .progress_chars("█▓▒░ "),
     );
     pb.set_message(message.to_string());
     pb
@@ -161,13 +159,16 @@ fn main() -> Result<()> {
         spinner.set_style(
             ProgressStyle::default_spinner()
                 .template("{spinner:.cyan} {msg}")
-                .unwrap()
+                .unwrap(),
         );
-        spinner.set_message(format!("Reading file ({:.2} MB)...", file_size as f64 / (1024.0 * 1024.0)));
+        spinner.set_message(format!(
+            "Reading file ({:.2} MB)...",
+            file_size as f64 / (1024.0 * 1024.0)
+        ));
         spinner.enable_steady_tick(std::time::Duration::from_millis(80));
-        
+
         let data = fs::read(&args.file).context("Failed to read file")?;
-        
+
         spinner.finish_and_clear();
         data
     } else {
@@ -186,7 +187,12 @@ fn main() -> Result<()> {
     match Object::parse(&file_data) {
         Ok(Object::PE(_pe)) => {
             if output_level.should_print_info() {
-                println!("{}", "\n🔍 Detected: Windows PE (Portable Executable)".bold().cyan());
+                println!(
+                    "{}",
+                    "\n🔍 Detected: Windows PE (Portable Executable)"
+                        .bold()
+                        .cyan()
+                );
             }
             if let Err(e) = pe_parser::analyze_pe(&file_data, output_level) {
                 eprintln!("{} PE analysis failed: {}", "⚠".yellow(), e);
@@ -194,7 +200,12 @@ fn main() -> Result<()> {
         }
         Ok(Object::Elf(_elf)) => {
             if output_level.should_print_info() {
-                println!("{}", "\n🔍 Detected: Linux ELF (Executable and Linkable Format)".bold().cyan());
+                println!(
+                    "{}",
+                    "\n🔍 Detected: Linux ELF (Executable and Linkable Format)"
+                        .bold()
+                        .cyan()
+                );
                 println!("  ELF analysis coming in Phase 3!");
             }
         }
@@ -211,7 +222,11 @@ fn main() -> Result<()> {
         }
         Err(_) => {
             if output_level.should_print_info() {
-                println!("{}", "\n🔍 Not a recognized executable format - performing basic analysis only".yellow());
+                println!(
+                    "{}",
+                    "\n🔍 Not a recognized executable format - performing basic analysis only"
+                        .yellow()
+                );
             }
         }
     }
@@ -234,25 +249,30 @@ fn main() -> Result<()> {
 fn print_file_info(path: &PathBuf, data: &[u8], output_level: OutputLevel) -> Result<()> {
     println!("{}", "=== File Information ===".bold().cyan());
     println!("Path: {:?}", path);
-    println!("Size: {} bytes ({:.2} KB)", data.len(), data.len() as f64 / 1024.0);
-    
+    println!(
+        "Size: {} bytes ({:.2} KB)",
+        data.len(),
+        data.len() as f64 / 1024.0
+    );
+
     // Get file extension
     if let Some(ext) = path.extension() {
         println!("Extension: {}", ext.to_string_lossy());
     }
-    
+
     // Verbose mode: show more details
     if output_level.should_print_verbose()
-        && let Ok(metadata) = fs::metadata(path) {
-            if let Ok(created) = metadata.created() {
-                println!("Created: {:?}", created);
-            }
-            if let Ok(modified) = metadata.modified() {
-                println!("Modified: {:?}", modified);
-            }
-            println!("Read-only: {}", metadata.permissions().readonly());
+        && let Ok(metadata) = fs::metadata(path)
+    {
+        if let Ok(created) = metadata.created() {
+            println!("Created: {:?}", created);
         }
-    
+        if let Ok(modified) = metadata.modified() {
+            println!("Modified: {:?}", modified);
+        }
+        println!("Read-only: {}", metadata.permissions().readonly());
+    }
+
     println!();
 
     Ok(())
@@ -274,7 +294,7 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
         spinner.set_style(
             ProgressStyle::default_spinner()
                 .template("{spinner:.cyan} {msg}")
-                .unwrap()
+                .unwrap(),
         );
         spinner.set_message("Calculating MD5...");
         spinner.enable_steady_tick(std::time::Duration::from_millis(80));
@@ -282,11 +302,11 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
     } else {
         None
     };
-    
+
     let mut hasher = Md5::new();
     hasher.update(data);
     let md5_result = hasher.finalize();
-    
+
     if let Some(pb) = pb {
         pb.finish_and_clear();
     }
@@ -298,7 +318,7 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
         spinner.set_style(
             ProgressStyle::default_spinner()
                 .template("{spinner:.cyan} {msg}")
-                .unwrap()
+                .unwrap(),
         );
         spinner.set_message("Calculating SHA1...");
         spinner.enable_steady_tick(std::time::Duration::from_millis(80));
@@ -306,11 +326,11 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
     } else {
         None
     };
-    
+
     let mut hasher = Sha1::new();
     hasher.update(data);
     let sha1_result = hasher.finalize();
-    
+
     if let Some(pb) = pb {
         pb.finish_and_clear();
     }
@@ -322,7 +342,7 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
         spinner.set_style(
             ProgressStyle::default_spinner()
                 .template("{spinner:.cyan} {msg}")
-                .unwrap()
+                .unwrap(),
         );
         spinner.set_message("Calculating SHA256...");
         spinner.enable_steady_tick(std::time::Duration::from_millis(80));
@@ -330,11 +350,11 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
     } else {
         None
     };
-    
+
     let mut hasher = Sha256::new();
     hasher.update(data);
     let sha256_result = hasher.finalize();
-    
+
     if let Some(pb) = pb {
         pb.finish_and_clear();
     }
@@ -344,7 +364,12 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
 
 /// Extract printable ASCII strings from the binary (seeking hardcoded IPs, URLs, file paths, etc)
 fn print_strings(data: &[u8], min_length: usize) {
-    println!("{}", format!("=== Extracted Strings (min length: {}) ===", min_length).bold().cyan());
+    println!(
+        "{}",
+        format!("=== Extracted Strings (min length: {}) ===", min_length)
+            .bold()
+            .cyan()
+    );
 
     let is_large = data.len() as u64 > LARGE_FILE_THRESHOLD;
     let pb = if is_large {
@@ -356,15 +381,17 @@ fn print_strings(data: &[u8], min_length: usize) {
 
     let mut current_string = String::new();
     let mut string_count = 0;
-    const MAX_DISPLAY: usize = 50;  // Only show first 50 strings
-    const UPDATE_INTERVAL: usize = 256 * 1024;  // Update every 256KB (more frequent updates)
+    const MAX_DISPLAY: usize = 50; // Only show first 50 strings
+    const UPDATE_INTERVAL: usize = 256 * 1024; // Update every 256KB (more frequent updates)
 
     for (idx, &byte) in data.iter().enumerate() {
         // Update progress more frequently for smoother progress bar
-        if is_large && idx % UPDATE_INTERVAL == 0
-            && let Some(ref pb) = pb {
-                pb.set_position(idx as u64);
-            }
+        if is_large
+            && idx % UPDATE_INTERVAL == 0
+            && let Some(ref pb) = pb
+        {
+            pb.set_position(idx as u64);
+        }
 
         // Check if byte is printable ASCII (space to tilde)
         if (32..=126).contains(&byte) {
@@ -376,7 +403,10 @@ fn print_strings(data: &[u8], min_length: usize) {
                     println!("  {}", current_string.bright_white());
                     string_count += 1;
                 } else if string_count == MAX_DISPLAY {
-                    println!("  {}", format!("... (showing first {} strings only)", MAX_DISPLAY).yellow());
+                    println!(
+                        "  {}",
+                        format!("... (showing first {} strings only)", MAX_DISPLAY).yellow()
+                    );
                     string_count += 1;
                 }
             }
@@ -392,7 +422,7 @@ fn print_strings(data: &[u8], min_length: usize) {
 
     // Finish progress bar at 100% AFTER all processing is done
     if let Some(pb) = pb {
-        pb.set_position(data.len() as u64);  // Ensure we're at 100%
+        pb.set_position(data.len() as u64); // Ensure we're at 100%
         pb.finish_and_clear();
     }
 
@@ -417,7 +447,7 @@ fn print_entropy(data: &[u8]) {
         spinner.set_style(
             ProgressStyle::default_spinner()
                 .template("{spinner:.cyan} {msg}")
-                .unwrap()
+                .unwrap(),
         );
         spinner.set_message("Calculating entropy...");
         spinner.enable_steady_tick(std::time::Duration::from_millis(80));
@@ -448,16 +478,30 @@ fn print_entropy(data: &[u8]) {
     }
 
     println!("Shannon Entropy: {:.4} / 8.0", entropy);
-    
+
     // Provide interpretation with a splash of colours
     if entropy > 7.5 {
-        println!("{}", "⚠ Very high entropy - likely encrypted or packed".red().bold());
+        println!(
+            "{}",
+            "⚠ Very high entropy - likely encrypted or packed"
+                .red()
+                .bold()
+        );
     } else if entropy > 6.5 {
-        println!("{}", "⚠ High entropy - possibly compressed or obfuscated".yellow());
+        println!(
+            "{}",
+            "⚠ High entropy - possibly compressed or obfuscated".yellow()
+        );
     } else if entropy > 4.0 {
-        println!("{}", "✓ Moderate entropy - typical for compiled executables".green());
+        println!(
+            "{}",
+            "✓ Moderate entropy - typical for compiled executables".green()
+        );
     } else {
-        println!("{}", "✓ Low entropy - likely plain text or simple data".green());
+        println!(
+            "{}",
+            "✓ Low entropy - likely plain text or simple data".green()
+        );
     }
     println!();
 }
@@ -469,7 +513,7 @@ fn print_quiet_summary(data: &[u8]) {
     for &byte in data {
         frequency[byte as usize] += 1;
     }
-    
+
     let len = data.len() as f64;
     let mut entropy = 0.0;
     for &count in &frequency {
@@ -481,6 +525,11 @@ fn print_quiet_summary(data: &[u8]) {
 
     // Only print if suspicious
     if entropy > 7.5 {
-        println!("{}", "⚠ HIGH ENTROPY DETECTED - Likely packed/encrypted".red().bold());
+        println!(
+            "{}",
+            "⚠ HIGH ENTROPY DETECTED - Likely packed/encrypted"
+                .red()
+                .bold()
+        );
     }
 }
