@@ -3,9 +3,13 @@ name = "anya"
 version = "0.2.0"
 edition = "2024"
 authors = ["Daniel Iwugo <daniel@themalwarefiles.com>"]
-authors_note = "Christ is King"
 license = "AGPL-3.0-or-later"
 description = "A malware analysis platform built in Rust"
+keywords = ["malware", "security", "analysis", "forensics", "pe"]
+categories = ["command-line-utilities", "development-tools"]
+
+[package.metadata]
+authors_note = "Christ is King"
 
 [dependencies]
 # For command-line argument parsing
