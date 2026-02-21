@@ -189,12 +189,11 @@ fn print_pe_header_info(pe: &PE, output_level: OutputLevel) {
     println!("  Number of Sections: {}", pe.sections.len());
     
     // Verbose mode: show more details
-    if output_level.should_print_verbose() {
-        if let Some(header) = &pe.header.optional_header {
+    if output_level.should_print_verbose()
+        && let Some(header) = &pe.header.optional_header {
             println!("  Size of Image: 0x{:X}", header.windows_fields.size_of_image);
             println!("  Size of Headers: 0x{:X}", header.windows_fields.size_of_headers);
         }
-    }
     
     // Check for some characteristics
     if let Some(header) = &pe.header.optional_header {
