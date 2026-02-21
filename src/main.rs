@@ -35,6 +35,34 @@ use goblin::Object;
 // The PE parser module
 mod pe_parser;
 
+/// Output verbosity level
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OutputLevel {
+    Quiet,   // Only warnings/errors
+    Normal,  // Standard output
+    Verbose, // Everything including debug info
+}
+
+impl OutputLevel {
+    fn from_args(verbose: bool, quiet: bool) -> Self {
+        if verbose {
+            OutputLevel::Verbose
+        } else if quiet {
+            OutputLevel::Quiet
+        } else {
+            OutputLevel::Normal
+        }
+    }
+
+    pub fn should_print_info(&self) -> bool {
+        matches!(self, OutputLevel::Normal | OutputLevel::Verbose)
+    }
+
+    pub fn should_print_verbose(&self) -> bool {
+        matches!(self, OutputLevel::Verbose)
+    }
+}
+
 /// CLI structure using Clap
 #[derive(Parser, Debug)]
 #[command(name = "Anya")]
@@ -84,57 +112,82 @@ fn main() -> Result<()> {
     // Parse command-line arguments
     let args = Args::parse();
 
+    // Determine output level
+    let output_level = OutputLevel::from_args(args.verbose, args.quiet);
+
     // Check if file exists
     if !args.file.exists() {
         anyhow::bail!("File does not exist: {:?}", args.file);
     }
 
-    println!("{}", "=== Ányá v0.2 ===".bold().green());
-    println!("Analyzing: {:?}\n", args.file);
+    // Only show banner in normal/verbose mode
+    if output_level.should_print_info() {
+        println!("{}", "=== Ányá v0.2 ===".bold().green());
+        println!("Analyzing: {:?}\n", args.file);
+    }
 
     // Read the file into memory
     let file_data = fs::read(&args.file)
         .context("Failed to read file")?;
 
     // Display basic file information
-    print_file_info(&args.file, &file_data)?;
+    if output_level.should_print_info() {
+        print_file_info(&args.file, &file_data, output_level)?;
+    }
 
     // Calculate and display hashes
-    print_hashes(&file_data);
+    print_hashes(&file_data, output_level);
 
     // Detect file type and perform advanced analysis
     match Object::parse(&file_data) {
         Ok(Object::PE(_pe)) => {
-            println!("{}", "\n🔍 Detected: Windows PE (Portable Executable)".bold().cyan());
-            if let Err(e) = pe_parser::analyze_pe(&file_data) {
+            if output_level.should_print_info() {
+                println!("{}", "\n🔍 Detected: Windows PE (Portable Executable)".bold().cyan());
+            }
+            if let Err(e) = pe_parser::analyze_pe(&file_data, output_level) {
                 eprintln!("{} PE analysis failed: {}", "⚠".yellow(), e);
             }
         }
         Ok(Object::Elf(_elf)) => {
-            println!("{}", "\n🔍 Detected: Linux ELF (Executable and Linkable Format)".bold().cyan());
-            println!("  ELF analysis coming in Phase 3!");
+            if output_level.should_print_info() {
+                println!("{}", "\n🔍 Detected: Linux ELF (Executable and Linkable Format)".bold().cyan());
+                println!("  ELF analysis coming in Phase 3!");
+            }
         }
         Ok(Object::Mach(_mach)) => {
-            println!("{}", "\n🔍 Detected: macOS Mach-O".bold().cyan());
-            println!("  Mach-O analysis coming in Phase 3!");
+            if output_level.should_print_info() {
+                println!("{}", "\n🔍 Detected: macOS Mach-O".bold().cyan());
+                println!("  Mach-O analysis coming in Phase 3!");
+            }
         }
         Ok(_) => {
-            println!("{}", "\n🔍 Unknown executable format".yellow());
+            if output_level.should_print_info() {
+                println!("{}", "\n🔍 Unknown executable format".yellow());
+            }
         }
         Err(_) => {
-            println!("{}", "\n🔍 Not a recognized executable format - performing basic analysis only".yellow());
+            if output_level.should_print_info() {
+                println!("{}", "\n🔍 Not a recognized executable format - performing basic analysis only".yellow());
+            }
         }
     }
 
     // Always perform basic string extraction and entropy on full file
-    print_strings(&file_data, args.min_string_length);
-    print_entropy(&file_data);
+    if output_level.should_print_info() {
+        print_strings(&file_data, args.min_string_length);
+        print_entropy(&file_data);
+    }
+
+    // In quiet mode, summarize findings
+    if output_level == OutputLevel::Quiet {
+        print_quiet_summary(&file_data);
+    }
 
     Ok(())
 }
 
 /// Display basic file information
-fn print_file_info(path: &PathBuf, data: &[u8]) -> Result<()> {
+fn print_file_info(path: &PathBuf, data: &[u8], output_level: OutputLevel) -> Result<()> {
     println!("{}", "=== File Information ===".bold().cyan());
     println!("Path: {:?}", path);
     println!("Size: {} bytes ({:.2} KB)", data.len(), data.len() as f64 / 1024.0);
@@ -143,13 +196,31 @@ fn print_file_info(path: &PathBuf, data: &[u8]) -> Result<()> {
     if let Some(ext) = path.extension() {
         println!("Extension: {}", ext.to_string_lossy());
     }
+    
+    // Verbose mode: show more details
+    if output_level.should_print_verbose() {
+        if let Ok(metadata) = fs::metadata(path) {
+            if let Ok(created) = metadata.created() {
+                println!("Created: {:?}", created);
+            }
+            if let Ok(modified) = metadata.modified() {
+                println!("Modified: {:?}", modified);
+            }
+            println!("Read-only: {}", metadata.permissions().readonly());
+        }
+    }
+    
     println!();
 
     Ok(())
 }
 
 /// Calculate and display file hashes
-fn print_hashes(data: &[u8]) {
+fn print_hashes(data: &[u8], output_level: OutputLevel) {
+    if !output_level.should_print_info() {
+        return;
+    }
+
     println!("{}", "=== File Hashes ===".bold().cyan());
 
     // MD5
@@ -252,3 +323,25 @@ fn print_entropy(data: &[u8]) {
     println!();
 }
 
+/// Print a brief summary in quiet mode
+fn print_quiet_summary(data: &[u8]) {
+    // Calculate entropy
+    let mut frequency = [0u64; 256];
+    for &byte in data {
+        frequency[byte as usize] += 1;
+    }
+    
+    let len = data.len() as f64;
+    let mut entropy = 0.0;
+    for &count in &frequency {
+        if count > 0 {
+            let probability = count as f64 / len;
+            entropy -= probability * probability.log2();
+        }
+    }
+
+    // Only print if suspicious
+    if entropy > 7.5 {
+        println!("{}", "⚠ HIGH ENTROPY DETECTED - Likely packed/encrypted".red().bold());
+    }
+}
