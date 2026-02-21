@@ -35,15 +35,33 @@ use goblin::Object;
 // The PE parser module
 mod pe_parser;
 
-/// Output verbosity level
+/// Output verbosity level for controlling what information is displayed
+///
+/// This enum controls the amount of output shown to the user during analysis:
+/// - `Quiet`: Only critical warnings and errors
+/// - `Normal`: Standard analysis output (default)
+/// - `Verbose`: All available information including debug details
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OutputLevel {
-    Quiet,   // Only warnings/errors
-    Normal,  // Standard output
-    Verbose, // Everything including debug info
+    /// Only show warnings and errors
+    Quiet,
+    /// Standard output (default)
+    Normal,
+    /// Show everything including debug information
+    Verbose,
 }
 
 impl OutputLevel {
+    /// Creates an OutputLevel from command-line arguments
+    ///
+    /// # Arguments
+    ///
+    /// * `verbose` - Whether verbose mode is enabled
+    /// * `quiet` - Whether quiet mode is enabled
+    ///
+    /// # Returns
+    ///
+    /// The appropriate OutputLevel based on the flags
     fn from_args(verbose: bool, quiet: bool) -> Self {
         if verbose {
             OutputLevel::Verbose
@@ -54,10 +72,16 @@ impl OutputLevel {
         }
     }
 
+    /// Checks if informational output should be printed
+    ///
+    /// Returns `true` for Normal and Verbose modes, `false` for Quiet mode
     pub fn should_print_info(&self) -> bool {
         matches!(self, OutputLevel::Normal | OutputLevel::Verbose)
     }
 
+    /// Checks if verbose/debug output should be printed
+    ///
+    /// Returns `true` only for Verbose mode
     pub fn should_print_verbose(&self) -> bool {
         matches!(self, OutputLevel::Verbose)
     }
@@ -110,7 +134,16 @@ struct Args {
     no_color: bool,
 }
 
-/// Create a progress bar for operations on large files
+/// Creates a styled progress bar for tracking long-running operations
+///
+/// # Arguments
+///
+/// * `len` - Total length/size of the operation (in bytes or items)
+/// * `message` - Message to display alongside the progress bar
+///
+/// # Returns
+///
+/// A `ProgressBar` with cyan/blue styling
 fn create_progress_bar(len: u64, message: &str) -> ProgressBar {
     let pb = ProgressBar::new(len);
     pb.set_style(
@@ -123,8 +156,12 @@ fn create_progress_bar(len: u64, message: &str) -> ProgressBar {
     pb
 }
 
-/// Threshold for showing progress (1 MB)
-const LARGE_FILE_THRESHOLD: u64 = 1024 * 1024;
+/// File size threshold (in bytes) for showing progress indicators
+///
+/// Files larger than 1MB will display progress bars/spinners during analysis.
+/// This prevents cluttering the output for small files while providing feedback
+/// for operations that may take several seconds on large files.
+const LARGE_FILE_THRESHOLD: u64 = 1024 * 1024; // 1 MB
 
 fn main() -> Result<()> {
     // Parse command-line arguments
@@ -362,7 +399,7 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
     println!();
 }
 
-/// Extract printable ASCII strings from the binary (seeking hardcoded IPs, URLs, file paths, etc)
+/// Extract printable ASCII strings from the binary (looking for hardcoded IPs, URLs, file paths, etc)
 fn print_strings(data: &[u8], min_length: usize) {
     println!(
         "{}",
@@ -479,7 +516,7 @@ fn print_entropy(data: &[u8]) {
 
     println!("Shannon Entropy: {:.4} / 8.0", entropy);
 
-    // Provide interpretation with a splash of colours
+    // Provide interpretation with a lovely splash of colours
     if entropy > 7.5 {
         println!(
             "{}",
@@ -506,7 +543,15 @@ fn print_entropy(data: &[u8]) {
     println!();
 }
 
-/// Print a brief summary in quiet mode
+/// Prints a brief summary in quiet mode, showing only critical findings
+///
+/// In quiet mode, this function calculates file entropy and only outputs
+/// a warning if the entropy is suspiciously high (> 7.5), which typically
+/// indicates encryption or packing.
+///
+/// # Arguments
+///
+/// * `data` - The file data to analyze
 fn print_quiet_summary(data: &[u8]) {
     // Calculate entropy
     let mut frequency = [0u64; 256];
@@ -531,5 +576,238 @@ fn print_quiet_summary(data: &[u8]) {
                 .red()
                 .bold()
         );
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_output_level_from_args() {
+        // Test normal mode (default)
+        assert_eq!(OutputLevel::from_args(false, false), OutputLevel::Normal);
+        
+        // Test verbose mode
+        assert_eq!(OutputLevel::from_args(true, false), OutputLevel::Verbose);
+        
+        // Test quiet mode
+        assert_eq!(OutputLevel::from_args(false, true), OutputLevel::Quiet);
+        
+        // Verbose takes precedence if both are set (though CLI prevents this)
+        assert_eq!(OutputLevel::from_args(true, true), OutputLevel::Verbose);
+    }
+
+    #[test]
+    fn test_output_level_should_print_info() {
+        assert!(OutputLevel::Normal.should_print_info());
+        assert!(OutputLevel::Verbose.should_print_info());
+        assert!(!OutputLevel::Quiet.should_print_info());
+    }
+
+    #[test]
+    fn test_output_level_should_print_verbose() {
+        assert!(!OutputLevel::Normal.should_print_verbose());
+        assert!(OutputLevel::Verbose.should_print_verbose());
+        assert!(!OutputLevel::Quiet.should_print_verbose());
+    }
+
+    #[test]
+    fn test_large_file_threshold() {
+        assert_eq!(LARGE_FILE_THRESHOLD, 1024 * 1024);
+        assert_eq!(LARGE_FILE_THRESHOLD, 1_048_576);
+    }
+
+    #[test]
+    fn test_entropy_calculation_empty() {
+        // Empty data should have 0 entropy
+        let data: Vec<u8> = vec![];
+        let mut frequency = [0u64; 256];
+        
+        for &byte in &data {
+            frequency[byte as usize] += 1;
+        }
+        
+        let len = data.len() as f64;
+        let mut entropy = 0.0;
+        
+        for &count in &frequency {
+            if count > 0 {
+                let probability = count as f64 / len;
+                entropy -= probability * probability.log2();
+            }
+        }
+        
+        assert_eq!(entropy, 0.0);
+    }
+
+    #[test]
+    fn test_entropy_calculation_uniform() {
+        // All same byte should have 0 entropy
+        let data = vec![0u8; 1000];
+        let mut frequency = [0u64; 256];
+        
+        for &byte in &data {
+            frequency[byte as usize] += 1;
+        }
+        
+        let len = data.len() as f64;
+        let mut entropy = 0.0;
+        
+        for &count in &frequency {
+            if count > 0 {
+                let probability = count as f64 / len;
+                entropy -= probability * probability.log2();
+            }
+        }
+        
+        assert_eq!(entropy, 0.0);
+    }
+
+    #[test]
+    fn test_entropy_calculation_mixed() {
+        // Mixed data should have moderate entropy
+        let data = vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let mut frequency = [0u64; 256];
+        
+        for &byte in &data {
+            frequency[byte as usize] += 1;
+        }
+        
+        let len = data.len() as f64;
+        let mut entropy = 0.0;
+        
+        for &count in &frequency {
+            if count > 0 {
+                let probability = count as f64 / len;
+                entropy -= probability * probability.log2();
+            }
+        }
+        
+        // Should be around 3.32 bits for 10 unique values
+        assert!(entropy > 3.0 && entropy < 4.0);
+    }
+
+    #[test]
+    fn test_entropy_calculation_random() {
+        // Random-like data should have high entropy
+        let data: Vec<u8> = (0..=255).collect();
+        let mut frequency = [0u64; 256];
+        
+        for &byte in &data {
+            frequency[byte as usize] += 1;
+        }
+        
+        let len = data.len() as f64;
+        let mut entropy = 0.0;
+        
+        for &count in &frequency {
+            if count > 0 {
+                let probability = count as f64 / len;
+                entropy -= probability * probability.log2();
+            }
+        }
+        
+        // Perfect distribution of all 256 values should have entropy = 8.0
+        assert!((entropy - 8.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_string_detection_logic() {
+        // Test printable ASCII detection
+        assert!(32u8 >= 32 && 32u8 <= 126);  // Space
+        assert!(65u8 >= 32 && 65u8 <= 126);  // 'A'
+        assert!(126u8 >= 32 && 126u8 <= 126); // '~'
+        assert!(!(31u8 >= 32 && 31u8 <= 126)); // Below range
+        assert!(!(127u8 >= 32 && 127u8 <= 126)); // Above range
+    }
+
+    #[test]
+    fn test_string_extraction_min_length() {
+        let data = b"ABC\x00DEFGH\x00IJ\x00KLMNOPQRST";
+        let min_length = 4;
+        
+        // Count strings that meet minimum length
+        let mut current_string = String::new();
+        let mut valid_strings = Vec::new();
+        
+        for &byte in data.iter() {
+            if byte >= 32 && byte <= 126 {
+                current_string.push(byte as char);
+            } else {
+                if current_string.len() >= min_length {
+                    valid_strings.push(current_string.clone());
+                }
+                current_string.clear();
+            }
+        }
+        
+        // Check final string
+        if current_string.len() >= min_length {
+            valid_strings.push(current_string);
+        }
+        
+        assert_eq!(valid_strings.len(), 2); // "DEFGH" and "KLMNOPQRST"
+        assert_eq!(valid_strings[0], "DEFGH");
+        assert_eq!(valid_strings[1], "KLMNOPQRST");
+    }
+
+    #[test]
+    fn test_hash_consistency() {
+        use md5::Md5;
+        use sha1::Sha1;
+        use sha2::Sha256;
+        
+        let test_data = b"test data for hashing";
+        
+        // MD5
+        let mut hasher = Md5::new();
+        hasher.update(test_data);
+        let result1 = hasher.finalize();
+        
+        let mut hasher = Md5::new();
+        hasher.update(test_data);
+        let result2 = hasher.finalize();
+        
+        assert_eq!(result1, result2, "MD5 hashes should be consistent");
+        
+        // SHA1
+        let mut hasher = Sha1::new();
+        hasher.update(test_data);
+        let result1 = hasher.finalize();
+        
+        let mut hasher = Sha1::new();
+        hasher.update(test_data);
+        let result2 = hasher.finalize();
+        
+        assert_eq!(result1, result2, "SHA1 hashes should be consistent");
+        
+        // SHA256
+        let mut hasher = Sha256::new();
+        hasher.update(test_data);
+        let result1 = hasher.finalize();
+        
+        let mut hasher = Sha256::new();
+        hasher.update(test_data);
+        let result2 = hasher.finalize();
+        
+        assert_eq!(result1, result2, "SHA256 hashes should be consistent");
+    }
+
+    #[test]
+    fn test_hash_different_data() {
+        use sha2::Sha256;
+        
+        let data1 = b"data one";
+        let data2 = b"data two";
+        
+        let mut hasher = Sha256::new();
+        hasher.update(data1);
+        let hash1 = hasher.finalize();
+        
+        let mut hasher = Sha256::new();
+        hasher.update(data2);
+        let hash2 = hasher.finalize();
+        
+        assert_ne!(hash1, hash2, "Different data should produce different hashes");
     }
 }

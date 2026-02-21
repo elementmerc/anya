@@ -73,7 +73,35 @@ const SUSPICIOUS_APIS: &[&str] = &[
     "OpenProcessToken",
 ];
 
-/// Analyse and display detailed information
+/// Analyzes a Windows PE (Portable Executable) file and displays detailed information
+///
+/// This function performs comprehensive static analysis of PE files including:
+/// - Header information (architecture, entry point, image base)
+/// - Security features (ASLR, DEP/NX)
+/// - Section analysis with per-section entropy calculation
+/// - Import table analysis with suspicious API detection
+/// - Export table analysis (for DLLs)
+///
+/// # Arguments
+///
+/// * `data` - Raw bytes of the PE file
+/// * `output_level` - Controls verbosity of output
+///
+/// # Returns
+///
+/// Returns `Ok(())` on success, or an error if parsing fails
+///
+/// # Examples
+///
+/// ```no_run
+/// use anya::pe_parser;
+/// use anya::OutputLevel;
+/// use std::fs;
+///
+/// let data = fs::read("malware.exe")?;
+/// pe_parser::analyze_pe(&data, OutputLevel::Normal)?;
+/// # Ok::<(), anyhow::Error>(())
+/// ```
 pub fn analyze_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
     // Show spinner for large files (1MB threshold to match main.rs)
     let is_large = data.len() > 1024 * 1024; // 1MB
@@ -418,4 +446,122 @@ fn calculate_entropy(data: &[u8]) -> f64 {
     }
 
     entropy
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_suspicious_apis_list_not_empty() {
+        assert!(!SUSPICIOUS_APIS.is_empty());
+        assert!(SUSPICIOUS_APIS.len() > 30);
+    }
+
+    #[test]
+    fn test_categorize_api_code_injection() {
+        assert_eq!(categorize_api("CreateRemoteThread"), "Code Injection");
+        assert_eq!(categorize_api("WriteProcessMemory"), "Code Injection");
+        assert_eq!(categorize_api("VirtualAllocEx"), "Code Injection");
+    }
+
+    #[test]
+    fn test_categorize_api_persistence() {
+        assert_eq!(categorize_api("RegSetValueEx"), "Persistence Mechanism");
+        assert_eq!(categorize_api("CreateService"), "Persistence Mechanism");
+    }
+
+    #[test]
+    fn test_categorize_api_anti_analysis() {
+        assert_eq!(categorize_api("IsDebuggerPresent"), "Anti-Analysis");
+        assert_eq!(categorize_api("CheckRemoteDebuggerPresent"), "Anti-Analysis");
+    }
+
+    #[test]
+    fn test_categorize_api_network() {
+        assert_eq!(categorize_api("InternetOpen"), "Network Activity");
+        assert_eq!(categorize_api("socket"), "Network Activity");
+    }
+
+    #[test]
+    fn test_categorize_api_crypto() {
+        assert_eq!(categorize_api("CryptEncrypt"), "Cryptography");
+        assert_eq!(categorize_api("CryptDecrypt"), "Cryptography");
+    }
+
+    #[test]
+    fn test_categorize_api_keylogging() {
+        assert_eq!(categorize_api("GetAsyncKeyState"), "Keylogging/Input Monitoring");
+        assert_eq!(categorize_api("SetWindowsHookExA"), "Keylogging/Input Monitoring");
+    }
+
+    #[test]
+    fn test_categorize_api_privilege_escalation() {
+        assert_eq!(categorize_api("AdjustTokenPrivileges"), "Privilege Escalation");
+        assert_eq!(categorize_api("OpenProcessToken"), "Privilege Escalation");
+    }
+
+    #[test]
+    fn test_categorize_api_unknown() {
+        assert_eq!(categorize_api("UnknownAPI"), "File/System Operation");
+        assert_eq!(categorize_api("CreateFile"), "File/System Operation");
+    }
+
+    #[test]
+    fn test_calculate_entropy_empty() {
+        let data: Vec<u8> = vec![];
+        assert_eq!(calculate_entropy(&data), 0.0);
+    }
+
+    #[test]
+    fn test_calculate_entropy_uniform() {
+        // All same byte = 0 entropy
+        let data = vec![0xAA; 1000];
+        assert_eq!(calculate_entropy(&data), 0.0);
+    }
+
+    #[test]
+    fn test_calculate_entropy_perfect_distribution() {
+        // All 256 possible bytes once each = max entropy
+        let data: Vec<u8> = (0..=255).collect();
+        let entropy = calculate_entropy(&data);
+        assert!((entropy - 8.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_calculate_entropy_half_distribution() {
+        // Half the bytes used = moderate entropy
+        let data: Vec<u8> = (0..128).collect();
+        let entropy = calculate_entropy(&data);
+        assert!(entropy > 6.0 && entropy < 8.0);
+    }
+
+    #[test]
+    fn test_suspicious_apis_contains_common_malware_functions() {
+        // Verify critical malware APIs are in the list
+        assert!(SUSPICIOUS_APIS.contains(&"CreateRemoteThread"));
+        assert!(SUSPICIOUS_APIS.contains(&"WriteProcessMemory"));
+        assert!(SUSPICIOUS_APIS.contains(&"VirtualAllocEx"));
+        assert!(SUSPICIOUS_APIS.contains(&"IsDebuggerPresent"));
+        assert!(SUSPICIOUS_APIS.contains(&"RegSetValueEx"));
+        assert!(SUSPICIOUS_APIS.contains(&"URLDownloadToFile"));
+    }
+
+    #[test]
+    fn test_output_level_quiet_behavior() {
+        assert!(!OutputLevel::Quiet.should_print_info());
+        assert!(!OutputLevel::Quiet.should_print_verbose());
+    }
+
+    #[test]
+    fn test_output_level_normal_behavior() {
+        assert!(OutputLevel::Normal.should_print_info());
+        assert!(!OutputLevel::Normal.should_print_verbose());
+    }
+
+    #[test]
+    fn test_output_level_verbose_behavior() {
+        assert!(OutputLevel::Verbose.should_print_info());
+        assert!(OutputLevel::Verbose.should_print_verbose());
+    }
 }
