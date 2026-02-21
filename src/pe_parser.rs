@@ -22,6 +22,7 @@
 use goblin::pe::PE;
 use anyhow::Result;
 use colored::*;
+use crate::OutputLevel;
 
 /// Suspicious Windows APIs commonly used by malware
 /// They aren't necessarily malicious, but warrant attention
@@ -81,28 +82,72 @@ const SUSPICIOUS_APIS: &[&str] = &[
 ];
 
 /// Analyse and display detailed information
-pub fn analyze_pe(data: &[u8]) -> Result<()> {
+pub fn analyze_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
     let pe = PE::parse(data)?;
+    
+    // In quiet mode, just check for critical issues
+    if output_level == OutputLevel::Quiet {
+        return analyze_pe_quiet(&pe, data);
+    }
     
     println!("{}", "=== PE File Analysis ===".bold().cyan());
     
     // Basic PE info
-    print_pe_header_info(&pe);
+    print_pe_header_info(&pe, output_level);
     
     // Analyze sections
-    print_sections(&pe, data);
+    print_sections(&pe, data, output_level);
     
     // Analyze imports
-    print_imports(&pe);
+    print_imports(&pe, output_level);
     
     // Analyze exports
-    print_exports(&pe);
+    print_exports(&pe, output_level);
+    
+    Ok(())
+}
+
+/// Quick analysis for quiet mode - only report critical issues
+fn analyze_pe_quiet(pe: &PE, _data: &[u8]) -> Result<()> {
+    let mut warnings = Vec::new();
+    
+    // Check security features
+    if let Some(header) = &pe.header.optional_header {
+        let characteristics = header.windows_fields.dll_characteristics;
+        if characteristics & 0x40 == 0 {
+            warnings.push("ASLR disabled".to_string());
+        }
+        if characteristics & 0x100 == 0 {
+            warnings.push("DEP/NX disabled".to_string());
+        }
+    }
+    
+    // Check for suspicious APIs
+    let mut suspicious_count = 0;
+    for import in &pe.imports {
+        let name = import.name.as_ref();
+        if SUSPICIOUS_APIS.contains(&name) {
+            suspicious_count += 1;
+        }
+    }
+    
+    if suspicious_count > 5 {
+        warnings.push(format!("{} suspicious APIs detected", suspicious_count));
+    }
+    
+    // Print warnings if any
+    if !warnings.is_empty() {
+        println!("{}", "⚠ WARNINGS:".yellow().bold());
+        for warning in warnings {
+            println!("  • {}", warning.red());
+        }
+    }
     
     Ok(())
 }
 
 /// Display PE header information
-fn print_pe_header_info(pe: &PE) {
+fn print_pe_header_info(pe: &PE, output_level: OutputLevel) {
     println!("\n{}", "PE Header Information:".bold());
     
     // Check if 32-bit or 64-bit
@@ -121,6 +166,14 @@ fn print_pe_header_info(pe: &PE) {
     
     // Number of sections
     println!("  Number of Sections: {}", pe.sections.len());
+    
+    // Verbose mode: show more details
+    if output_level.should_print_verbose() {
+        if let Some(header) = &pe.header.optional_header {
+            println!("  Size of Image: 0x{:X}", header.windows_fields.size_of_image);
+            println!("  Size of Headers: 0x{:X}", header.windows_fields.size_of_headers);
+        }
+    }
     
     // Check for some characteristics
     if let Some(header) = &pe.header.optional_header {
@@ -153,7 +206,7 @@ fn print_pe_header_info(pe: &PE) {
 }
 
 /// Analyse and display section information
-fn print_sections(pe: &PE, data: &[u8]) {
+fn print_sections(pe: &PE, data: &[u8], _output_level: OutputLevel) {
     println!("\n{}", "Section Analysis:".bold());
     println!("  {:<12} {:<10} {:<10} {:<10} {:<10}", 
              "Name", "VirtSize", "VirtAddr", "RawSize", "Entropy");
@@ -205,7 +258,7 @@ fn print_sections(pe: &PE, data: &[u8]) {
 }
 
 /// Analyse and display imported functions
-fn print_imports(pe: &PE) {
+fn print_imports(pe: &PE, _output_level: OutputLevel) {
     println!("\n{}", "Import Analysis:".bold());
     
     if pe.imports.is_empty() {
@@ -286,7 +339,7 @@ fn categorize_api(api: &str) -> &'static str {
 }
 
 /// Analyse and display exported functions (for DLLs)
-fn print_exports(pe: &PE) {
+fn print_exports(pe: &PE, _output_level: OutputLevel) {
     if pe.exports.is_empty() {
         return;
     }
