@@ -1,4 +1,4 @@
-// Anya - Malware Analysis Platform
+// Ányá - Malware Analysis Platform
 // Copyright (C) 2026 Daniel Iwugo
 //
 // This program is free software: you can redistribute it and/or modify
@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 //
 // For commercial licensing, contact: daniel@themalwarefiles.com
+
 
 // PE analysis module (for handling executables)
 
