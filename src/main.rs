@@ -133,8 +133,7 @@ fn create_progress_bar(len: u64, message: &str) -> ProgressBar {
     let pb = ProgressBar::new(len);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{msg} [{bar:40.cyan/blue}] {percent}%")
-            //       No time in template - add it via set_message
+            .template("{msg} [{bar:40.cyan/blue}] {percent}% ({elapsed})")
             .unwrap()
             .progress_chars("█▓▒░ "),
     );
@@ -784,15 +783,7 @@ fn print_strings(data: &[u8], min_length: usize) {
     let start_time = std::time::Instant::now();
     
     let pb = if is_large {
-        // Custom template that leaves room for time in message
-        let bar = ProgressBar::new(data.len() as u64);
-        bar.set_style(
-            ProgressStyle::default_bar()
-                .template("{msg} [{bar:40.cyan/blue}] {percent}% ({elapsed_precise})")
-                .unwrap()
-                .progress_chars("█▓▒░ "),
-        );
-        bar.set_message("Extracting strings");
+        let bar = create_progress_bar(data.len() as u64, "Extracting strings");
         Some(bar)
     } else {
         None
@@ -800,21 +791,26 @@ fn print_strings(data: &[u8], min_length: usize) {
 
     let mut current_string = String::new();
     let mut string_count = 0;
-    const MAX_DISPLAY: usize = 50;
-    const UPDATE_INTERVAL: usize = 256 * 1024;
+    const MAX_DISPLAY: usize = 50; // Only show first 50 strings
+    const UPDATE_INTERVAL: usize = 256 * 1024; // Update every 256KB
 
     for (idx, &byte) in data.iter().enumerate() {
-        if is_large && idx % UPDATE_INTERVAL == 0 {
-            if let Some(ref pb) = pb {
-                pb.set_position(idx as u64);
-            }
+        // Update progress more frequently for smoother progress bar
+        if is_large
+            && idx % UPDATE_INTERVAL == 0
+            && let Some(ref pb) = pb
+        {
+            pb.set_position(idx as u64);
         }
 
+        // Check if byte is printable ASCII (space to tilde)
         if (32..=126).contains(&byte) {
             current_string.push(byte as char);
         } else {
+            // We hit a non-printable character
             if current_string.len() >= min_length {
                 if string_count < MAX_DISPLAY {
+                    // Print above progress bar if it exists
                     if let Some(ref pb) = pb {
                         pb.println(format!("  {}", current_string.bright_white()));
                     } else {
@@ -835,6 +831,7 @@ fn print_strings(data: &[u8], min_length: usize) {
         }
     }
 
+    // Don't forget the last string if file doesn't end with non-printable
     if current_string.len() >= min_length && string_count < MAX_DISPLAY {
         if let Some(ref pb) = pb {
             pb.println(format!("  {}", current_string.bright_white()));
@@ -844,11 +841,16 @@ fn print_strings(data: &[u8], min_length: usize) {
         string_count += 1;
     }
 
-    let elapsed = start_time.elapsed().as_secs_f64();
+    let elapsed = start_time.elapsed();
     
+    // Finish progress bar properly - keep it visible at 100%
     if let Some(pb) = pb {
-        pb.set_position(data.len() as u64);
-        pb.finish_with_message(format!("✓ Extracted {} strings", string_count));
+        pb.set_position(data.len() as u64); // Ensure we're at 100%
+        pb.finish_with_message(format!(
+            "✓ Extracted {} strings ({:.2}s)", 
+            string_count, 
+            elapsed.as_secs_f64()
+        ));
     }
 
     println!("\nTotal strings found: {}", string_count.to_string().green().bold());
