@@ -19,13 +19,13 @@ fn main() -> anyhow::Result<()> {
     }
 
     let file_path = Path::new(&args[1]);
-    
+
     // Analyze file
     let result = analyse_file(file_path, 4)?;
-    
+
     // Convert to JSON output format
     let json_result = to_json_output(&result);
-    
+
     // Print as pretty JSON
     let json = serde_json::to_string_pretty(&json_result)?;
     println!("{}", json);

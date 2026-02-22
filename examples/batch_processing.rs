@@ -7,7 +7,7 @@
 //! cargo run --example batch_processing -- path/to/directory
 //! ```
 
-use anya_security_core::{find_executable_files, analyse_file, BatchSummary};
+use anya_security_core::{BatchSummary, analyse_file, find_executable_files};
 use std::env;
 use std::path::Path;
 use std::time::Instant;
@@ -20,7 +20,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     let dir_path = Path::new(&args[1]);
-    
+
     // Find all executable files
     println!("Scanning directory: {}", dir_path.display());
     let files = find_executable_files(dir_path, false)?;
@@ -31,16 +31,21 @@ fn main() -> anyhow::Result<()> {
         total_files: files.len(),
         ..Default::default()
     };
-    
+
     let start = Instant::now();
 
     for (idx, file) in files.iter().enumerate() {
-        print!("[{}/{}] Analyzing {}... ", idx + 1, files.len(), file.display());
-        
+        print!(
+            "[{}/{}] Analyzing {}... ",
+            idx + 1,
+            files.len(),
+            file.display()
+        );
+
         match analyse_file(file, 4) {
             Ok(result) => {
                 summary.analysed += 1;
-                
+
                 // Check if suspicious
                 if result.entropy.is_suspicious {
                     summary.suspicious += 1;
@@ -48,7 +53,10 @@ fn main() -> anyhow::Result<()> {
                 } else if let Some(ref pe) = result.pe_analysis {
                     if pe.imports.suspicious_api_count > 5 {
                         summary.suspicious += 1;
-                        println!("⚠ SUSPICIOUS ({} suspicious APIs)", pe.imports.suspicious_api_count);
+                        println!(
+                            "⚠ SUSPICIOUS ({} suspicious APIs)",
+                            pe.imports.suspicious_api_count
+                        );
                     } else {
                         println!("✓ OK");
                     }
@@ -64,7 +72,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     summary.duration = start.elapsed().as_secs_f64();
-    
+
     // Print summary
     println!("\n{}", "=".repeat(50));
     println!("Batch Analysis Complete");
