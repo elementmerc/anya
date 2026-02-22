@@ -74,6 +74,11 @@ const SUSPICIOUS_APIS: &[&str] = &[
     "OpenProcessToken",
 ];
 
+/// Check if an API name is in the suspicious list
+pub fn is_suspicious_api(api_name: &str) -> bool {
+    SUSPICIOUS_APIS.contains(&api_name)
+}
+
 /// Analyses a Windows PE (Portable Executable) file and displays detailed information
 ///
 /// This function performs comprehensive static analysis of PE files including:
@@ -506,35 +511,45 @@ fn print_imports(pe: &PE, _output_level: OutputLevel) {
 }
 
 /// Categorize suspicious APIs by function
-fn categorize_api(api: &str) -> &'static str {
-    match api {
-        "CreateRemoteThread"
-        | "WriteProcessMemory"
-        | "VirtualAllocEx"
-        | "QueueUserAPC"
-        | "NtQueueApcThread"
-        | "RtlCreateUserThread" => "Code Injection",
-
-        "RegSetValueEx" | "RegCreateKeyEx" | "CreateService" | "StartService" => {
-            "Persistence Mechanism"
-        }
-
-        "IsDebuggerPresent"
-        | "CheckRemoteDebuggerPresent"
-        | "OutputDebugString"
-        | "NtQueryInformationProcess" => "Anti-Analysis",
-
-        "InternetOpen" | "InternetOpenUrl" | "URLDownloadToFile" | "WinHttpOpen" | "socket"
-        | "connect" => "Network Activity",
-
-        "CryptEncrypt" | "CryptDecrypt" | "CryptAcquireContext" => "Cryptography",
-
-        "GetAsyncKeyState" | "SetWindowsHookExA" | "GetForegroundWindow" => {
-            "Keylogging/Input Monitoring"
-        }
-
-        "AdjustTokenPrivileges" | "OpenProcessToken" => "Privilege Escalation",
-
+pub fn categorize_api(api_name: &str) -> &'static str {
+    // Convert to lowercase for case-insensitive matching
+    let api_lower = api_name.to_lowercase();
+    
+    match api_lower.as_str() {
+        // Code Injection
+        "createremotethread" | "writeprocessmemory" | "virtualallocex" 
+        | "setwindowshookex" | "openprocess" | "ntqueueapcthread" 
+        | "rtlcreateuserthread" | "queueuserapc" | "ntcreatethreadex" 
+        | "ntmapviewofsection" => "Code Injection",
+        
+        // Persistence
+        "regsetvalueex" | "regcreatekeyex" | "createservice" 
+        | "startservice" | "createservicew" | "createservicea" => "Persistence Mechanism",
+        
+        // Anti-Analysis
+        "isdebuggerpresent" | "checkremotedebuggerpresent" 
+        | "outputdebugstring" | "ntqueryinformationprocess" 
+        | "ntsetinformationthread" => "Anti-Analysis",
+        
+        // Network
+        "internetopen" | "internetopenurl" | "internetreadfile" 
+        | "urldownloadtofile" | "urldownloadtofilew" | "socket" 
+        | "connect" | "send" | "recv" | "wsastartup" => "Network Activity",
+        
+        // Cryptography
+        "cryptencrypt" | "cryptdecrypt" | "crypthashdata" 
+        | "cryptcreatehash" | "cryptderivekey" | "cryptacquirecontext" 
+        | "cryptgenrandom" => "Cryptography",
+        
+        // Keylogging
+        "getasynckeystate" | "setwindowshookexa" | "setwindowshookexw" 
+        | "getkeystate" | "getkeyboardstate" => "Keylogging/Input Monitoring",
+        
+        // Privilege Escalation
+        "adjusttokenprivileges" | "openprocesstoken" 
+        | "impersonateloggedonuser" | "setentriesinacl" => "Privilege Escalation",
+        
+        // Default
         _ => "File/System Operation",
     }
 }
@@ -716,5 +731,109 @@ mod tests {
     fn test_output_level_verbose_behavior() {
         assert!(OutputLevel::Verbose.should_print_info());
         assert!(OutputLevel::Verbose.should_print_verbose());
+    }
+
+     #[test]
+    fn test_is_suspicious_api() {
+        // Code injection APIs
+        assert!(is_suspicious_api("CreateRemoteThread"));
+        assert!(is_suspicious_api("VirtualAllocEx"));
+        assert!(is_suspicious_api("WriteProcessMemory"));
+        assert!(is_suspicious_api("NtQueueApcThread"));
+        
+        // Persistence APIs
+        assert!(is_suspicious_api("RegSetValueEx"));
+        assert!(is_suspicious_api("CreateService"));
+        
+        // Anti-analysis
+        assert!(is_suspicious_api("IsDebuggerPresent"));
+        assert!(is_suspicious_api("CheckRemoteDebuggerPresent"));
+        
+        // Network
+        assert!(is_suspicious_api("InternetOpen"));
+        assert!(is_suspicious_api("URLDownloadToFile"));
+        
+        // Not suspicious
+        assert!(!is_suspicious_api("CreateFileA"));
+        assert!(!is_suspicious_api("GetProcAddress"));
+        assert!(!is_suspicious_api("LoadLibraryA"));
+        assert!(!is_suspicious_api("printf"));
+    }
+
+    #[test]
+    fn test_categorize_all_categories() {
+        // Code Injection
+        assert_eq!(categorize_api("CreateRemoteThread"), "Code Injection");
+        assert_eq!(categorize_api("WriteProcessMemory"), "Code Injection");
+        assert_eq!(categorize_api("VirtualAllocEx"), "Code Injection");
+        
+        // Persistence
+        assert_eq!(categorize_api("RegSetValueEx"), "Persistence Mechanism");
+        assert_eq!(categorize_api("RegCreateKeyEx"), "Persistence Mechanism");
+        assert_eq!(categorize_api("CreateService"), "Persistence Mechanism");
+        
+        // Anti-Analysis
+        assert_eq!(categorize_api("IsDebuggerPresent"), "Anti-Analysis");
+        assert_eq!(categorize_api("CheckRemoteDebuggerPresent"), "Anti-Analysis");
+        assert_eq!(categorize_api("NtQueryInformationProcess"), "Anti-Analysis");
+        
+        // Network
+        assert_eq!(categorize_api("InternetOpen"), "Network Activity");
+        assert_eq!(categorize_api("InternetOpenUrl"), "Network Activity");
+        assert_eq!(categorize_api("URLDownloadToFile"), "Network Activity");
+        
+        // Crypto
+        assert_eq!(categorize_api("CryptEncrypt"), "Cryptography");
+        assert_eq!(categorize_api("CryptDecrypt"), "Cryptography");
+        assert_eq!(categorize_api("CryptHashData"), "Cryptography");
+        
+        // Keylogging
+        assert_eq!(categorize_api("GetAsyncKeyState"), "Keylogging/Input Monitoring");
+        assert_eq!(categorize_api("SetWindowsHookExA"), "Keylogging/Input Monitoring");
+        
+        // Privilege Escalation
+        assert_eq!(categorize_api("AdjustTokenPrivileges"), "Privilege Escalation");
+        assert_eq!(categorize_api("OpenProcessToken"), "Privilege Escalation");
+        
+        // Default
+        assert_eq!(categorize_api("CreateFileA"), "File/System Operation");
+        assert_eq!(categorize_api("unknown_function"), "File/System Operation");
+    }
+
+    #[test]
+    fn test_categorize_api_case_insensitive() {
+        assert_eq!(categorize_api("createremotethread"), "Code Injection");
+        assert_eq!(categorize_api("CREATEREMOTETHREAD"), "Code Injection");
+        assert_eq!(categorize_api("CreateRemoteThread"), "Code Injection");
+    }
+
+    #[test]
+    fn test_suspicious_apis_list_complete() {
+        // Should have comprehensive list
+        assert!(SUSPICIOUS_APIS.len() > 30, "Should have 30+ suspicious APIs");
+        
+        // Verify no duplicates
+        use std::collections::HashSet;
+        let set: HashSet<_> = SUSPICIOUS_APIS.iter().collect();
+        assert_eq!(set.len(), SUSPICIOUS_APIS.len(), "No duplicates allowed");
+    }
+
+    #[test]
+    fn test_all_categories_covered() {
+        // Ensure each category has at least one API
+        let categories = vec![
+            "Code Injection",
+            "Persistence Mechanism",
+            "Anti-Analysis",
+            "Network Activity",
+            "Cryptography",
+            "Keylogging/Input Monitoring",
+            "Privilege Escalation",
+        ];
+        
+        for category in categories {
+            let has_api = SUSPICIOUS_APIS.iter().any(|api| categorize_api(api) == category);
+            assert!(has_api, "Category '{}' should have at least one API", category);
+        }
     }
 }
