@@ -41,6 +41,9 @@ mod pe_parser;
 // Output structures for JSON
 mod output;
 
+// Configuration management
+mod config;
+
 /// Output verbosity level for controlling what information is displayed
 ///
 /// This enum controls the amount of output shown to the user during analysis:
@@ -135,9 +138,9 @@ struct Args {
     #[arg(short, long, requires = "directory")]
     recursive: bool,
 
-    /// Minimum string length to extract (default: 4)
-    #[arg(short = 's', long, default_value_t = 4, value_name = "LENGTH")]
-    min_string_length: usize,
+    /// Minimum string length to extract (overrides config file)
+    #[arg(short = 's', long, value_name = "LENGTH")]
+    min_string_length: Option<usize>,
 
     /// Output results in JSON format
     #[arg(short, long)]
@@ -155,13 +158,21 @@ struct Args {
     #[arg(short, long, conflicts_with = "verbose")]
     quiet: bool,
 
-    /// Disable colored output
+    /// Disable coloured output
     #[arg(long)]
     no_color: bool,
 
     /// Append to output file instead of overwriting (requires --output)
     #[arg(short, long, requires = "output")]
     append: bool,
+
+    /// Create default config file at ~/.config/anya/config.toml
+    #[arg(long)]
+    init_config: bool,
+
+    /// Use custom config file (default: ~/.config/anya/config.toml)
+    #[arg(short, long, value_name = "FILE")]
+    config: Option<PathBuf>,
 }
 
 /// Creates a styled progress bar for tracking long-running operations
@@ -444,6 +455,41 @@ fn main() -> Result<()> {
     // Parse command-line arguments
     let args = Args::parse();
 
+    // Handle --init-config: create default config file and exit
+    // **Rust Concept: Early Return**
+    // If this flag is set, we create the config and exit immediately
+    if args.init_config {
+        let path = config::Config::create_default_file()?;
+        println!("✓ Created default config file at: {}", path.display());
+        println!("\nEdit this file to customise Anya's behaviour.");
+        println!("Run 'anya --help' to see which CLI flags override config settings.");
+        return Ok(());
+    }
+
+    // Load configuration from file
+    // **Rust Concept: Option and Result Chaining**
+    // We try custom path first, then default path, then fallback to defaults
+    let config = if let Some(config_path) = &args.config {
+        // User specified custom config file
+        config::Config::load_from_file(config_path)
+            .context(format!("Failed to load config from: {:?}", config_path))?
+    } else {
+        // Try to load from default location, use defaults if not found
+        config::Config::load_or_default()?
+    };
+    
+    // Merge CLI arguments with config
+    // **Rust Concept: Option::unwrap_or()**
+    // If CLI arg is Some(value), use it; otherwise use config value
+    let min_string_length = args.min_string_length.unwrap_or(config.analysis.min_string_length);
+    
+    // Apply colour settings from config unless CLI overrides
+    let use_colours = if args.no_color {
+        false
+    } else {
+        config.output.use_colours
+    };
+
     // Validate: must provide either --file or --directory
     if args.file.is_none() && args.directory.is_none() {
         anyhow::bail!(
@@ -476,8 +522,9 @@ fn main() -> Result<()> {
         );
     }
 
-    // Handle color settings
-    if args.no_color {
+    // Handle colour settings
+    // Priority: CLI --no-color > config file > default (true)
+    if !use_colours {
         colored::control::set_override(false);
     }
 
@@ -492,10 +539,10 @@ fn main() -> Result<()> {
     // Choose mode: single file or batch
     if let Some(file_path) = &args.file {
         // Single file mode
-        analyse_single_file(file_path, &args, output_level)?;
+        analyse_single_file(file_path, &args, output_level, min_string_length)?;
     } else if let Some(dir_path) = &args.directory {
         // Batch mode
-        analyse_directory(dir_path, &args, output_level)?;
+        analyse_directory(dir_path, &args, output_level, min_string_length)?;
     }
 
     Ok(())
@@ -507,7 +554,13 @@ fn main() -> Result<()> {
 /// - Function parameters with borrowing (`&Path`, `&Args`)
 /// - Result type for error handling
 /// - Conditional compilation with if/else
-fn analyse_single_file(file_path: &PathBuf, args: &Args, output_level: OutputLevel) -> Result<()> {
+/// - Passing config values as parameters
+fn analyse_single_file(
+    file_path: &PathBuf,
+    args: &Args,
+    output_level: OutputLevel,
+    min_string_length: usize,
+) -> Result<()> {
     // Check if file exists
     if !file_path.exists() {
         anyhow::bail!("File does not exist: {:?}", file_path);
@@ -553,7 +606,8 @@ fn analyse_single_file(file_path: &PathBuf, args: &Args, output_level: OutputLev
     let entropy_data = calculate_file_entropy(&file_data);
     
     // Extract strings (for both JSON and pretty output)
-    let strings_data = extract_strings_data(&file_data, args.min_string_length);
+    // Using merged config value (CLI overrides config file)
+    let strings_data = extract_strings_data(&file_data, min_string_length);
     
     // Determine file format and analyse
     let (file_format, pe_data) = match Object::parse(&file_data) {
@@ -660,7 +714,7 @@ fn analyse_single_file(file_path: &PathBuf, args: &Args, output_level: OutputLev
 
     // Always perform basic string extraction and entropy on full file
     if output_level.should_print_info() {
-        print_strings(&file_data, args.min_string_length);
+        print_strings(&file_data, min_string_length);
         print_entropy(&file_data);
     }
 
@@ -679,7 +733,12 @@ fn analyse_single_file(file_path: &PathBuf, args: &Args, output_level: OutputLev
 /// - Vectors and collecting
 /// - Timing with `std::time::Instant`
 /// - Mutable variables with `mut`
-fn analyse_directory(dir_path: &PathBuf, args: &Args, output_level: OutputLevel) -> Result<()> {
+fn analyse_directory(
+    dir_path: &PathBuf,
+    args: &Args,
+    output_level: OutputLevel,
+    min_string_length: usize,
+) -> Result<()> {
     use std::time::Instant;
     
     if !dir_path.exists() {
@@ -771,7 +830,7 @@ fn analyse_directory(dir_path: &PathBuf, args: &Args, output_level: OutputLevel)
         // Try to analyse the file
         // **Rust Concept: Result and match**
         // We handle both success and failure cases
-        match analyse_single_file(file_path, args, OutputLevel::Quiet) {
+        match analyse_single_file(file_path, args, OutputLevel::Quiet, min_string_length) {
             Ok(_) => {
                 summary.analysed += 1;
                 
