@@ -99,7 +99,6 @@ pub fn is_suspicious_api(api_name: &str) -> bool {
 ///
 /// # Examples
 ///
-//  ```no_run
 //  use anya::pe_parser;
 //  use anya::OutputLevel;
 //  use std::fs;
@@ -107,7 +106,7 @@ pub fn is_suspicious_api(api_name: &str) -> bool {
 //  let data = fs::read("malware.exe")?;
 //  pe_parser::analyse_pe(&data, OutputLevel::Normal)?;
 //  # Ok::<(), anyhow::Error>(())
-/// ```
+/// ```text
 pub fn analyse_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
     // Show spinner for large files (1MB threshold to match main.rs)
     let is_large = data.len() > 1024 * 1024; // 1MB
