@@ -47,7 +47,20 @@ anya --file <path-to-file> --min-string-length 6
 
 # Full help
 anya --help
+```]
+
+## JSON Output
+
+For automation and integration, Anya supports JSON output:
+```bash
+# Machine-readable JSON output
+anya --file malware.exe --json
+
+# Extract specific fields with jq
+anya --file malware.exe --json | jq '.hashes.sha256'
 ```
+
+See [JSON_SCHEMA.md](JSON_SCHEMA.md) for complete documentation and integration examples.
 
 ## Analysis Modules
 

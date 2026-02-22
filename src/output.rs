@@ -1,0 +1,487 @@
+// Ányá - Malware Analysis Platform
+// Copyright (C) 2026 Daniel Iwugo
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+//
+// For commercial licensing, contact: daniel@themalwarefiles.com
+
+/// JSON output structures for machine-readable analysis results
+
+use serde::{Serialize, Deserialize};
+
+/// Complete analysis result
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AnalysisResult {
+    /// File information
+    pub file_info: FileInfo,
+    
+    /// Cryptographic hashes
+    pub hashes: Hashes,
+    
+    /// Entropy analysis
+    pub entropy: EntropyInfo,
+    
+    /// Extracted strings (limited to first N)
+    pub strings: StringsInfo,
+    
+    /// PE-specific analysis (if applicable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pe_analysis: Option<PEAnalysis>,
+    
+    /// File format type
+    pub file_format: String,
+}
+
+/// File metadata
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FileInfo {
+    /// File path
+    pub path: String,
+    
+    /// File size in bytes
+    pub size_bytes: u64,
+    
+    /// File size in KB
+    pub size_kb: f64,
+    
+    /// File extension if any
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extension: Option<String>,
+}
+
+/// Cryptographic hashes
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Hashes {
+    /// MD5 hash (hex)
+    pub md5: String,
+    
+    /// SHA1 hash (hex)
+    pub sha1: String,
+    
+    /// SHA256 hash (hex)
+    pub sha256: String,
+}
+
+/// Entropy analysis results
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EntropyInfo {
+    /// Shannon entropy value (0.0 - 8.0)
+    pub value: f64,
+    
+    /// Interpretation category
+    pub category: String,
+    
+    /// Is suspicious (> 7.5)
+    pub is_suspicious: bool,
+}
+
+/// String extraction results
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StringsInfo {
+    /// Minimum string length used
+    pub min_length: usize,
+    
+    /// Total count of strings found
+    pub total_count: usize,
+    
+    /// Sample of extracted strings (limited)
+    pub samples: Vec<String>,
+    
+    /// Number of samples shown
+    pub sample_count: usize,
+}
+
+/// PE file analysis results
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PEAnalysis {
+    /// Architecture (32-bit or 64-bit)
+    pub architecture: String,
+    
+    /// Is 64-bit
+    pub is_64bit: bool,
+    
+    /// Image base address
+    pub image_base: String,
+    
+    /// Entry point address
+    pub entry_point: String,
+    
+    /// File type (EXE or DLL)
+    pub file_type: String,
+    
+    /// Security features
+    pub security: SecurityFeatures,
+    
+    /// Section analysis
+    pub sections: Vec<SectionInfo>,
+    
+    /// Import analysis
+    pub imports: ImportAnalysis,
+    
+    /// Export analysis (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exports: Option<ExportAnalysis>,
+}
+
+/// Security features status
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SecurityFeatures {
+    /// ASLR enabled
+    pub aslr_enabled: bool,
+    
+    /// DEP/NX enabled
+    pub dep_enabled: bool,
+}
+
+/// Section information
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SectionInfo {
+    /// Section name
+    pub name: String,
+    
+    /// Virtual size
+    pub virtual_size: u32,
+    
+    /// Virtual address
+    pub virtual_address: String,
+    
+    /// Raw size
+    pub raw_size: u32,
+    
+    /// Shannon entropy
+    pub entropy: f64,
+    
+    /// Is suspicious (high entropy)
+    pub is_suspicious: bool,
+    
+    /// Is writable and executable
+    pub is_wx: bool,
+}
+
+/// Import analysis
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImportAnalysis {
+    /// Number of imported DLLs
+    pub dll_count: usize,
+    
+    /// Total number of imports
+    pub total_imports: usize,
+    
+    /// Number of suspicious APIs detected
+    pub suspicious_api_count: usize,
+    
+    /// List of suspicious APIs found
+    pub suspicious_apis: Vec<SuspiciousAPI>,
+    
+    /// List of imported libraries
+    pub libraries: Vec<String>,
+}
+
+/// Suspicious API information
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SuspiciousAPI {
+    /// API name
+    pub name: String,
+    
+    /// Category (e.g., "Code Injection", "Anti-Analysis")
+    pub category: String,
+}
+
+/// Export analysis (for DLLs)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportAnalysis {
+    /// Total number of exports
+    pub total_count: usize,
+    
+    /// Sample of exported functions
+    pub samples: Vec<ExportInfo>,
+}
+
+/// Individual export information
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportInfo {
+    /// Function name (if available)
+    pub name: String,
+    
+    /// RVA (Relative Virtual Address)
+    pub rva: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_analysis_result_serialization() {
+        let result = AnalysisResult {
+            file_info: FileInfo {
+                path: "test.exe".to_string(),
+                size_bytes: 1024,
+                size_kb: 1.0,
+                extension: Some("exe".to_string()),
+            },
+            hashes: Hashes {
+                md5: "d41d8cd98f00b204e9800998ecf8427e".to_string(),
+                sha1: "da39a3ee5e6b4b0d3255bfef95601890afd80709".to_string(),
+                sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
+            },
+            entropy: EntropyInfo {
+                value: 7.8,
+                category: "High entropy".to_string(),
+                is_suspicious: true,
+            },
+            strings: StringsInfo {
+                min_length: 4,
+                total_count: 100,
+                samples: vec!["test".to_string(), "sample".to_string()],
+                sample_count: 2,
+            },
+            pe_analysis: None,
+            file_format: "Windows PE".to_string(),
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("test.exe"));
+        assert!(json.contains("1024"));
+        assert!(json.contains("7.8"));
+    }
+
+    #[test]
+    fn test_file_info_serialization() {
+        let file_info = FileInfo {
+            path: "/tmp/malware.exe".to_string(),
+            size_bytes: 524288,
+            size_kb: 512.0,
+            extension: Some("exe".to_string()),
+        };
+
+        let json = serde_json::to_string_pretty(&file_info).unwrap();
+        assert!(json.contains("malware.exe"));
+        assert!(json.contains("524288"));
+        assert!(json.contains("512"));
+    }
+
+    #[test]
+    fn test_hashes_serialization() {
+        let hashes = Hashes {
+            md5: "abc123".to_string(),
+            sha1: "def456".to_string(),
+            sha256: "789ghi".to_string(),
+        };
+
+        let json = serde_json::to_string(&hashes).unwrap();
+        assert!(json.contains("abc123"));
+        assert!(json.contains("def456"));
+        assert!(json.contains("789ghi"));
+        assert!(json.contains("md5"));
+        assert!(json.contains("sha1"));
+        assert!(json.contains("sha256"));
+    }
+
+    #[test]
+    fn test_entropy_info_serialization() {
+        let entropy = EntropyInfo {
+            value: 6.5,
+            category: "Moderate".to_string(),
+            is_suspicious: false,
+        };
+
+        let json = serde_json::to_string(&entropy).unwrap();
+        assert!(json.contains("6.5"));
+        assert!(json.contains("Moderate"));
+        assert!(json.contains("false"));
+    }
+
+    #[test]
+    fn test_strings_info_serialization() {
+        let strings = StringsInfo {
+            min_length: 4,
+            total_count: 42,
+            samples: vec![
+                "Hello".to_string(),
+                "World".to_string(),
+                "Test".to_string(),
+            ],
+            sample_count: 3,
+        };
+
+        let json = serde_json::to_string(&strings).unwrap();
+        assert!(json.contains("42"));
+        assert!(json.contains("Hello"));
+        assert!(json.contains("World"));
+        assert!(json.contains("Test"));
+    }
+
+    #[test]
+    fn test_security_features_serialization() {
+        let security = SecurityFeatures {
+            aslr_enabled: true,
+            dep_enabled: false,
+        };
+
+        let json = serde_json::to_string(&security).unwrap();
+        
+        // Parse back to verify structure
+        let parsed: SecurityFeatures = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.aslr_enabled, true);
+        assert_eq!(parsed.dep_enabled, false);
+    }
+
+    #[test]
+    fn test_section_info_serialization() {
+        let section = SectionInfo {
+            name: ".text".to_string(),
+            virtual_size: 4096,
+            virtual_address: "0x1000".to_string(),
+            raw_size: 4096,
+            entropy: 6.2,
+            is_suspicious: false,
+            is_wx: false,
+        };
+
+        let json = serde_json::to_string_pretty(&section).unwrap();
+        assert!(json.contains(".text"));
+        assert!(json.contains("4096"));
+        assert!(json.contains("6.2"));
+    }
+
+    #[test]
+    fn test_suspicious_api_serialization() {
+        let api = SuspiciousAPI {
+            name: "CreateRemoteThread".to_string(),
+            category: "Code Injection".to_string(),
+        };
+
+        let json = serde_json::to_string(&api).unwrap();
+        assert!(json.contains("CreateRemoteThread"));
+        assert!(json.contains("Code Injection"));
+    }
+
+    #[test]
+    fn test_import_analysis_serialization() {
+        let imports = ImportAnalysis {
+            dll_count: 5,
+            total_imports: 42,
+            suspicious_api_count: 3,
+            suspicious_apis: vec![
+                SuspiciousAPI {
+                    name: "VirtualAllocEx".to_string(),
+                    category: "Code Injection".to_string(),
+                },
+            ],
+            libraries: vec!["kernel32.dll".to_string(), "ntdll.dll".to_string()],
+        };
+
+        let json = serde_json::to_string_pretty(&imports).unwrap();
+        assert!(json.contains("42"));
+        assert!(json.contains("VirtualAllocEx"));
+        assert!(json.contains("kernel32.dll"));
+    }
+
+    #[test]
+    fn test_pe_analysis_serialization() {
+        let pe = PEAnalysis {
+            architecture: "PE32+ (64-bit)".to_string(),
+            is_64bit: true,
+            image_base: "0x140000000".to_string(),
+            entry_point: "0x1000".to_string(),
+            file_type: "EXE".to_string(),
+            security: SecurityFeatures {
+                aslr_enabled: true,
+                dep_enabled: true,
+            },
+            sections: vec![],
+            imports: ImportAnalysis {
+                dll_count: 3,
+                total_imports: 25,
+                suspicious_api_count: 0,
+                suspicious_apis: vec![],
+                libraries: vec![],
+            },
+            exports: None,
+        };
+
+        let json = serde_json::to_string_pretty(&pe).unwrap();
+        assert!(json.contains("PE32+"));
+        assert!(json.contains("0x140000000"));
+        assert!(json.contains("true"));
+    }
+
+    #[test]
+    fn test_optional_fields_omitted() {
+        // Test that None fields don't appear in JSON
+        let result = AnalysisResult {
+            file_info: FileInfo {
+                path: "test.bin".to_string(),
+                size_bytes: 100,
+                size_kb: 0.1,
+                extension: None,  // Should be omitted
+            },
+            hashes: Hashes {
+                md5: "test".to_string(),
+                sha1: "test".to_string(),
+                sha256: "test".to_string(),
+            },
+            entropy: EntropyInfo {
+                value: 0.0,
+                category: "Low".to_string(),
+                is_suspicious: false,
+            },
+            strings: StringsInfo {
+                min_length: 4,
+                total_count: 0,
+                samples: vec![],
+                sample_count: 0,
+            },
+            pe_analysis: None,  // Should be omitted
+            file_format: "Unknown".to_string(),
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(!json.contains("pe_analysis"));
+        assert!(!json.contains("extension"));
+    }
+
+    #[test]
+    fn test_json_deserialize_roundtrip() {
+        // Test that we can serialize and deserialize
+        let original = Hashes {
+            md5: "abc".to_string(),
+            sha1: "def".to_string(),
+            sha256: "ghi".to_string(),
+        };
+
+        let json = serde_json::to_string(&original).unwrap();
+        let deserialized: Hashes = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(original.md5, deserialized.md5);
+        assert_eq!(original.sha1, deserialized.sha1);
+        assert_eq!(original.sha256, deserialized.sha256);
+    }
+
+    #[test]
+    fn test_pretty_print_formatting() {
+        let hashes = Hashes {
+            md5: "test".to_string(),
+            sha1: "test".to_string(),
+            sha256: "test".to_string(),
+        };
+
+        let pretty = serde_json::to_string_pretty(&hashes).unwrap();
+        
+        // Should have newlines and indentation
+        assert!(pretty.contains('\n'));
+        assert!(pretty.lines().count() > 1);
+    }
+}

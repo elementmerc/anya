@@ -19,6 +19,7 @@
 // PE analysis module (for handling executables)
 
 use crate::OutputLevel;
+use crate::output;
 use anyhow::Result;
 use colored::*;
 use goblin::pe::PE;
@@ -73,7 +74,7 @@ const SUSPICIOUS_APIS: &[&str] = &[
     "OpenProcessToken",
 ];
 
-/// Analyzes a Windows PE (Portable Executable) file and displays detailed information
+/// Analyses a Windows PE (Portable Executable) file and displays detailed information
 ///
 /// This function performs comprehensive static analysis of PE files including:
 /// - Header information (architecture, entry point, image base)
@@ -99,10 +100,10 @@ const SUSPICIOUS_APIS: &[&str] = &[
 /// use std::fs;
 ///
 /// let data = fs::read("malware.exe")?;
-/// pe_parser::analyze_pe(&data, OutputLevel::Normal)?;
+/// pe_parser::analyse_pe(&data, OutputLevel::Normal)?;
 /// # Ok::<(), anyhow::Error>(())
 /// ```
-pub fn analyze_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
+pub fn analyse_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
     // Show spinner for large files (1MB threshold to match main.rs)
     let is_large = data.len() > 1024 * 1024; // 1MB
     let pb = if is_large && output_level.should_print_info() {
@@ -127,7 +128,7 @@ pub fn analyze_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
 
     // In quiet mode, just check for critical issues
     if output_level == OutputLevel::Quiet {
-        return analyze_pe_quiet(&pe, data);
+        return analyse_pe_quiet(&pe, data);
     }
 
     println!("{}", "=== PE File Analysis ===".bold().cyan());
@@ -135,20 +136,156 @@ pub fn analyze_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
     // Basic PE info
     print_pe_header_info(&pe, output_level);
 
-    // Analyze sections
+    // Analyse sections
     print_sections(&pe, data, output_level);
 
-    // Analyze imports
+    // Analyse imports
     print_imports(&pe, output_level);
 
-    // Analyze exports
+    // Analyse exports
     print_exports(&pe, output_level);
 
     Ok(())
 }
 
+/// Analyses a PE file and returns structured data for JSON output
+///
+/// # Arguments
+///
+/// * `data` - Raw bytes of the PE file
+///
+/// # Returns
+///
+/// Returns structured PEAnalysis data or an error
+pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
+    let pe = PE::parse(data)?;
+
+    // Architecture
+    let architecture = if pe.is_64 {
+        "PE32+ (64-bit)".to_string()
+    } else {
+        "PE32 (32-bit)".to_string()
+    };
+
+    // Image base and entry point
+    let image_base = format!("0x{:X}", pe.image_base);
+    let entry_point = format!("0x{:X}", pe.entry);
+
+    // File type
+    let is_dll = pe.header.coff_header.characteristics & 0x2000 != 0;
+    let file_type = if is_dll { "DLL".to_string() } else { "EXE".to_string() };
+
+    // Security features
+    let security = if let Some(header) = &pe.header.optional_header {
+        let characteristics = header.windows_fields.dll_characteristics;
+        output::SecurityFeatures {
+            aslr_enabled: characteristics & 0x40 != 0,
+            dep_enabled: characteristics & 0x100 != 0,
+        }
+    } else {
+        output::SecurityFeatures {
+            aslr_enabled: false,
+            dep_enabled: false,
+        }
+    };
+
+    // Analyse sections
+    let sections: Vec<output::SectionInfo> = pe
+        .sections
+        .iter()
+        .map(|section| {
+            let name = String::from_utf8_lossy(&section.name)
+                .trim_end_matches('\0')
+                .to_string();
+
+            let section_start = section.pointer_to_raw_data as usize;
+            let section_size = section.size_of_raw_data as usize;
+
+            let entropy = if section_start + section_size <= data.len() {
+                calculate_entropy(&data[section_start..section_start + section_size])
+            } else {
+                0.0
+            };
+
+            let characteristics = section.characteristics;
+            let writable = characteristics & 0x80000000 != 0;
+            let executable = characteristics & 0x20000000 != 0;
+
+            output::SectionInfo {
+                name,
+                virtual_size: section.virtual_size,
+                virtual_address: format!("0x{:X}", section.virtual_address),
+                raw_size: section.size_of_raw_data,
+                entropy,
+                is_suspicious: entropy > 7.5,
+                is_wx: writable && executable,
+            }
+        })
+        .collect();
+
+    // Analyse imports
+    let mut suspicious_apis = Vec::new();
+    for import in &pe.imports {
+        let name = import.name.as_ref();
+        if SUSPICIOUS_APIS.contains(&name) {
+            suspicious_apis.push(output::SuspiciousAPI {
+                name: name.to_string(),
+                category: categorize_api(name).to_string(),
+            });
+        }
+    }
+
+    let imports = output::ImportAnalysis {
+        dll_count: pe.libraries.len(),
+        total_imports: pe.imports.len(),
+        suspicious_api_count: suspicious_apis.len(),
+        suspicious_apis,
+        libraries: pe.libraries.iter().map(|s| s.to_string()).collect(),
+    };
+
+    // Analyse exports
+    let exports = if !pe.exports.is_empty() {
+        let samples: Vec<output::ExportInfo> = pe
+            .exports
+            .iter()
+            .take(20)
+            .map(|export| {
+                let name = export
+                    .name
+                    .as_ref()
+                    .map(|s| s.as_ref())
+                    .unwrap_or("<unnamed>")
+                    .to_string();
+                output::ExportInfo {
+                    name,
+                    rva: format!("0x{:08X}", export.rva),
+                }
+            })
+            .collect();
+
+        Some(output::ExportAnalysis {
+            total_count: pe.exports.len(),
+            samples,
+        })
+    } else {
+        None
+    };
+
+    Ok(output::PEAnalysis {
+        architecture,
+        is_64bit: pe.is_64,
+        image_base,
+        entry_point,
+        file_type,
+        security,
+        sections,
+        imports,
+        exports,
+    })
+}
+
 /// Quick analysis for quiet mode - only report critical issues
-fn analyze_pe_quiet(pe: &PE, _data: &[u8]) -> Result<()> {
+fn analyse_pe_quiet(pe: &PE, _data: &[u8]) -> Result<()> {
     let mut warnings = Vec::new();
 
     // Check security features
@@ -474,10 +611,7 @@ mod tests {
     #[test]
     fn test_categorize_api_anti_analysis() {
         assert_eq!(categorize_api("IsDebuggerPresent"), "Anti-Analysis");
-        assert_eq!(
-            categorize_api("CheckRemoteDebuggerPresent"),
-            "Anti-Analysis"
-        );
+        assert_eq!(categorize_api("CheckRemoteDebuggerPresent"), "Anti-Analysis");
     }
 
     #[test]
@@ -494,22 +628,13 @@ mod tests {
 
     #[test]
     fn test_categorize_api_keylogging() {
-        assert_eq!(
-            categorize_api("GetAsyncKeyState"),
-            "Keylogging/Input Monitoring"
-        );
-        assert_eq!(
-            categorize_api("SetWindowsHookExA"),
-            "Keylogging/Input Monitoring"
-        );
+        assert_eq!(categorize_api("GetAsyncKeyState"), "Keylogging/Input Monitoring");
+        assert_eq!(categorize_api("SetWindowsHookExA"), "Keylogging/Input Monitoring");
     }
 
     #[test]
     fn test_categorize_api_privilege_escalation() {
-        assert_eq!(
-            categorize_api("AdjustTokenPrivileges"),
-            "Privilege Escalation"
-        );
+        assert_eq!(categorize_api("AdjustTokenPrivileges"), "Privilege Escalation");
         assert_eq!(categorize_api("OpenProcessToken"), "Privilege Escalation");
     }
 
