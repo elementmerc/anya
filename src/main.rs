@@ -19,12 +19,13 @@
 // Import necessary libraries
 use anyhow::{Context, Result}; // For better error handling
 use clap::Parser; // For parsing command-line arguments
-use colored::*; // For colored terminal output
+use colored::*; // For coloured terminal output
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs; // For file system operations
 use std::fs::OpenOptions; // For file creation and opening
 use std::io::Write; // For writing to files
 use std::path::PathBuf; // For handling file paths // For progress indicators
+use walkdir::WalkDir; // For recursive directory traversal
 
 // Hashing libraries
 use md5::{Digest, Md5};
@@ -99,7 +100,13 @@ impl OutputLevel {
 #[command(about = "Static analysis tool for suspicious files", long_about = None)]
 #[command(after_help = "EXAMPLES:
     anya --file suspicious.exe
-        Analyse a Windows executable
+        Analyse a single Windows executable
+    
+    anya --directory ./samples
+        Analyse all executables in a directory
+    
+    anya --directory ./samples --recursive
+        Recursively analyse all executables in subdirectories
     
     anya --file malware.dll --min-string-length 8
         Analyse with custom string length threshold
@@ -107,11 +114,8 @@ impl OutputLevel {
     anya --file sample.exe --json
         Output analysis as JSON
     
-    anya --file sample.exe --json --output report.json
-        Save JSON analysis to file
-    
-    anya --file sample.exe --json --output log.json --append
-        Append JSON analysis to existing file
+    anya --directory ./malware --json --output results.jsonl --append
+        Batch analyse and append all results to JSONL file
     
     anya --file sample.exe > output.txt
         Save text analysis to file (shell redirection)
@@ -119,12 +123,20 @@ impl OutputLevel {
 For more information, visit: https://github.com/elementmerc/anya
 ")]
 struct Args {
-    /// Path to the file to analyse
-    #[arg(short, long, value_name = "FILE")]
-    file: PathBuf,
+    /// Path to the file to analyse (use --directory for batch mode)
+    #[arg(short, long, value_name = "FILE", conflicts_with = "directory")]
+    file: Option<PathBuf>,
+
+    /// Analyse all files in a directory (batch mode)
+    #[arg(short, long, value_name = "DIR", conflicts_with = "file")]
+    directory: Option<PathBuf>,
+
+    /// Recursive directory traversal (requires --directory)
+    #[arg(short, long, requires = "directory")]
+    recursive: bool,
 
     /// Minimum string length to extract (default: 4)
-    #[arg(short, long, default_value_t = 4, value_name = "LENGTH")]
+    #[arg(short = 's', long, default_value_t = 4, value_name = "LENGTH")]
     min_string_length: usize,
 
     /// Output results in JSON format
@@ -348,15 +360,109 @@ fn extract_strings_data(data: &[u8], min_length: usize) -> output::StringsInfo {
     }
 }
 
+/// Summary information for batch analysis
+///
+/// **Rust Concept: Struct with Derived Traits**
+/// - `#[derive(Debug)]` - Automatically implements Debug trait (for printing with {:?})
+/// - `Default` - Provides default values (zeros and empty strings)
+#[derive(Debug, Default)]
+struct BatchSummary {
+    /// Total files scanned
+    total_files: usize,
+    
+    /// Successfully analysed files
+    analysed: usize,
+    
+    /// Files that failed to analyse
+    failed: usize,
+    
+    /// Files skipped (wrong type)
+    skipped: usize,
+    
+    /// Suspicious files detected (high entropy or many suspicious APIs)
+    suspicious: usize,
+    
+    /// Total time taken (in seconds)
+    duration: f64,
+}
+
+impl BatchSummary {
+    /// Print a formatted summary report
+    ///
+    /// **Rust Concept: Methods on Structs**
+    /// - `&self` - Borrows the struct (read-only access)
+    /// - Methods are defined in `impl` blocks
+    fn print_summary(&self) {
+        println!("\n{}", "=== Batch Analysis Summary ===".bold().cyan());
+        println!("Total files found:    {}", self.total_files);
+        println!("Successfully analysed: {}", self.analysed.to_string().green());
+        println!("Failed:               {}", if self.failed > 0 { 
+            self.failed.to_string().red() 
+        } else { 
+            self.failed.to_string().normal() 
+        });
+        println!("Skipped (wrong type): {}", self.skipped);
+        
+        if self.suspicious > 0 {
+            println!("Suspicious files:     {}", self.suspicious.to_string().red().bold());
+        }
+        
+        println!("Time taken:           {:.2}s", self.duration);
+        
+        if self.analysed > 0 {
+            let rate = self.analysed as f64 / self.duration;
+            println!("Analysis rate:        {:.1} files/sec", rate);
+        }
+    }
+}
+
+/// Checks if a file is an executable based on extension
+///
+/// **Rust Concept: Functions with Multiple Return Paths**
+/// - Early returns with `return`
+/// - Pattern matching with `match`
+/// - String methods like `to_lowercase()`
+fn is_executable_file(path: &PathBuf) -> bool {
+    // Get file extension
+    let extension = match path.extension() {
+        Some(ext) => ext.to_string_lossy().to_lowercase(),
+        None => return false,  // No extension = not executable
+    };
+    
+    // Match against known executable extensions
+    // **Rust Concept: Match with Multiple Patterns**
+    // The `|` means "or" - match any of these
+    matches!(
+        extension.as_str(),
+        "exe" | "dll" | "sys" | "ocx" | "scr" | "cpl" | // Windows
+        "elf" | "so" | "bin" |                          // Linux
+        "dylib" | "bundle" | "app"                      // macOS
+    )
+}
+
 fn main() -> Result<()> {
     // Parse command-line arguments
     let args = Args::parse();
 
+    // Validate: must provide either --file or --directory
+    if args.file.is_none() && args.directory.is_none() {
+        anyhow::bail!(
+            "Must specify either --file or --directory\n\
+             \n\
+             Examples:\n\
+             anya --file malware.exe\n\
+             anya --directory ./samples\n\
+             anya --directory ./samples --recursive"
+        );
+    }
+
     // Validate: --output currently only works with --json
-    // This is because text mode uses colored output and multiple print statements
-    // that are hard to capture. For text output to file, use shell redirection:
-    // anya --file malware.exe > output.txt
     if args.output.is_some() && !args.json {
+        let example_path = args.file.as_ref()
+            .or(args.directory.as_ref())
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "FILE".to_string());
+        
         anyhow::bail!(
             "The --output flag currently only works with --json mode.\n\
              \n\
@@ -365,8 +471,8 @@ fn main() -> Result<()> {
              \n\
              For JSON output to file:\n\
              anya --file {} --json --output report.json",
-            args.file.display(),
-            args.file.display()
+            example_path,
+            example_path
         );
     }
 
@@ -375,8 +481,7 @@ fn main() -> Result<()> {
         colored::control::set_override(false);
     }
 
-    // Automatically disable colors when writing to file
-    // Colors are ANSI escape codes that look ugly in text files
+    // Automatically disable colours when writing to file
     if args.output.is_some() {
         colored::control::set_override(false);
     }
@@ -384,19 +489,38 @@ fn main() -> Result<()> {
     // Determine output level
     let output_level = OutputLevel::from_args(args.verbose, args.quiet);
 
+    // Choose mode: single file or batch
+    if let Some(file_path) = &args.file {
+        // Single file mode
+        analyse_single_file(file_path, &args, output_level)?;
+    } else if let Some(dir_path) = &args.directory {
+        // Batch mode
+        analyse_directory(dir_path, &args, output_level)?;
+    }
+
+    Ok(())
+}
+
+/// Analyses a single file
+///
+/// **Rust Concepts Used:**
+/// - Function parameters with borrowing (`&Path`, `&Args`)
+/// - Result type for error handling
+/// - Conditional compilation with if/else
+fn analyse_single_file(file_path: &PathBuf, args: &Args, output_level: OutputLevel) -> Result<()> {
     // Check if file exists
-    if !args.file.exists() {
-        anyhow::bail!("File does not exist: {:?}", args.file);
+    if !file_path.exists() {
+        anyhow::bail!("File does not exist: {:?}", file_path);
     }
 
     // Only show banner in normal/verbose mode (never in JSON mode)
     if output_level.should_print_info() && !args.json {
         println!("{}", "=== Ányá v0.3.0 ===".bold().green());
-        println!("Analysing: {:?}\n", args.file);
+        println!("Analysing: {:?}\n", file_path);
     }
 
     // Get file size to determine if we should show progress
-    let file_size = fs::metadata(&args.file)?.len();
+    let file_size = fs::metadata(file_path)?.len();
     let is_large_file = file_size > LARGE_FILE_THRESHOLD;
 
     // Read the file into memory with optional spinner for large files
@@ -414,12 +538,12 @@ fn main() -> Result<()> {
         ));
         spinner.enable_steady_tick(std::time::Duration::from_millis(80));
 
-        let data = fs::read(&args.file).context("Failed to read file")?;
+        let data = fs::read(file_path).context("Failed to read file")?;
 
         spinner.finish_and_clear();
         data
     } else {
-        fs::read(&args.file).context("Failed to read file")?
+        fs::read(file_path).context("Failed to read file")?
     };
 
     // Calculate hashes (for both JSON and pretty output)
@@ -446,10 +570,10 @@ fn main() -> Result<()> {
     // If JSON output requested, build and print/save JSON
     if args.json {
         let file_info = output::FileInfo {
-            path: args.file.to_string_lossy().to_string(),
+            path: file_path.to_string_lossy().to_string(),
             size_bytes: file_data.len() as u64,
             size_kb: file_data.len() as f64 / 1024.0,
-            extension: args.file.extension().map(|e| e.to_string_lossy().to_string()),
+            extension: file_path.extension().map(|e| e.to_string_lossy().to_string()),
         };
 
         let result = output::AnalysisResult {
@@ -461,12 +585,10 @@ fn main() -> Result<()> {
             file_format,
         };
 
-        // Serialize to JSON (pretty-printed with indentation)
+        // Serialise to JSON (pretty-printed with indentation)
         let json = serde_json::to_string_pretty(&result)?;
         
         // Write to file or stdout using our helper function
-        // args.output.as_ref() converts Option<PathBuf> to Option<&PathBuf>
-        // This is necessary because write_output expects a reference
         write_output(&json, args.output.as_ref(), args.append)?;
         
         // If we wrote to a file, let user know
@@ -483,7 +605,7 @@ fn main() -> Result<()> {
 
     // Otherwise, pretty print output
     if output_level.should_print_info() {
-        print_file_info(&args.file, &file_data, output_level)?;
+        print_file_info(file_path, &file_data, output_level)?;
     }
 
     print_hashes(&file_data, output_level);
@@ -547,6 +669,161 @@ fn main() -> Result<()> {
         print_quiet_summary(&file_data);
     }
 
+    Ok(())
+}
+
+/// Analyses all executable files in a directory
+///
+/// **Rust Concepts:**
+/// - Iterator methods (`.filter()`, `.collect()`, `.enumerate()`)
+/// - Vectors and collecting
+/// - Timing with `std::time::Instant`
+/// - Mutable variables with `mut`
+fn analyse_directory(dir_path: &PathBuf, args: &Args, output_level: OutputLevel) -> Result<()> {
+    use std::time::Instant;
+    
+    if !dir_path.exists() {
+        anyhow::bail!("Directory does not exist: {:?}", dir_path);
+    }
+    
+    if !dir_path.is_dir() {
+        anyhow::bail!("Path is not a directory: {:?}", dir_path);
+    }
+    
+    // Banner for batch mode
+    if output_level.should_print_info() && !args.json {
+        println!("{}", "=== Ányá v0.3.0 - Batch Mode ===".bold().green());
+        println!("Scanning directory: {:?}", dir_path);
+        if args.recursive {
+            println!("Mode: Recursive");
+        } else {
+            println!("Mode: Non-recursive (current directory only)");
+        }
+        println!();
+    }
+    
+    // **Rust Concept: WalkDir Iterator**
+    // WalkDir traverses directories lazily (one file at a time)
+    // This is memory efficient - doesn't load all files at once
+    let walker = if args.recursive {
+        WalkDir::new(dir_path)
+    } else {
+        WalkDir::new(dir_path).max_depth(1)
+    };
+    
+    // **Rust Concept: Iterator Chains**
+    // We chain multiple operations: filter errors, filter files, filter executables
+    // This is lazy - only processes what's needed
+    let executable_files: Vec<PathBuf> = walker
+        .into_iter()
+        .filter_map(|e| e.ok())  // Filter out directory read errors
+        .filter(|e| e.file_type().is_file())  // Only files, not directories
+        .map(|e| e.path().to_path_buf())  // Convert to PathBuf
+        .filter(|path| is_executable_file(path))  // Only executables
+        .collect();  // Collect into a Vector
+    
+    if executable_files.is_empty() {
+        if output_level.should_print_info() {
+            println!("No executable files found in directory");
+        }
+        return Ok(());
+    }
+    
+    if output_level.should_print_info() && !args.json {
+        println!("Found {} executable files\n", executable_files.len());
+    }
+    
+    // **Rust Concept: Mutable Variables**
+    // `mut` allows us to modify the variable
+    let mut summary = BatchSummary::default();
+    summary.total_files = executable_files.len();
+    
+    // Start timing
+    let start_time = Instant::now();
+    
+    // **Rust Concept: Progress Bar with indicatif**
+    // Only show progress bar in non-JSON mode
+    let progress = if output_level.should_print_info() && !args.json {
+        let pb = ProgressBar::new(executable_files.len() as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{msg} [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) {eta}")
+                .unwrap()
+                .progress_chars("█▓▒░ "),
+        );
+        pb.set_message("Analysing files");
+        Some(pb)
+    } else {
+        None
+    };
+    
+    // **Rust Concept: Enumerate Iterator**
+    // .enumerate() gives us (index, item) pairs
+    // Useful for tracking position in iteration
+    for (idx, file_path) in executable_files.iter().enumerate() {
+        let filename = file_path.file_name().unwrap_or_default().to_string_lossy();
+        
+        // Show which file we're about to analyse in progress bar
+        if let Some(ref pb) = progress {
+            pb.set_message(format!("Analysing: {}", filename));
+        }
+        
+        // Try to analyse the file
+        // **Rust Concept: Result and match**
+        // We handle both success and failure cases
+        match analyse_single_file(file_path, args, OutputLevel::Quiet) {
+            Ok(_) => {
+                summary.analysed += 1;
+                
+                // Print one-line summary after analysis (not in JSON mode)
+                // **Rust Concept: pb.println() vs println!()**
+                // pb.println() works nicely with progress bars - prints above the bar
+                // Regular println!() would interfere with the progress bar display
+                if !args.json && output_level.should_print_info() {
+                    if let Some(ref pb) = progress {
+                        pb.println(format!("  ✓ {}", filename.green()));
+                    } else {
+                        println!("  ✓ {}", filename.green());
+                    }
+                }
+            }
+            Err(e) => {
+                summary.failed += 1;
+                
+                // Always show failures (not in JSON mode)
+                if !args.json {
+                    if let Some(ref pb) = progress {
+                        pb.println(format!("  ✗ {}: {}", filename.red(), e));
+                    } else {
+                        eprintln!("  ✗ {}: {}", filename.red(), e);
+                    }
+                }
+            }
+        }
+        
+        // Update progress bar AFTER analysis to show actual progress
+        // **Rust Concept: idx + 1 because idx is 0-based**
+        // When we finish file 0, we want to show 1/10, not 0/10
+        if let Some(ref pb) = progress {
+            pb.set_position((idx + 1) as u64);
+        }
+    }
+    
+    // Finish progress bar - keep it visible with final message
+    // **Rust Concept: Consuming the Option with if let Some(pb)**
+    // This takes ownership of pb (not a reference), so we can consume it
+    if let Some(pb) = progress {
+        pb.finish_with_message("✓ Analysis complete");
+    }
+    
+    // Calculate duration
+    summary.duration = start_time.elapsed().as_secs_f64();
+    
+    // Print summary (not in JSON mode)
+    if output_level.should_print_info() && !args.json {
+        summary.print_summary();
+    }
+    
     Ok(())
 }
 
