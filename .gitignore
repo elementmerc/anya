@@ -1,4 +1,40 @@
-/target
-config.toml
-*.toml
-!Cargo.toml
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# Coverage reports
+tarpaulin-report.html
+*.profraw
+*.profdata
+lcov.info
+coverage/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Test outputs
+/tests/fixtures/*.exe
+/tests/fixtures/*.dll
+/tests/fixtures/*.sys
+!/tests/fixtures/simple.exe
+
+# Build artifacts
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+
+# Personal additions
+*.rs.bk

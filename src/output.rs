@@ -20,7 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Complete analysis result
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisResult {
     /// File information
     pub file_info: FileInfo,
@@ -43,7 +43,7 @@ pub struct AnalysisResult {
 }
 
 /// File metadata
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileInfo {
     /// File path
     pub path: String,
@@ -60,7 +60,7 @@ pub struct FileInfo {
 }
 
 /// Cryptographic hashes
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hashes {
     /// MD5 hash (hex)
     pub md5: String,
@@ -73,7 +73,7 @@ pub struct Hashes {
 }
 
 /// Entropy analysis results
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntropyInfo {
     /// Shannon entropy value (0.0 - 8.0)
     pub value: f64,
@@ -86,7 +86,7 @@ pub struct EntropyInfo {
 }
 
 /// String extraction results
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StringsInfo {
     /// Minimum string length used
     pub min_length: usize,
@@ -102,7 +102,7 @@ pub struct StringsInfo {
 }
 
 /// PE file analysis results
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PEAnalysis {
     /// Architecture (32-bit or 64-bit)
     pub architecture: String,
@@ -134,7 +134,7 @@ pub struct PEAnalysis {
 }
 
 /// Security features status
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityFeatures {
     /// ASLR enabled
     pub aslr_enabled: bool,
@@ -144,7 +144,7 @@ pub struct SecurityFeatures {
 }
 
 /// Section information
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SectionInfo {
     /// Section name
     pub name: String,
@@ -169,7 +169,7 @@ pub struct SectionInfo {
 }
 
 /// Import analysis
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportAnalysis {
     /// Number of imported DLLs
     pub dll_count: usize,
@@ -188,7 +188,7 @@ pub struct ImportAnalysis {
 }
 
 /// Suspicious API information
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SuspiciousAPI {
     /// API name
     pub name: String,
@@ -198,7 +198,7 @@ pub struct SuspiciousAPI {
 }
 
 /// Export analysis (for DLLs)
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportAnalysis {
     /// Total number of exports
     pub total_count: usize,
@@ -208,7 +208,7 @@ pub struct ExportAnalysis {
 }
 
 /// Individual export information
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportInfo {
     /// Function name (if available)
     pub name: String,

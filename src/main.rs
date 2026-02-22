@@ -17,9 +17,11 @@
 // For commercial licensing, contact: daniel@themalwarefiles.com
 
 // Import necessary libraries
-use anya_security_core::{calculate_hashes, calculate_file_entropy, 
-                         extract_strings_data, is_executable_file, output,
-                         pe_parser, config, OutputLevel};
+use anya_security_core::{
+    is_executable_file, BatchSummary,
+    calculate_hashes, calculate_file_entropy, extract_strings_data,
+    OutputLevel, config, output, pe_parser
+};
 use anyhow::{Context, Result}; // For better error handling
 use clap::Parser; // For parsing command-line arguments
 use colored::*; // For coloured terminal output
@@ -204,71 +206,6 @@ fn write_output(content: &str, output_path: Option<&PathBuf>, append_mode: bool)
             // println! is a macro that prints to stdout
             println!("{}", content);
             Ok(())
-        }
-    }
-}
-
-/// Summary information for batch analysis
-///
-/// **Rust Concept: Struct with Derived Traits**
-/// - `#[derive(Debug)]` - Automatically implements Debug trait (for printing with {:?})
-/// - `Default` - Provides default values (zeros and empty strings)
-#[derive(Debug, Default)]
-struct BatchSummary {
-    /// Total files scanned
-    total_files: usize,
-
-    /// Successfully analysed files
-    analysed: usize,
-
-    /// Files that failed to analyse
-    failed: usize,
-
-    /// Files skipped (wrong type)
-    skipped: usize,
-
-    /// Suspicious files detected (high entropy or many suspicious APIs)
-    suspicious: usize,
-
-    /// Total time taken (in seconds)
-    duration: f64,
-}
-
-impl BatchSummary {
-    /// Print a formatted summary report
-    ///
-    /// **Rust Concept: Methods on Structs**
-    /// - `&self` - Borrows the struct (read-only access)
-    /// - Methods are defined in `impl` blocks
-    fn print_summary(&self) {
-        println!("\n{}", "=== Batch Analysis Summary ===".bold().cyan());
-        println!("Total files found:    {}", self.total_files);
-        println!(
-            "Successfully analysed: {}",
-            self.analysed.to_string().green()
-        );
-        println!(
-            "Failed:               {}",
-            if self.failed > 0 {
-                self.failed.to_string().red()
-            } else {
-                self.failed.to_string().normal()
-            }
-        );
-        println!("Skipped (wrong type): {}", self.skipped);
-
-        if self.suspicious > 0 {
-            println!(
-                "Suspicious files:     {}",
-                self.suspicious.to_string().red().bold()
-            );
-        }
-
-        println!("Time taken:           {:.2}s", self.duration);
-
-        if self.analysed > 0 {
-            let rate = self.analysed as f64 / self.duration;
-            println!("Analysis rate:        {:.1} files/sec", rate);
         }
     }
 }
