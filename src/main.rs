@@ -586,13 +586,13 @@ mod tests {
     fn test_output_level_from_args() {
         // Test normal mode (default)
         assert_eq!(OutputLevel::from_args(false, false), OutputLevel::Normal);
-        
+
         // Test verbose mode
         assert_eq!(OutputLevel::from_args(true, false), OutputLevel::Verbose);
-        
+
         // Test quiet mode
         assert_eq!(OutputLevel::from_args(false, true), OutputLevel::Quiet);
-        
+
         // Verbose takes precedence if both are set (though CLI prevents this)
         assert_eq!(OutputLevel::from_args(true, true), OutputLevel::Verbose);
     }
@@ -622,21 +622,21 @@ mod tests {
         // Empty data should have 0 entropy
         let data: Vec<u8> = vec![];
         let mut frequency = [0u64; 256];
-        
+
         for &byte in &data {
             frequency[byte as usize] += 1;
         }
-        
+
         let len = data.len() as f64;
         let mut entropy = 0.0;
-        
+
         for &count in &frequency {
             if count > 0 {
                 let probability = count as f64 / len;
                 entropy -= probability * probability.log2();
             }
         }
-        
+
         assert_eq!(entropy, 0.0);
     }
 
@@ -645,21 +645,21 @@ mod tests {
         // All same byte should have 0 entropy
         let data = vec![0u8; 1000];
         let mut frequency = [0u64; 256];
-        
+
         for &byte in &data {
             frequency[byte as usize] += 1;
         }
-        
+
         let len = data.len() as f64;
         let mut entropy = 0.0;
-        
+
         for &count in &frequency {
             if count > 0 {
                 let probability = count as f64 / len;
                 entropy -= probability * probability.log2();
             }
         }
-        
+
         assert_eq!(entropy, 0.0);
     }
 
@@ -668,21 +668,21 @@ mod tests {
         // Mixed data should have moderate entropy
         let data = vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         let mut frequency = [0u64; 256];
-        
+
         for &byte in &data {
             frequency[byte as usize] += 1;
         }
-        
+
         let len = data.len() as f64;
         let mut entropy = 0.0;
-        
+
         for &count in &frequency {
             if count > 0 {
                 let probability = count as f64 / len;
                 entropy -= probability * probability.log2();
             }
         }
-        
+
         // Should be around 3.32 bits for 10 unique values
         assert!(entropy > 3.0 && entropy < 4.0);
     }
@@ -692,21 +692,21 @@ mod tests {
         // Random-like data should have high entropy
         let data: Vec<u8> = (0..=255).collect();
         let mut frequency = [0u64; 256];
-        
+
         for &byte in &data {
             frequency[byte as usize] += 1;
         }
-        
+
         let len = data.len() as f64;
         let mut entropy = 0.0;
-        
+
         for &count in &frequency {
             if count > 0 {
                 let probability = count as f64 / len;
                 entropy -= probability * probability.log2();
             }
         }
-        
+
         // Perfect distribution of all 256 values should have entropy = 8.0
         assert!((entropy - 8.0).abs() < 0.01);
     }
@@ -714,8 +714,8 @@ mod tests {
     #[test]
     fn test_string_detection_logic() {
         // Test printable ASCII detection
-        assert!(32u8 >= 32 && 32u8 <= 126);  // Space
-        assert!(65u8 >= 32 && 65u8 <= 126);  // 'A'
+        assert!(32u8 >= 32 && 32u8 <= 126); // Space
+        assert!(65u8 >= 32 && 65u8 <= 126); // 'A'
         assert!(126u8 >= 32 && 126u8 <= 126); // '~'
         assert!(!(31u8 >= 32 && 31u8 <= 126)); // Below range
         assert!(!(127u8 >= 32 && 127u8 <= 126)); // Above range
@@ -725,11 +725,11 @@ mod tests {
     fn test_string_extraction_min_length() {
         let data = b"ABC\x00DEFGH\x00IJ\x00KLMNOPQRST";
         let min_length = 4;
-        
+
         // Count strings that meet minimum length
         let mut current_string = String::new();
         let mut valid_strings = Vec::new();
-        
+
         for &byte in data.iter() {
             if byte >= 32 && byte <= 126 {
                 current_string.push(byte as char);
@@ -740,12 +740,12 @@ mod tests {
                 current_string.clear();
             }
         }
-        
+
         // Check final string
         if current_string.len() >= min_length {
             valid_strings.push(current_string);
         }
-        
+
         assert_eq!(valid_strings.len(), 2); // "DEFGH" and "KLMNOPQRST"
         assert_eq!(valid_strings[0], "DEFGH");
         assert_eq!(valid_strings[1], "KLMNOPQRST");
@@ -756,58 +756,61 @@ mod tests {
         use md5::Md5;
         use sha1::Sha1;
         use sha2::Sha256;
-        
+
         let test_data = b"test data for hashing";
-        
+
         // MD5
         let mut hasher = Md5::new();
         hasher.update(test_data);
         let result1 = hasher.finalize();
-        
+
         let mut hasher = Md5::new();
         hasher.update(test_data);
         let result2 = hasher.finalize();
-        
+
         assert_eq!(result1, result2, "MD5 hashes should be consistent");
-        
+
         // SHA1
         let mut hasher = Sha1::new();
         hasher.update(test_data);
         let result1 = hasher.finalize();
-        
+
         let mut hasher = Sha1::new();
         hasher.update(test_data);
         let result2 = hasher.finalize();
-        
+
         assert_eq!(result1, result2, "SHA1 hashes should be consistent");
-        
+
         // SHA256
         let mut hasher = Sha256::new();
         hasher.update(test_data);
         let result1 = hasher.finalize();
-        
+
         let mut hasher = Sha256::new();
         hasher.update(test_data);
         let result2 = hasher.finalize();
-        
+
         assert_eq!(result1, result2, "SHA256 hashes should be consistent");
     }
 
     #[test]
     fn test_hash_different_data() {
         use sha2::Sha256;
-        
+
         let data1 = b"data one";
         let data2 = b"data two";
-        
+
         let mut hasher = Sha256::new();
         hasher.update(data1);
         let hash1 = hasher.finalize();
-        
+
         let mut hasher = Sha256::new();
         hasher.update(data2);
         let hash2 = hasher.finalize();
-        
-        assert_ne!(hash1, hash2, "Different data should produce different hashes");
+
+        assert_ne!(
+            hash1, hash2,
+            "Different data should produce different hashes"
+        );
     }
 }
