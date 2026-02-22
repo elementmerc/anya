@@ -536,5 +536,5 @@ For commercial licensing inquiries: daniel@themalwarefiles.com
 ---
 
 **Last Updated:** 2026-02-22  
-**Version:** 0.3.0  
+**Version:** 0.3.1  
 **Maintainer:** Daniel Iwugo

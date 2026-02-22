@@ -2,6 +2,32 @@
 
 All notable changes to Anya will be documented in this file.
 
+## [0.3.1] - 2026-02-22
+### Added
+- Production testing infrastructure (23% coverage, 75+ tests)
+- 4 practical examples (`basic_analysis`, `batch_processing`, `json_output`, `custom_config`)
+- ARCHITECTURE.md - complete technical documentation
+- CI/CD pipeline (GitHub Actions)
+- Issue templates (bug reports, features, questions)
+- New library API: `analyse_file()`, `is_suspicious_file()`, `BatchSummary`
+- Benchmark suite for performance tracking
+
+### Fixed
+- Progress bars now show accurate elapsed time and stay visible
+- String extraction progress displaying incorrectly
+- Case-insensitive API categorization in PE parser
+- Missing `Clone` derives on output structs
+
+### Improved
+- Refactored code structure (lib.rs for testable logic, main.rs for CLI)
+- Enhanced progress indicators with real-time updates
+- Better error messages and status output
+
+### Technical
+- Test coverage: 7.31% → 23.09%
+- 60+ unit tests, 15+ integration tests
+- lib.rs: 86% coverage | config.rs: 62.5% | output.rs: 85%
+
 ## [0.3.0] - 2026-02-22
 
 ### Added
