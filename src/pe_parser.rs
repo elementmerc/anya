@@ -94,14 +94,14 @@ const SUSPICIOUS_APIS: &[&str] = &[
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use anya::pe_parser;
-/// use anya::OutputLevel;
-/// use std::fs;
-///
-/// let data = fs::read("malware.exe")?;
-/// pe_parser::analyse_pe(&data, OutputLevel::Normal)?;
-/// # Ok::<(), anyhow::Error>(())
+//  ```no_run
+//  use anya::pe_parser;
+//  use anya::OutputLevel;
+//  use std::fs;
+//
+//  let data = fs::read("malware.exe")?;
+//  pe_parser::analyse_pe(&data, OutputLevel::Normal)?;
+//  # Ok::<(), anyhow::Error>(())
 /// ```
 pub fn analyse_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
     // Show spinner for large files (1MB threshold to match main.rs)

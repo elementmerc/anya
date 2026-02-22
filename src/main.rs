@@ -17,6 +17,9 @@
 // For commercial licensing, contact: daniel@themalwarefiles.com
 
 // Import necessary libraries
+use anya_security_core::{calculate_hashes, calculate_file_entropy, 
+                         extract_strings_data, is_executable_file, output,
+                         pe_parser, config, OutputLevel};
 use anyhow::{Context, Result}; // For better error handling
 use clap::Parser; // For parsing command-line arguments
 use colored::*; // For coloured terminal output
@@ -24,7 +27,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::fs; // For file system operations
 use std::fs::OpenOptions; // For file creation and opening
 use std::io::Write; // For writing to files
-use std::path::{Path, PathBuf}; // For handling file paths // For progress indicators
+use std::path::{PathBuf}; // For handling file paths // For progress indicators
 use walkdir::WalkDir; // For recursive directory traversal
 
 // Hashing libraries
@@ -34,67 +37,6 @@ use sha2::Sha256;
 
 // Goblin for file format detection
 use goblin::Object;
-
-// The PE parser module
-mod pe_parser;
-
-// Output structures for JSON
-mod output;
-
-// Configuration management
-mod config;
-
-/// Output verbosity level for controlling what information is displayed
-///
-/// This enum controls the amount of output shown to the user during analysis:
-/// - `Quiet`: Only critical warnings and errors
-/// - `Normal`: Standard analysis output (default)
-/// - `Verbose`: All available information including debug details
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum OutputLevel {
-    /// Only show warnings and errors
-    Quiet,
-    /// Standard output (default)
-    Normal,
-    /// Show everything including debug information
-    Verbose,
-}
-
-impl OutputLevel {
-    /// Creates an OutputLevel from command-line arguments
-    ///
-    /// # Arguments
-    ///
-    /// * `verbose` - Whether verbose mode is enabled
-    /// * `quiet` - Whether quiet mode is enabled
-    ///
-    /// # Returns
-    ///
-    /// The appropriate OutputLevel based on the flags
-    fn from_args(verbose: bool, quiet: bool) -> Self {
-        if verbose {
-            OutputLevel::Verbose
-        } else if quiet {
-            OutputLevel::Quiet
-        } else {
-            OutputLevel::Normal
-        }
-    }
-
-    /// Checks if informational output should be printed
-    ///
-    /// Returns `true` for Normal and Verbose modes, `false` for Quiet mode
-    pub fn should_print_info(&self) -> bool {
-        matches!(self, OutputLevel::Normal | OutputLevel::Verbose)
-    }
-
-    /// Checks if verbose/debug output should be printed
-    ///
-    /// Returns `true` only for Verbose mode
-    pub fn should_print_verbose(&self) -> bool {
-        matches!(self, OutputLevel::Verbose)
-    }
-}
 
 /// CLI structure using Clap
 #[derive(Parser, Debug)]
@@ -266,116 +208,6 @@ fn write_output(content: &str, output_path: Option<&PathBuf>, append_mode: bool)
     }
 }
 
-/// Calculate file hashes and return structured data
-fn calculate_hashes(data: &[u8]) -> output::Hashes {
-    use md5::Md5;
-    use sha1::Sha1;
-    use sha2::Sha256;
-
-    // MD5
-    let mut hasher = Md5::new();
-    hasher.update(data);
-    let md5_result = hasher.finalize();
-
-    // SHA1
-    let mut hasher = Sha1::new();
-    hasher.update(data);
-    let sha1_result = hasher.finalize();
-
-    // SHA256
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    let sha256_result = hasher.finalize();
-
-    output::Hashes {
-        md5: hex::encode(md5_result),
-        sha1: hex::encode(sha1_result),
-        sha256: hex::encode(sha256_result),
-    }
-}
-
-/// Calculate entropy and return structured data
-fn calculate_file_entropy(data: &[u8]) -> output::EntropyInfo {
-    if data.is_empty() {
-        return output::EntropyInfo {
-            value: 0.0,
-            category: "Empty file".to_string(),
-            is_suspicious: false,
-        };
-    }
-
-    let mut frequency = [0u64; 256];
-    for &byte in data {
-        frequency[byte as usize] += 1;
-    }
-
-    let len = data.len() as f64;
-    let mut entropy = 0.0;
-
-    for &count in &frequency {
-        if count > 0 {
-            let probability = count as f64 / len;
-            entropy -= probability * probability.log2();
-        }
-    }
-
-    let (category, is_suspicious) = if entropy > 7.5 {
-        ("Very high - likely encrypted or packed".to_string(), true)
-    } else if entropy > 6.5 {
-        (
-            "High - possibly compressed or obfuscated".to_string(),
-            false,
-        )
-    } else if entropy > 4.0 {
-        (
-            "Moderate - typical for compiled executables".to_string(),
-            false,
-        )
-    } else {
-        ("Low - likely plain text or simple data".to_string(), false)
-    };
-
-    output::EntropyInfo {
-        value: entropy,
-        category,
-        is_suspicious,
-    }
-}
-
-/// Extract strings and return structured data
-fn extract_strings_data(data: &[u8], min_length: usize) -> output::StringsInfo {
-    let mut current_string = String::new();
-    let mut all_strings = Vec::new();
-    const MAX_SAMPLES: usize = 50;
-
-    for &byte in data {
-        if (32..=126).contains(&byte) {
-            current_string.push(byte as char);
-        } else {
-            if current_string.len() >= min_length {
-                all_strings.push(current_string.clone());
-            }
-            current_string.clear();
-        }
-    }
-
-    // Don't forget the last string
-    if current_string.len() >= min_length {
-        all_strings.push(current_string);
-    }
-
-    let total_count = all_strings.len();
-    let samples: Vec<String> = all_strings.into_iter().take(MAX_SAMPLES).collect();
-    let sample_count = samples.len();
-
-    output::StringsInfo {
-        min_length,
-        total_count,
-        samples,
-        sample_count,
-    }
-}
-
 /// Summary information for batch analysis
 ///
 /// **Rust Concept: Struct with Derived Traits**
@@ -439,30 +271,6 @@ impl BatchSummary {
             println!("Analysis rate:        {:.1} files/sec", rate);
         }
     }
-}
-
-/// Checks if a file is an executable based on extension
-///
-/// **Rust Concept: Functions with Multiple Return Paths**
-/// - Early returns with `return`
-/// - Pattern matching with `match`
-/// - String methods like `to_lowercase()`
-fn is_executable_file(path: &Path) -> bool {
-    // Get file extension
-    let extension = match path.extension() {
-        Some(ext) => ext.to_string_lossy().to_lowercase(),
-        None => return false, // No extension = not executable
-    };
-
-    // Match against known executable extensions
-    // **Rust Concept: Match with Multiple Patterns**
-    // The `|` means "or" - match any of these
-    matches!(
-        extension.as_str(),
-        "exe" | "dll" | "sys" | "ocx" | "scr" | "cpl" | // Windows
-        "elf" | "so" | "bin" |                          // Linux
-        "dylib" | "bundle" | "app" // macOS
-    )
 }
 
 fn main() -> Result<()> {
@@ -1207,21 +1015,6 @@ fn print_quiet_summary(data: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_output_level_from_args() {
-        // Test normal mode (default)
-        assert_eq!(OutputLevel::from_args(false, false), OutputLevel::Normal);
-
-        // Test verbose mode
-        assert_eq!(OutputLevel::from_args(true, false), OutputLevel::Verbose);
-
-        // Test quiet mode
-        assert_eq!(OutputLevel::from_args(false, true), OutputLevel::Quiet);
-
-        // Verbose takes precedence if both are set (though CLI prevents this)
-        assert_eq!(OutputLevel::from_args(true, true), OutputLevel::Verbose);
-    }
 
     #[test]
     fn test_output_level_should_print_info() {
