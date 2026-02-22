@@ -23,7 +23,6 @@
 /// - File I/O with home directory
 /// - Option types for optional config values
 /// - Default trait implementation
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -36,16 +35,16 @@ use std::path::PathBuf;
 /// - `Deserialize` - Can parse from TOML/JSON
 /// - `Debug` - Can print with {:?}
 /// - `Clone` - Can be duplicated
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     /// Analysis settings
     #[serde(default)]
     pub analysis: AnalysisConfig,
-    
+
     /// Output preferences
     #[serde(default)]
     pub output: OutputConfig,
-    
+
     /// Custom suspicious APIs (overrides built-in list if provided)
     #[serde(default)]
     pub suspicious_apis: SuspiciousApiConfig,
@@ -57,11 +56,11 @@ pub struct AnalysisConfig {
     /// Minimum string length to extract (default: 4)
     #[serde(default = "default_min_string_length")]
     pub min_string_length: usize,
-    
+
     /// Entropy threshold for suspicious files (default: 7.5)
     #[serde(default = "default_entropy_threshold")]
     pub entropy_threshold: f64,
-    
+
     /// Whether to show progress bars (default: true)
     #[serde(default = "default_true")]
     pub show_progress: bool,
@@ -73,31 +72,31 @@ pub struct OutputConfig {
     /// Use coloured output (default: true)
     #[serde(default = "default_true")]
     pub use_colours: bool,
-    
+
     /// Default output format ("text" or "json")
     #[serde(default = "default_output_format")]
     pub format: String,
-    
+
     /// Verbosity level ("quiet", "normal", "verbose")
     #[serde(default = "default_verbosity")]
     pub verbosity: String,
 }
 
 /// Custom suspicious API configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SuspiciousApiConfig {
     /// Enable custom API list (if false, uses built-in list)
     #[serde(default)]
     pub enabled: bool,
-    
+
     /// Additional APIs to flag (in addition to built-in)
     #[serde(default)]
     pub additional: Vec<String>,
-    
+
     /// APIs to ignore (remove from built-in list)
     #[serde(default)]
     pub ignore: Vec<String>,
-    
+
     /// Complete custom list (replaces built-in if not empty)
     #[serde(default)]
     pub custom_list: Vec<String>,
@@ -149,27 +148,6 @@ impl Default for OutputConfig {
     }
 }
 
-impl Default for SuspiciousApiConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            additional: Vec::new(),
-            ignore: Vec::new(),
-            custom_list: Vec::new(),
-        }
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            analysis: AnalysisConfig::default(),
-            output: OutputConfig::default(),
-            suspicious_apis: SuspiciousApiConfig::default(),
-        }
-    }
-}
-
 impl Config {
     /// Get the default config file path
     ///
@@ -187,7 +165,7 @@ impl Config {
             path
         })
     }
-    
+
     /// Load configuration from file
     ///
     /// **Rust Concepts:**
@@ -196,15 +174,15 @@ impl Config {
     /// - `toml::from_str()` parses TOML
     /// - `.context()` adds helpful error messages
     pub fn load_from_file(path: &PathBuf) -> Result<Self> {
-        let contents = fs::read_to_string(path)
-            .context(format!("Failed to read config file: {:?}", path))?;
-        
-        let config: Config = toml::from_str(&contents)
-            .context("Failed to parse config file as TOML")?;
-        
+        let contents =
+            fs::read_to_string(path).context(format!("Failed to read config file: {:?}", path))?;
+
+        let config: Config =
+            toml::from_str(&contents).context("Failed to parse config file as TOML")?;
+
         Ok(config)
     }
-    
+
     /// Load config from default location, or create default if not found
     ///
     /// **Rust Concept: Fallback Pattern**
@@ -220,7 +198,7 @@ impl Config {
                 return Ok(Config::default());
             }
         };
-        
+
         if path.exists() {
             Self::load_from_file(&path)
         } else {
@@ -228,7 +206,7 @@ impl Config {
             Ok(Config::default())
         }
     }
-    
+
     /// Save configuration to file
     ///
     /// **Rust Concepts:**
@@ -238,45 +216,42 @@ impl Config {
     #[allow(dead_code)]
     pub fn save_to_file(&self, path: &PathBuf) -> Result<()> {
         // Serialise config to TOML
-        let toml_string = toml::to_string_pretty(self)
-            .context("Failed to serialise config to TOML")?;
-        
+        let toml_string =
+            toml::to_string_pretty(self).context("Failed to serialise config to TOML")?;
+
         // Create parent directory if it doesn't exist
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .context(format!("Failed to create config directory: {:?}", parent))?;
         }
-        
+
         // Write to file
-        fs::write(path, toml_string)
-            .context(format!("Failed to write config file: {:?}", path))?;
-        
+        fs::write(path, toml_string).context(format!("Failed to write config file: {:?}", path))?;
+
         Ok(())
     }
-    
+
     /// Save to default location
     #[allow(dead_code)]
     pub fn save_default(&self) -> Result<()> {
-        let path = Self::default_path()
-            .context("Could not determine config directory")?;
-        
+        let path = Self::default_path().context("Could not determine config directory")?;
+
         self.save_to_file(&path)
     }
-    
+
     /// Create a default config file with comments
     ///
     /// **Rust Concept: String Literal**
     /// - Multi-line string with `r#"..."#`
     /// - Raw string (no escape sequences)
     pub fn create_default_file() -> Result<PathBuf> {
-        let path = Self::default_path()
-            .context("Could not determine config directory")?;
-        
+        let path = Self::default_path().context("Could not determine config directory")?;
+
         // Create parent directory
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        
+
         // Default config with helpful comments
         let default_config = r#"# Ányá Configuration File
 # Located at: ~/.config/anya/config.toml (Linux/macOS)
@@ -319,7 +294,7 @@ ignore = []
 # Example: custom_list = ["CreateRemoteThread", "VirtualAllocEx"]
 custom_list = []
 "#;
-        
+
         fs::write(&path, default_config)?;
         Ok(path)
     }
@@ -328,7 +303,7 @@ custom_list = []
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_default_config() {
         let config = Config::default();
@@ -336,17 +311,17 @@ mod tests {
         assert_eq!(config.analysis.entropy_threshold, 7.5);
         assert_eq!(config.output.format, "text");
     }
-    
+
     #[test]
     fn test_config_serialisation() {
         let config = Config::default();
         let toml = toml::to_string(&config).unwrap();
-        
+
         // Should be valid TOML
         assert!(toml.contains("[analysis]"));
         assert!(toml.contains("min_string_length"));
     }
-    
+
     #[test]
     fn test_config_deserialisation() {
         let toml_str = r#"
@@ -356,12 +331,12 @@ mod tests {
             [output]
             format = "json"
         "#;
-        
+
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.analysis.min_string_length, 8);
         assert_eq!(config.output.format, "json");
     }
-    
+
     #[test]
     fn test_partial_config() {
         // Missing fields should use defaults
@@ -369,7 +344,7 @@ mod tests {
             [analysis]
             min_string_length = 10
         "#;
-        
+
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.analysis.min_string_length, 10);
         assert_eq!(config.analysis.entropy_threshold, 7.5); // Default

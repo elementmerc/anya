@@ -173,7 +173,11 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
 
     // File type
     let is_dll = pe.header.coff_header.characteristics & 0x2000 != 0;
-    let file_type = if is_dll { "DLL".to_string() } else { "EXE".to_string() };
+    let file_type = if is_dll {
+        "DLL".to_string()
+    } else {
+        "EXE".to_string()
+    };
 
     // Security features
     let security = if let Some(header) = &pe.header.optional_header {
@@ -611,7 +615,10 @@ mod tests {
     #[test]
     fn test_categorize_api_anti_analysis() {
         assert_eq!(categorize_api("IsDebuggerPresent"), "Anti-Analysis");
-        assert_eq!(categorize_api("CheckRemoteDebuggerPresent"), "Anti-Analysis");
+        assert_eq!(
+            categorize_api("CheckRemoteDebuggerPresent"),
+            "Anti-Analysis"
+        );
     }
 
     #[test]
@@ -628,13 +635,22 @@ mod tests {
 
     #[test]
     fn test_categorize_api_keylogging() {
-        assert_eq!(categorize_api("GetAsyncKeyState"), "Keylogging/Input Monitoring");
-        assert_eq!(categorize_api("SetWindowsHookExA"), "Keylogging/Input Monitoring");
+        assert_eq!(
+            categorize_api("GetAsyncKeyState"),
+            "Keylogging/Input Monitoring"
+        );
+        assert_eq!(
+            categorize_api("SetWindowsHookExA"),
+            "Keylogging/Input Monitoring"
+        );
     }
 
     #[test]
     fn test_categorize_api_privilege_escalation() {
-        assert_eq!(categorize_api("AdjustTokenPrivileges"), "Privilege Escalation");
+        assert_eq!(
+            categorize_api("AdjustTokenPrivileges"),
+            "Privilege Escalation"
+        );
         assert_eq!(categorize_api("OpenProcessToken"), "Privilege Escalation");
     }
 

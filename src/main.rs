@@ -236,25 +236,24 @@ fn write_output(content: &str, output_path: Option<&PathBuf>, append_mode: bool)
         Some(path) => {
             // OpenOptions is a builder pattern for configuring file creation
             let mut file = OpenOptions::new()
-                .write(true)      // We want to write to this file
-                .create(true)     // Create the file if it doesn't exist
-                .truncate(!append_mode)  // If NOT appending, clear existing content
-                .append(append_mode)     // If appending, add to end of file
-                .open(path)       // Actually open/create the file
+                .write(true) // We want to write to this file
+                .create(true) // Create the file if it doesn't exist
+                .truncate(!append_mode) // If NOT appending, clear existing content
+                .append(append_mode) // If appending, add to end of file
+                .open(path) // Actually open/create the file
                 .context(format!("Failed to open output file: {:?}", path))?;
-                // The ? operator: if open() fails, return the error immediately
-                // context() adds helpful error message
-            
+            // The ? operator: if open() fails, return the error immediately
+            // context() adds helpful error message
+
             // write_all() writes the entire string to the file
             // content.as_bytes() converts &str to &[u8] (bytes)
             file.write_all(content.as_bytes())
                 .context(format!("Failed to write to file: {:?}", path))?;
-            
+
             // Explicit flush ensures data is written to disk immediately
             // Without this, data might sit in a buffer
-            file.flush()
-                .context("Failed to flush file buffer")?;
-            
+            file.flush().context("Failed to flush file buffer")?;
+
             // Success! Return Ok(()) which is Rust's way of saying "no errors"
             Ok(())
         }
@@ -323,9 +322,15 @@ fn calculate_file_entropy(data: &[u8]) -> output::EntropyInfo {
     let (category, is_suspicious) = if entropy > 7.5 {
         ("Very high - likely encrypted or packed".to_string(), true)
     } else if entropy > 6.5 {
-        ("High - possibly compressed or obfuscated".to_string(), false)
+        (
+            "High - possibly compressed or obfuscated".to_string(),
+            false,
+        )
     } else if entropy > 4.0 {
-        ("Moderate - typical for compiled executables".to_string(), false)
+        (
+            "Moderate - typical for compiled executables".to_string(),
+            false,
+        )
     } else {
         ("Low - likely plain text or simple data".to_string(), false)
     };
@@ -344,7 +349,7 @@ fn extract_strings_data(data: &[u8], min_length: usize) -> output::StringsInfo {
     const MAX_SAMPLES: usize = 50;
 
     for &byte in data {
-        if byte >= 32 && byte <= 126 {
+        if (32..=126).contains(&byte) {
             current_string.push(byte as char);
         } else {
             if current_string.len() >= min_length {
@@ -380,19 +385,19 @@ fn extract_strings_data(data: &[u8], min_length: usize) -> output::StringsInfo {
 struct BatchSummary {
     /// Total files scanned
     total_files: usize,
-    
+
     /// Successfully analysed files
     analysed: usize,
-    
+
     /// Files that failed to analyse
     failed: usize,
-    
+
     /// Files skipped (wrong type)
     skipped: usize,
-    
+
     /// Suspicious files detected (high entropy or many suspicious APIs)
     suspicious: usize,
-    
+
     /// Total time taken (in seconds)
     duration: f64,
 }
@@ -406,20 +411,29 @@ impl BatchSummary {
     fn print_summary(&self) {
         println!("\n{}", "=== Batch Analysis Summary ===".bold().cyan());
         println!("Total files found:    {}", self.total_files);
-        println!("Successfully analysed: {}", self.analysed.to_string().green());
-        println!("Failed:               {}", if self.failed > 0 { 
-            self.failed.to_string().red() 
-        } else { 
-            self.failed.to_string().normal() 
-        });
+        println!(
+            "Successfully analysed: {}",
+            self.analysed.to_string().green()
+        );
+        println!(
+            "Failed:               {}",
+            if self.failed > 0 {
+                self.failed.to_string().red()
+            } else {
+                self.failed.to_string().normal()
+            }
+        );
         println!("Skipped (wrong type): {}", self.skipped);
-        
+
         if self.suspicious > 0 {
-            println!("Suspicious files:     {}", self.suspicious.to_string().red().bold());
+            println!(
+                "Suspicious files:     {}",
+                self.suspicious.to_string().red().bold()
+            );
         }
-        
+
         println!("Time taken:           {:.2}s", self.duration);
-        
+
         if self.analysed > 0 {
             let rate = self.analysed as f64 / self.duration;
             println!("Analysis rate:        {:.1} files/sec", rate);
@@ -437,9 +451,9 @@ fn is_executable_file(path: &PathBuf) -> bool {
     // Get file extension
     let extension = match path.extension() {
         Some(ext) => ext.to_string_lossy().to_lowercase(),
-        None => return false,  // No extension = not executable
+        None => return false, // No extension = not executable
     };
-    
+
     // Match against known executable extensions
     // **Rust Concept: Match with Multiple Patterns**
     // The `|` means "or" - match any of these
@@ -447,7 +461,7 @@ fn is_executable_file(path: &PathBuf) -> bool {
         extension.as_str(),
         "exe" | "dll" | "sys" | "ocx" | "scr" | "cpl" | // Windows
         "elf" | "so" | "bin" |                          // Linux
-        "dylib" | "bundle" | "app"                      // macOS
+        "dylib" | "bundle" | "app" // macOS
     )
 }
 
@@ -477,12 +491,14 @@ fn main() -> Result<()> {
         // Try to load from default location, use defaults if not found
         config::Config::load_or_default()?
     };
-    
+
     // Merge CLI arguments with config
     // **Rust Concept: Option::unwrap_or()**
     // If CLI arg is Some(value), use it; otherwise use config value
-    let min_string_length = args.min_string_length.unwrap_or(config.analysis.min_string_length);
-    
+    let min_string_length = args
+        .min_string_length
+        .unwrap_or(config.analysis.min_string_length);
+
     // Apply colour settings from config unless CLI overrides
     let use_colours = if args.no_color {
         false
@@ -504,11 +520,13 @@ fn main() -> Result<()> {
 
     // Validate: --output currently only works with --json
     if args.output.is_some() && !args.json {
-        let example_path = args.file.as_ref()
+        let example_path = args
+            .file
+            .as_ref()
             .or(args.directory.as_ref())
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "FILE".to_string());
-        
+
         anyhow::bail!(
             "The --output flag currently only works with --json mode.\n\
              \n\
@@ -601,14 +619,14 @@ fn analyse_single_file(
 
     // Calculate hashes (for both JSON and pretty output)
     let hashes = calculate_hashes(&file_data);
-    
+
     // Calculate entropy (for both JSON and pretty output)
     let entropy_data = calculate_file_entropy(&file_data);
-    
+
     // Extract strings (for both JSON and pretty output)
     // Using merged config value (CLI overrides config file)
     let strings_data = extract_strings_data(&file_data, min_string_length);
-    
+
     // Determine file format and analyse
     let (file_format, pe_data) = match Object::parse(&file_data) {
         Ok(Object::PE(_pe)) => {
@@ -627,7 +645,9 @@ fn analyse_single_file(
             path: file_path.to_string_lossy().to_string(),
             size_bytes: file_data.len() as u64,
             size_kb: file_data.len() as f64 / 1024.0,
-            extension: file_path.extension().map(|e| e.to_string_lossy().to_string()),
+            extension: file_path
+                .extension()
+                .map(|e| e.to_string_lossy().to_string()),
         };
 
         let result = output::AnalysisResult {
@@ -641,10 +661,10 @@ fn analyse_single_file(
 
         // Serialise to JSON (pretty-printed with indentation)
         let json = serde_json::to_string_pretty(&result)?;
-        
+
         // Write to file or stdout using our helper function
         write_output(&json, args.output.as_ref(), args.append)?;
-        
+
         // If we wrote to a file, let user know
         if let Some(path) = &args.output {
             if args.append {
@@ -653,7 +673,7 @@ fn analyse_single_file(
                 eprintln!("✓ JSON written to: {:?}", path);
             }
         }
-        
+
         return Ok(());
     }
 
@@ -740,15 +760,15 @@ fn analyse_directory(
     min_string_length: usize,
 ) -> Result<()> {
     use std::time::Instant;
-    
+
     if !dir_path.exists() {
         anyhow::bail!("Directory does not exist: {:?}", dir_path);
     }
-    
+
     if !dir_path.is_dir() {
         anyhow::bail!("Path is not a directory: {:?}", dir_path);
     }
-    
+
     // Banner for batch mode
     if output_level.should_print_info() && !args.json {
         println!("{}", "=== Ányá v0.3.0 - Batch Mode ===".bold().green());
@@ -760,7 +780,7 @@ fn analyse_directory(
         }
         println!();
     }
-    
+
     // **Rust Concept: WalkDir Iterator**
     // WalkDir traverses directories lazily (one file at a time)
     // This is memory efficient - doesn't load all files at once
@@ -769,37 +789,37 @@ fn analyse_directory(
     } else {
         WalkDir::new(dir_path).max_depth(1)
     };
-    
+
     // **Rust Concept: Iterator Chains**
     // We chain multiple operations: filter errors, filter files, filter executables
     // This is lazy - only processes what's needed
     let executable_files: Vec<PathBuf> = walker
         .into_iter()
-        .filter_map(|e| e.ok())  // Filter out directory read errors
-        .filter(|e| e.file_type().is_file())  // Only files, not directories
-        .map(|e| e.path().to_path_buf())  // Convert to PathBuf
-        .filter(|path| is_executable_file(path))  // Only executables
-        .collect();  // Collect into a Vector
-    
+        .filter_map(|e| e.ok()) // Filter out directory read errors
+        .filter(|e| e.file_type().is_file()) // Only files, not directories
+        .map(|e| e.path().to_path_buf()) // Convert to PathBuf
+        .filter(is_executable_file) // Only executables
+        .collect(); // Collect into a Vector
+
     if executable_files.is_empty() {
         if output_level.should_print_info() {
             println!("No executable files found in directory");
         }
         return Ok(());
     }
-    
+
     if output_level.should_print_info() && !args.json {
         println!("Found {} executable files\n", executable_files.len());
     }
-    
+
     // **Rust Concept: Mutable Variables**
     // `mut` allows us to modify the variable
     let mut summary = BatchSummary::default();
     summary.total_files = executable_files.len();
-    
+
     // Start timing
     let start_time = Instant::now();
-    
+
     // **Rust Concept: Progress Bar with indicatif**
     // Only show progress bar in non-JSON mode
     let progress = if output_level.should_print_info() && !args.json {
@@ -815,25 +835,25 @@ fn analyse_directory(
     } else {
         None
     };
-    
+
     // **Rust Concept: Enumerate Iterator**
     // .enumerate() gives us (index, item) pairs
     // Useful for tracking position in iteration
     for (idx, file_path) in executable_files.iter().enumerate() {
         let filename = file_path.file_name().unwrap_or_default().to_string_lossy();
-        
+
         // Show which file we're about to analyse in progress bar
         if let Some(ref pb) = progress {
             pb.set_message(format!("Analysing: {}", filename));
         }
-        
+
         // Try to analyse the file
         // **Rust Concept: Result and match**
         // We handle both success and failure cases
         match analyse_single_file(file_path, args, OutputLevel::Quiet, min_string_length) {
             Ok(_) => {
                 summary.analysed += 1;
-                
+
                 // Print one-line summary after analysis (not in JSON mode)
                 // **Rust Concept: pb.println() vs println!()**
                 // pb.println() works nicely with progress bars - prints above the bar
@@ -848,7 +868,7 @@ fn analyse_directory(
             }
             Err(e) => {
                 summary.failed += 1;
-                
+
                 // Always show failures (not in JSON mode)
                 if !args.json {
                     if let Some(ref pb) = progress {
@@ -859,7 +879,7 @@ fn analyse_directory(
                 }
             }
         }
-        
+
         // Update progress bar AFTER analysis to show actual progress
         // **Rust Concept: idx + 1 because idx is 0-based**
         // When we finish file 0, we want to show 1/10, not 0/10
@@ -867,22 +887,22 @@ fn analyse_directory(
             pb.set_position((idx + 1) as u64);
         }
     }
-    
+
     // Finish progress bar - keep it visible with final message
     // **Rust Concept: Consuming the Option with if let Some(pb)**
     // This takes ownership of pb (not a reference), so we can consume it
     if let Some(pb) = progress {
         pb.finish_with_message("✓ Analysis complete");
     }
-    
+
     // Calculate duration
     summary.duration = start_time.elapsed().as_secs_f64();
-    
+
     // Print summary (not in JSON mode)
     if output_level.should_print_info() && !args.json {
         summary.print_summary();
     }
-    
+
     Ok(())
 }
 
@@ -1190,13 +1210,13 @@ mod tests {
     fn test_output_level_from_args() {
         // Test normal mode (default)
         assert_eq!(OutputLevel::from_args(false, false), OutputLevel::Normal);
-        
+
         // Test verbose mode
         assert_eq!(OutputLevel::from_args(true, false), OutputLevel::Verbose);
-        
+
         // Test quiet mode
         assert_eq!(OutputLevel::from_args(false, true), OutputLevel::Quiet);
-        
+
         // Verbose takes precedence if both are set (though CLI prevents this)
         assert_eq!(OutputLevel::from_args(true, true), OutputLevel::Verbose);
     }
@@ -1226,21 +1246,21 @@ mod tests {
         // Empty data should have 0 entropy
         let data: Vec<u8> = vec![];
         let mut frequency = [0u64; 256];
-        
+
         for &byte in &data {
             frequency[byte as usize] += 1;
         }
-        
+
         let len = data.len() as f64;
         let mut entropy = 0.0;
-        
+
         for &count in &frequency {
             if count > 0 {
                 let probability = count as f64 / len;
                 entropy -= probability * probability.log2();
             }
         }
-        
+
         assert_eq!(entropy, 0.0);
     }
 
@@ -1249,21 +1269,21 @@ mod tests {
         // All same byte should have 0 entropy
         let data = vec![0u8; 1000];
         let mut frequency = [0u64; 256];
-        
+
         for &byte in &data {
             frequency[byte as usize] += 1;
         }
-        
+
         let len = data.len() as f64;
         let mut entropy = 0.0;
-        
+
         for &count in &frequency {
             if count > 0 {
                 let probability = count as f64 / len;
                 entropy -= probability * probability.log2();
             }
         }
-        
+
         assert_eq!(entropy, 0.0);
     }
 
@@ -1272,21 +1292,21 @@ mod tests {
         // Mixed data should have moderate entropy
         let data = vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         let mut frequency = [0u64; 256];
-        
+
         for &byte in &data {
             frequency[byte as usize] += 1;
         }
-        
+
         let len = data.len() as f64;
         let mut entropy = 0.0;
-        
+
         for &count in &frequency {
             if count > 0 {
                 let probability = count as f64 / len;
                 entropy -= probability * probability.log2();
             }
         }
-        
+
         // Should be around 3.32 bits for 10 unique values
         assert!(entropy > 3.0 && entropy < 4.0);
     }
@@ -1296,21 +1316,21 @@ mod tests {
         // Random-like data should have high entropy
         let data: Vec<u8> = (0..=255).collect();
         let mut frequency = [0u64; 256];
-        
+
         for &byte in &data {
             frequency[byte as usize] += 1;
         }
-        
+
         let len = data.len() as f64;
         let mut entropy = 0.0;
-        
+
         for &count in &frequency {
             if count > 0 {
                 let probability = count as f64 / len;
                 entropy -= probability * probability.log2();
             }
         }
-        
+
         // Perfect distribution of all 256 values should have entropy = 8.0
         assert!((entropy - 8.0).abs() < 0.01);
     }
@@ -1318,8 +1338,8 @@ mod tests {
     #[test]
     fn test_string_detection_logic() {
         // Test printable ASCII detection
-        assert!(32u8 >= 32 && 32u8 <= 126);  // Space
-        assert!(65u8 >= 32 && 65u8 <= 126);  // 'A'
+        assert!(32u8 >= 32 && 32u8 <= 126); // Space
+        assert!(65u8 >= 32 && 65u8 <= 126); // 'A'
         assert!(126u8 >= 32 && 126u8 <= 126); // '~'
         assert!(!(31u8 >= 32 && 31u8 <= 126)); // Below range
         assert!(!(127u8 >= 32 && 127u8 <= 126)); // Above range
@@ -1329,11 +1349,11 @@ mod tests {
     fn test_string_extraction_min_length() {
         let data = b"ABC\x00DEFGH\x00IJ\x00KLMNOPQRST";
         let min_length = 4;
-        
+
         // Count strings that meet minimum length
         let mut current_string = String::new();
         let mut valid_strings = Vec::new();
-        
+
         for &byte in data.iter() {
             if byte >= 32 && byte <= 126 {
                 current_string.push(byte as char);
@@ -1344,12 +1364,12 @@ mod tests {
                 current_string.clear();
             }
         }
-        
+
         // Check final string
         if current_string.len() >= min_length {
             valid_strings.push(current_string);
         }
-        
+
         assert_eq!(valid_strings.len(), 2); // "DEFGH" and "KLMNOPQRST"
         assert_eq!(valid_strings[0], "DEFGH");
         assert_eq!(valid_strings[1], "KLMNOPQRST");
@@ -1360,58 +1380,61 @@ mod tests {
         use md5::Md5;
         use sha1::Sha1;
         use sha2::Sha256;
-        
+
         let test_data = b"test data for hashing";
-        
+
         // MD5
         let mut hasher = Md5::new();
         hasher.update(test_data);
         let result1 = hasher.finalize();
-        
+
         let mut hasher = Md5::new();
         hasher.update(test_data);
         let result2 = hasher.finalize();
-        
+
         assert_eq!(result1, result2, "MD5 hashes should be consistent");
-        
+
         // SHA1
         let mut hasher = Sha1::new();
         hasher.update(test_data);
         let result1 = hasher.finalize();
-        
+
         let mut hasher = Sha1::new();
         hasher.update(test_data);
         let result2 = hasher.finalize();
-        
+
         assert_eq!(result1, result2, "SHA1 hashes should be consistent");
-        
+
         // SHA256
         let mut hasher = Sha256::new();
         hasher.update(test_data);
         let result1 = hasher.finalize();
-        
+
         let mut hasher = Sha256::new();
         hasher.update(test_data);
         let result2 = hasher.finalize();
-        
+
         assert_eq!(result1, result2, "SHA256 hashes should be consistent");
     }
 
     #[test]
     fn test_hash_different_data() {
         use sha2::Sha256;
-        
+
         let data1 = b"data one";
         let data2 = b"data two";
-        
+
         let mut hasher = Sha256::new();
         hasher.update(data1);
         let hash1 = hasher.finalize();
-        
+
         let mut hasher = Sha256::new();
         hasher.update(data2);
         let hash2 = hasher.finalize();
-        
-        assert_ne!(hash1, hash2, "Different data should produce different hashes");
+
+        assert_ne!(
+            hash1, hash2,
+            "Different data should produce different hashes"
+        );
     }
 }
