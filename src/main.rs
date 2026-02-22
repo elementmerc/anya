@@ -22,7 +22,7 @@ use clap::Parser; // For parsing command-line arguments
 use colored::*; // For colored terminal output
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs; // For file system operations
-use std::fs::{File, OpenOptions}; // For file creation and opening
+use std::fs::OpenOptions; // For file creation and opening
 use std::io::Write; // For writing to files
 use std::path::PathBuf; // For handling file paths // For progress indicators
 
