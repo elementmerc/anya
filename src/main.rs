@@ -24,7 +24,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::fs; // For file system operations
 use std::fs::OpenOptions; // For file creation and opening
 use std::io::Write; // For writing to files
-use std::path::PathBuf; // For handling file paths // For progress indicators
+use std::path::{Path, PathBuf}; // For handling file paths // For progress indicators
 use walkdir::WalkDir; // For recursive directory traversal
 
 // Hashing libraries
@@ -447,7 +447,7 @@ impl BatchSummary {
 /// - Early returns with `return`
 /// - Pattern matching with `match`
 /// - String methods like `to_lowercase()`
-fn is_executable_file(path: &PathBuf) -> bool {
+fn is_executable_file(path: &Path) -> bool {
     // Get file extension
     let extension = match path.extension() {
         Some(ext) => ext.to_string_lossy().to_lowercase(),
@@ -798,7 +798,7 @@ fn analyse_directory(
         .filter_map(|e| e.ok()) // Filter out directory read errors
         .filter(|e| e.file_type().is_file()) // Only files, not directories
         .map(|e| e.path().to_path_buf()) // Convert to PathBuf
-        .filter(is_executable_file) // Only executables
+        .filter(|path| is_executable_file(path)) // Only executables
         .collect(); // Collect into a Vector
 
     if executable_files.is_empty() {
@@ -814,8 +814,10 @@ fn analyse_directory(
 
     // **Rust Concept: Mutable Variables**
     // `mut` allows us to modify the variable
-    let mut summary = BatchSummary::default();
-    summary.total_files = executable_files.len();
+    let mut summary = BatchSummary {
+        total_files: executable_files.len(),
+        ..Default::default()
+    };
 
     // Start timing
     let start_time = Instant::now();
