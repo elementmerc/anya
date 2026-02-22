@@ -17,7 +17,7 @@ Anya (meaning "eye" in Igbo) performs static analysis on binary files to identif
 
 **Via Cargo:**
 ```bash
-cargo install anya
+cargo install anya-security-core
 ```
 
 **Pre-built binaries:**
