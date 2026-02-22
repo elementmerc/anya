@@ -1,6 +1,6 @@
 [package]
 name = "anya-security-core"
-version = "0.3.0"
+version = "0.2.0"
 edition = "2024"
 authors = ["Daniel Iwugo <daniel@themalwarefiles.com>"]
 license = "AGPL-3.0-or-later"
@@ -42,3 +42,9 @@ serde_json = "1.0"
 
 # For directory traversal
 walkdir = "2.5"
+
+# For TOML configuration files
+toml = "0.8"
+
+# For finding user's home directory
+dirs = "5.0"
