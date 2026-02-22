@@ -17,28 +17,27 @@
 // For commercial licensing, contact: daniel@themalwarefiles.com
 
 /// JSON output structures for machine-readable analysis results
-
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Complete analysis result
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AnalysisResult {
     /// File information
     pub file_info: FileInfo,
-    
+
     /// Cryptographic hashes
     pub hashes: Hashes,
-    
+
     /// Entropy analysis
     pub entropy: EntropyInfo,
-    
+
     /// Extracted strings (limited to first N)
     pub strings: StringsInfo,
-    
+
     /// PE-specific analysis (if applicable)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pe_analysis: Option<PEAnalysis>,
-    
+
     /// File format type
     pub file_format: String,
 }
@@ -48,13 +47,13 @@ pub struct AnalysisResult {
 pub struct FileInfo {
     /// File path
     pub path: String,
-    
+
     /// File size in bytes
     pub size_bytes: u64,
-    
+
     /// File size in KB
     pub size_kb: f64,
-    
+
     /// File extension if any
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extension: Option<String>,
@@ -65,10 +64,10 @@ pub struct FileInfo {
 pub struct Hashes {
     /// MD5 hash (hex)
     pub md5: String,
-    
+
     /// SHA1 hash (hex)
     pub sha1: String,
-    
+
     /// SHA256 hash (hex)
     pub sha256: String,
 }
@@ -78,10 +77,10 @@ pub struct Hashes {
 pub struct EntropyInfo {
     /// Shannon entropy value (0.0 - 8.0)
     pub value: f64,
-    
+
     /// Interpretation category
     pub category: String,
-    
+
     /// Is suspicious (> 7.5)
     pub is_suspicious: bool,
 }
@@ -91,13 +90,13 @@ pub struct EntropyInfo {
 pub struct StringsInfo {
     /// Minimum string length used
     pub min_length: usize,
-    
+
     /// Total count of strings found
     pub total_count: usize,
-    
+
     /// Sample of extracted strings (limited)
     pub samples: Vec<String>,
-    
+
     /// Number of samples shown
     pub sample_count: usize,
 }
@@ -107,28 +106,28 @@ pub struct StringsInfo {
 pub struct PEAnalysis {
     /// Architecture (32-bit or 64-bit)
     pub architecture: String,
-    
+
     /// Is 64-bit
     pub is_64bit: bool,
-    
+
     /// Image base address
     pub image_base: String,
-    
+
     /// Entry point address
     pub entry_point: String,
-    
+
     /// File type (EXE or DLL)
     pub file_type: String,
-    
+
     /// Security features
     pub security: SecurityFeatures,
-    
+
     /// Section analysis
     pub sections: Vec<SectionInfo>,
-    
+
     /// Import analysis
     pub imports: ImportAnalysis,
-    
+
     /// Export analysis (if any)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<ExportAnalysis>,
@@ -139,7 +138,7 @@ pub struct PEAnalysis {
 pub struct SecurityFeatures {
     /// ASLR enabled
     pub aslr_enabled: bool,
-    
+
     /// DEP/NX enabled
     pub dep_enabled: bool,
 }
@@ -149,22 +148,22 @@ pub struct SecurityFeatures {
 pub struct SectionInfo {
     /// Section name
     pub name: String,
-    
+
     /// Virtual size
     pub virtual_size: u32,
-    
+
     /// Virtual address
     pub virtual_address: String,
-    
+
     /// Raw size
     pub raw_size: u32,
-    
+
     /// Shannon entropy
     pub entropy: f64,
-    
+
     /// Is suspicious (high entropy)
     pub is_suspicious: bool,
-    
+
     /// Is writable and executable
     pub is_wx: bool,
 }
@@ -174,16 +173,16 @@ pub struct SectionInfo {
 pub struct ImportAnalysis {
     /// Number of imported DLLs
     pub dll_count: usize,
-    
+
     /// Total number of imports
     pub total_imports: usize,
-    
+
     /// Number of suspicious APIs detected
     pub suspicious_api_count: usize,
-    
+
     /// List of suspicious APIs found
     pub suspicious_apis: Vec<SuspiciousAPI>,
-    
+
     /// List of imported libraries
     pub libraries: Vec<String>,
 }
@@ -193,7 +192,7 @@ pub struct ImportAnalysis {
 pub struct SuspiciousAPI {
     /// API name
     pub name: String,
-    
+
     /// Category (e.g., "Code Injection", "Anti-Analysis")
     pub category: String,
 }
@@ -203,7 +202,7 @@ pub struct SuspiciousAPI {
 pub struct ExportAnalysis {
     /// Total number of exports
     pub total_count: usize,
-    
+
     /// Sample of exported functions
     pub samples: Vec<ExportInfo>,
 }
@@ -213,7 +212,7 @@ pub struct ExportAnalysis {
 pub struct ExportInfo {
     /// Function name (if available)
     pub name: String,
-    
+
     /// RVA (Relative Virtual Address)
     pub rva: String,
 }
@@ -234,7 +233,8 @@ mod tests {
             hashes: Hashes {
                 md5: "d41d8cd98f00b204e9800998ecf8427e".to_string(),
                 sha1: "da39a3ee5e6b4b0d3255bfef95601890afd80709".to_string(),
-                sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
+                sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                    .to_string(),
             },
             entropy: EntropyInfo {
                 value: 7.8,
@@ -308,11 +308,7 @@ mod tests {
         let strings = StringsInfo {
             min_length: 4,
             total_count: 42,
-            samples: vec![
-                "Hello".to_string(),
-                "World".to_string(),
-                "Test".to_string(),
-            ],
+            samples: vec!["Hello".to_string(), "World".to_string(), "Test".to_string()],
             sample_count: 3,
         };
 
@@ -331,7 +327,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&security).unwrap();
-        
+
         // Parse back to verify structure
         let parsed: SecurityFeatures = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.aslr_enabled, true);
@@ -374,12 +370,10 @@ mod tests {
             dll_count: 5,
             total_imports: 42,
             suspicious_api_count: 3,
-            suspicious_apis: vec![
-                SuspiciousAPI {
-                    name: "VirtualAllocEx".to_string(),
-                    category: "Code Injection".to_string(),
-                },
-            ],
+            suspicious_apis: vec![SuspiciousAPI {
+                name: "VirtualAllocEx".to_string(),
+                category: "Code Injection".to_string(),
+            }],
             libraries: vec!["kernel32.dll".to_string(), "ntdll.dll".to_string()],
         };
 
@@ -426,7 +420,7 @@ mod tests {
                 path: "test.bin".to_string(),
                 size_bytes: 100,
                 size_kb: 0.1,
-                extension: None,  // Should be omitted
+                extension: None, // Should be omitted
             },
             hashes: Hashes {
                 md5: "test".to_string(),
@@ -444,7 +438,7 @@ mod tests {
                 samples: vec![],
                 sample_count: 0,
             },
-            pe_analysis: None,  // Should be omitted
+            pe_analysis: None, // Should be omitted
             file_format: "Unknown".to_string(),
         };
 
@@ -479,7 +473,7 @@ mod tests {
         };
 
         let pretty = serde_json::to_string_pretty(&hashes).unwrap();
-        
+
         // Should have newlines and indentation
         assert!(pretty.contains('\n'));
         assert!(pretty.lines().count() > 1);
