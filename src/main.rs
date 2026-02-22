@@ -22,6 +22,8 @@ use clap::Parser; // For parsing command-line arguments
 use colored::*; // For colored terminal output
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs; // For file system operations
+use std::fs::{File, OpenOptions}; // For file creation and opening
+use std::io::Write; // For writing to files
 use std::path::PathBuf; // For handling file paths // For progress indicators
 
 // Hashing libraries
@@ -34,6 +36,9 @@ use goblin::Object;
 
 // The PE parser module
 mod pe_parser;
+
+// Output structures for JSON
+mod output;
 
 /// Output verbosity level for controlling what information is displayed
 ///
@@ -94,18 +99,27 @@ impl OutputLevel {
 #[command(about = "Static analysis tool for suspicious files", long_about = None)]
 #[command(after_help = "EXAMPLES:
     anya --file suspicious.exe
-        Analyze a Windows executable
+        Analyse a Windows executable
     
     anya --file malware.dll --min-string-length 8
-        Analyze with custom string length threshold
+        Analyse with custom string length threshold
     
-    anya --file sample.exe --json > report.json
-        Export results as JSON
+    anya --file sample.exe --json
+        Output analysis as JSON
+    
+    anya --file sample.exe --json --output report.json
+        Save JSON analysis to file
+    
+    anya --file sample.exe --json --output log.json --append
+        Append JSON analysis to existing file
+    
+    anya --file sample.exe > output.txt
+        Save text analysis to file (shell redirection)
 
 For more information, visit: https://github.com/elementmerc/anya
 ")]
 struct Args {
-    /// Path to the file to analyze
+    /// Path to the file to analyse
     #[arg(short, long, value_name = "FILE")]
     file: PathBuf,
 
@@ -132,6 +146,10 @@ struct Args {
     /// Disable colored output
     #[arg(long)]
     no_color: bool,
+
+    /// Append to output file instead of overwriting (requires --output)
+    #[arg(short, long, requires = "output")]
+    append: bool,
 }
 
 /// Creates a styled progress bar for tracking long-running operations
@@ -143,7 +161,7 @@ struct Args {
 ///
 /// # Returns
 ///
-/// A `ProgressBar` with cyan/blue styling
+/// A configured `ProgressBar` with cyan/blue styling
 fn create_progress_bar(len: u64, message: &str) -> ProgressBar {
     let pb = ProgressBar::new(len);
     pb.set_style(
@@ -163,12 +181,203 @@ fn create_progress_bar(len: u64, message: &str) -> ProgressBar {
 /// for operations that may take several seconds on large files.
 const LARGE_FILE_THRESHOLD: u64 = 1024 * 1024; // 1 MB
 
+/// Writes output to either stdout or a file
+///
+/// # Rust Concepts Used:
+/// - `Option<&PathBuf>` - A reference to an optional file path
+/// - `&str` - A string slice (borrowed string data)
+/// - `Result<()>` - Either success (Ok(())) or an error
+/// - `if let Some(path)` - Pattern matching on Option
+///
+/// # Arguments
+///
+/// * `content` - The text to write (borrowed as &str)
+/// * `output_path` - Optional file path (None = stdout)
+/// * `append_mode` - If true, append to file instead of overwriting
+///
+/// # Returns
+///
+/// Returns Ok(()) on success, or an error if writing fails
+///
+/// # Example
+///
+/// ```no_run
+/// write_output("Hello", None, false)?;  // Prints to screen
+/// write_output("Hello", Some(&path), false)?;  // Writes to file
+/// write_output("World", Some(&path), true)?;   // Appends to file
+/// ```
+fn write_output(content: &str, output_path: Option<&PathBuf>, append_mode: bool) -> Result<()> {
+    // Pattern matching on Option: is there a file path or not?
+    match output_path {
+        // Some(path) means user provided --output flag
+        Some(path) => {
+            // OpenOptions is a builder pattern for configuring file creation
+            let mut file = OpenOptions::new()
+                .write(true)      // We want to write to this file
+                .create(true)     // Create the file if it doesn't exist
+                .truncate(!append_mode)  // If NOT appending, clear existing content
+                .append(append_mode)     // If appending, add to end of file
+                .open(path)       // Actually open/create the file
+                .context(format!("Failed to open output file: {:?}", path))?;
+                // The ? operator: if open() fails, return the error immediately
+                // context() adds helpful error message
+            
+            // write_all() writes the entire string to the file
+            // content.as_bytes() converts &str to &[u8] (bytes)
+            file.write_all(content.as_bytes())
+                .context(format!("Failed to write to file: {:?}", path))?;
+            
+            // Explicit flush ensures data is written to disk immediately
+            // Without this, data might sit in a buffer
+            file.flush()
+                .context("Failed to flush file buffer")?;
+            
+            // Success! Return Ok(()) which is Rust's way of saying "no errors"
+            Ok(())
+        }
+        // None means user didn't provide --output, so print to screen
+        None => {
+            // println! is a macro that prints to stdout
+            println!("{}", content);
+            Ok(())
+        }
+    }
+}
+
+/// Calculate file hashes and return structured data
+fn calculate_hashes(data: &[u8]) -> output::Hashes {
+    use md5::Md5;
+    use sha1::Sha1;
+    use sha2::Sha256;
+
+    // MD5
+    let mut hasher = Md5::new();
+    hasher.update(data);
+    let md5_result = hasher.finalize();
+
+    // SHA1
+    let mut hasher = Sha1::new();
+    hasher.update(data);
+    let sha1_result = hasher.finalize();
+
+    // SHA256
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let sha256_result = hasher.finalize();
+
+    output::Hashes {
+        md5: hex::encode(md5_result),
+        sha1: hex::encode(sha1_result),
+        sha256: hex::encode(sha256_result),
+    }
+}
+
+/// Calculate entropy and return structured data
+fn calculate_file_entropy(data: &[u8]) -> output::EntropyInfo {
+    if data.is_empty() {
+        return output::EntropyInfo {
+            value: 0.0,
+            category: "Empty file".to_string(),
+            is_suspicious: false,
+        };
+    }
+
+    let mut frequency = [0u64; 256];
+    for &byte in data {
+        frequency[byte as usize] += 1;
+    }
+
+    let len = data.len() as f64;
+    let mut entropy = 0.0;
+
+    for &count in &frequency {
+        if count > 0 {
+            let probability = count as f64 / len;
+            entropy -= probability * probability.log2();
+        }
+    }
+
+    let (category, is_suspicious) = if entropy > 7.5 {
+        ("Very high - likely encrypted or packed".to_string(), true)
+    } else if entropy > 6.5 {
+        ("High - possibly compressed or obfuscated".to_string(), false)
+    } else if entropy > 4.0 {
+        ("Moderate - typical for compiled executables".to_string(), false)
+    } else {
+        ("Low - likely plain text or simple data".to_string(), false)
+    };
+
+    output::EntropyInfo {
+        value: entropy,
+        category,
+        is_suspicious,
+    }
+}
+
+/// Extract strings and return structured data
+fn extract_strings_data(data: &[u8], min_length: usize) -> output::StringsInfo {
+    let mut current_string = String::new();
+    let mut all_strings = Vec::new();
+    const MAX_SAMPLES: usize = 50;
+
+    for &byte in data {
+        if byte >= 32 && byte <= 126 {
+            current_string.push(byte as char);
+        } else {
+            if current_string.len() >= min_length {
+                all_strings.push(current_string.clone());
+            }
+            current_string.clear();
+        }
+    }
+
+    // Don't forget the last string
+    if current_string.len() >= min_length {
+        all_strings.push(current_string);
+    }
+
+    let total_count = all_strings.len();
+    let samples: Vec<String> = all_strings.into_iter().take(MAX_SAMPLES).collect();
+    let sample_count = samples.len();
+
+    output::StringsInfo {
+        min_length,
+        total_count,
+        samples,
+        sample_count,
+    }
+}
+
 fn main() -> Result<()> {
     // Parse command-line arguments
     let args = Args::parse();
 
+    // Validate: --output currently only works with --json
+    // This is because text mode uses colored output and multiple print statements
+    // that are hard to capture. For text output to file, use shell redirection:
+    // anya --file malware.exe > output.txt
+    if args.output.is_some() && !args.json {
+        anyhow::bail!(
+            "The --output flag currently only works with --json mode.\n\
+             \n\
+             For text output to file, use shell redirection:\n\
+             anya --file {} > output.txt\n\
+             \n\
+             For JSON output to file:\n\
+             anya --file {} --json --output report.json",
+            args.file.display(),
+            args.file.display()
+        );
+    }
+
     // Handle color settings
     if args.no_color {
+        colored::control::set_override(false);
+    }
+
+    // Automatically disable colors when writing to file
+    // Colors are ANSI escape codes that look ugly in text files
+    if args.output.is_some() {
         colored::control::set_override(false);
     }
 
@@ -180,10 +389,10 @@ fn main() -> Result<()> {
         anyhow::bail!("File does not exist: {:?}", args.file);
     }
 
-    // Only show banner in normal/verbose mode
-    if output_level.should_print_info() {
+    // Only show banner in normal/verbose mode (never in JSON mode)
+    if output_level.should_print_info() && !args.json {
         println!("{}", "=== Ányá v0.3.0 ===".bold().green());
-        println!("Analyzing: {:?}\n", args.file);
+        println!("Analysing: {:?}\n", args.file);
     }
 
     // Get file size to determine if we should show progress
@@ -191,7 +400,8 @@ fn main() -> Result<()> {
     let is_large_file = file_size > LARGE_FILE_THRESHOLD;
 
     // Read the file into memory with optional spinner for large files
-    let file_data = if is_large_file && output_level.should_print_info() {
+    // Never show spinner in JSON mode to keep output pure JSON
+    let file_data = if is_large_file && output_level.should_print_info() && !args.json {
         let spinner = ProgressBar::new_spinner();
         spinner.set_style(
             ProgressStyle::default_spinner()
@@ -212,12 +422,70 @@ fn main() -> Result<()> {
         fs::read(&args.file).context("Failed to read file")?
     };
 
-    // Display basic file information
+    // Calculate hashes (for both JSON and pretty output)
+    let hashes = calculate_hashes(&file_data);
+    
+    // Calculate entropy (for both JSON and pretty output)
+    let entropy_data = calculate_file_entropy(&file_data);
+    
+    // Extract strings (for both JSON and pretty output)
+    let strings_data = extract_strings_data(&file_data, args.min_string_length);
+    
+    // Determine file format and analyse
+    let (file_format, pe_data) = match Object::parse(&file_data) {
+        Ok(Object::PE(_pe)) => {
+            let pe_analysis = pe_parser::analyse_pe_data(&file_data)?;
+            ("Windows PE".to_string(), Some(pe_analysis))
+        }
+        Ok(Object::Elf(_elf)) => ("Linux ELF".to_string(), None),
+        Ok(Object::Mach(_mach)) => ("macOS Mach-O".to_string(), None),
+        Ok(_) => ("Unknown".to_string(), None),
+        Err(_) => ("Unrecognized".to_string(), None),
+    };
+
+    // If JSON output requested, build and print/save JSON
+    if args.json {
+        let file_info = output::FileInfo {
+            path: args.file.to_string_lossy().to_string(),
+            size_bytes: file_data.len() as u64,
+            size_kb: file_data.len() as f64 / 1024.0,
+            extension: args.file.extension().map(|e| e.to_string_lossy().to_string()),
+        };
+
+        let result = output::AnalysisResult {
+            file_info,
+            hashes,
+            entropy: entropy_data,
+            strings: strings_data,
+            pe_analysis: pe_data,
+            file_format,
+        };
+
+        // Serialize to JSON (pretty-printed with indentation)
+        let json = serde_json::to_string_pretty(&result)?;
+        
+        // Write to file or stdout using our helper function
+        // args.output.as_ref() converts Option<PathBuf> to Option<&PathBuf>
+        // This is necessary because write_output expects a reference
+        write_output(&json, args.output.as_ref(), args.append)?;
+        
+        // If we wrote to a file, let user know
+        if let Some(path) = &args.output {
+            if args.append {
+                eprintln!("✓ JSON appended to: {:?}", path);
+            } else {
+                eprintln!("✓ JSON written to: {:?}", path);
+            }
+        }
+        
+        return Ok(());
+    }
+
+    // Otherwise, pretty print output
     if output_level.should_print_info() {
         print_file_info(&args.file, &file_data, output_level)?;
     }
 
-    // Calculate and display hashes
     print_hashes(&file_data, output_level);
 
     // Detect file type and perform advanced analysis
@@ -231,7 +499,7 @@ fn main() -> Result<()> {
                         .cyan()
                 );
             }
-            if let Err(e) = pe_parser::analyze_pe(&file_data, output_level) {
+            if let Err(e) = pe_parser::analyse_pe(&file_data, output_level) {
                 eprintln!("{} PE analysis failed: {}", "⚠".yellow(), e);
             }
         }
@@ -399,7 +667,7 @@ fn print_hashes(data: &[u8], output_level: OutputLevel) {
     println!();
 }
 
-/// Extract printable ASCII strings from the binary (looking for hardcoded IPs, URLs, file paths, etc)
+/// Extract printable ASCII strings from the binary (seeking hardcoded IPs, URLs, file paths, etc)
 fn print_strings(data: &[u8], min_length: usize) {
     println!(
         "{}",
@@ -516,7 +784,7 @@ fn print_entropy(data: &[u8]) {
 
     println!("Shannon Entropy: {:.4} / 8.0", entropy);
 
-    // Provide interpretation with a lovely splash of colours
+    // Provide interpretation with a splash of colours
     if entropy > 7.5 {
         println!(
             "{}",
@@ -551,7 +819,7 @@ fn print_entropy(data: &[u8]) {
 ///
 /// # Arguments
 ///
-/// * `data` - The file data to analyze
+/// * `data` - The file data to analyse
 fn print_quiet_summary(data: &[u8]) {
     // Calculate entropy
     let mut frequency = [0u64; 256];
@@ -586,13 +854,13 @@ mod tests {
     fn test_output_level_from_args() {
         // Test normal mode (default)
         assert_eq!(OutputLevel::from_args(false, false), OutputLevel::Normal);
-
+        
         // Test verbose mode
         assert_eq!(OutputLevel::from_args(true, false), OutputLevel::Verbose);
-
+        
         // Test quiet mode
         assert_eq!(OutputLevel::from_args(false, true), OutputLevel::Quiet);
-
+        
         // Verbose takes precedence if both are set (though CLI prevents this)
         assert_eq!(OutputLevel::from_args(true, true), OutputLevel::Verbose);
     }
@@ -622,21 +890,21 @@ mod tests {
         // Empty data should have 0 entropy
         let data: Vec<u8> = vec![];
         let mut frequency = [0u64; 256];
-
+        
         for &byte in &data {
             frequency[byte as usize] += 1;
         }
-
+        
         let len = data.len() as f64;
         let mut entropy = 0.0;
-
+        
         for &count in &frequency {
             if count > 0 {
                 let probability = count as f64 / len;
                 entropy -= probability * probability.log2();
             }
         }
-
+        
         assert_eq!(entropy, 0.0);
     }
 
@@ -645,21 +913,21 @@ mod tests {
         // All same byte should have 0 entropy
         let data = vec![0u8; 1000];
         let mut frequency = [0u64; 256];
-
+        
         for &byte in &data {
             frequency[byte as usize] += 1;
         }
-
+        
         let len = data.len() as f64;
         let mut entropy = 0.0;
-
+        
         for &count in &frequency {
             if count > 0 {
                 let probability = count as f64 / len;
                 entropy -= probability * probability.log2();
             }
         }
-
+        
         assert_eq!(entropy, 0.0);
     }
 
@@ -668,21 +936,21 @@ mod tests {
         // Mixed data should have moderate entropy
         let data = vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         let mut frequency = [0u64; 256];
-
+        
         for &byte in &data {
             frequency[byte as usize] += 1;
         }
-
+        
         let len = data.len() as f64;
         let mut entropy = 0.0;
-
+        
         for &count in &frequency {
             if count > 0 {
                 let probability = count as f64 / len;
                 entropy -= probability * probability.log2();
             }
         }
-
+        
         // Should be around 3.32 bits for 10 unique values
         assert!(entropy > 3.0 && entropy < 4.0);
     }
@@ -692,21 +960,21 @@ mod tests {
         // Random-like data should have high entropy
         let data: Vec<u8> = (0..=255).collect();
         let mut frequency = [0u64; 256];
-
+        
         for &byte in &data {
             frequency[byte as usize] += 1;
         }
-
+        
         let len = data.len() as f64;
         let mut entropy = 0.0;
-
+        
         for &count in &frequency {
             if count > 0 {
                 let probability = count as f64 / len;
                 entropy -= probability * probability.log2();
             }
         }
-
+        
         // Perfect distribution of all 256 values should have entropy = 8.0
         assert!((entropy - 8.0).abs() < 0.01);
     }
@@ -714,8 +982,8 @@ mod tests {
     #[test]
     fn test_string_detection_logic() {
         // Test printable ASCII detection
-        assert!(32u8 >= 32 && 32u8 <= 126); // Space
-        assert!(65u8 >= 32 && 65u8 <= 126); // 'A'
+        assert!(32u8 >= 32 && 32u8 <= 126);  // Space
+        assert!(65u8 >= 32 && 65u8 <= 126);  // 'A'
         assert!(126u8 >= 32 && 126u8 <= 126); // '~'
         assert!(!(31u8 >= 32 && 31u8 <= 126)); // Below range
         assert!(!(127u8 >= 32 && 127u8 <= 126)); // Above range
@@ -725,11 +993,11 @@ mod tests {
     fn test_string_extraction_min_length() {
         let data = b"ABC\x00DEFGH\x00IJ\x00KLMNOPQRST";
         let min_length = 4;
-
+        
         // Count strings that meet minimum length
         let mut current_string = String::new();
         let mut valid_strings = Vec::new();
-
+        
         for &byte in data.iter() {
             if byte >= 32 && byte <= 126 {
                 current_string.push(byte as char);
@@ -740,12 +1008,12 @@ mod tests {
                 current_string.clear();
             }
         }
-
+        
         // Check final string
         if current_string.len() >= min_length {
             valid_strings.push(current_string);
         }
-
+        
         assert_eq!(valid_strings.len(), 2); // "DEFGH" and "KLMNOPQRST"
         assert_eq!(valid_strings[0], "DEFGH");
         assert_eq!(valid_strings[1], "KLMNOPQRST");
@@ -756,61 +1024,58 @@ mod tests {
         use md5::Md5;
         use sha1::Sha1;
         use sha2::Sha256;
-
+        
         let test_data = b"test data for hashing";
-
+        
         // MD5
         let mut hasher = Md5::new();
         hasher.update(test_data);
         let result1 = hasher.finalize();
-
+        
         let mut hasher = Md5::new();
         hasher.update(test_data);
         let result2 = hasher.finalize();
-
+        
         assert_eq!(result1, result2, "MD5 hashes should be consistent");
-
+        
         // SHA1
         let mut hasher = Sha1::new();
         hasher.update(test_data);
         let result1 = hasher.finalize();
-
+        
         let mut hasher = Sha1::new();
         hasher.update(test_data);
         let result2 = hasher.finalize();
-
+        
         assert_eq!(result1, result2, "SHA1 hashes should be consistent");
-
+        
         // SHA256
         let mut hasher = Sha256::new();
         hasher.update(test_data);
         let result1 = hasher.finalize();
-
+        
         let mut hasher = Sha256::new();
         hasher.update(test_data);
         let result2 = hasher.finalize();
-
+        
         assert_eq!(result1, result2, "SHA256 hashes should be consistent");
     }
 
     #[test]
     fn test_hash_different_data() {
         use sha2::Sha256;
-
+        
         let data1 = b"data one";
         let data2 = b"data two";
-
+        
         let mut hasher = Sha256::new();
         hasher.update(data1);
         let hash1 = hasher.finalize();
-
+        
         let mut hasher = Sha256::new();
         hasher.update(data2);
         let hash2 = hasher.finalize();
-
-        assert_ne!(
-            hash1, hash2,
-            "Different data should produce different hashes"
-        );
+        
+        assert_ne!(hash1, hash2, "Different data should produce different hashes");
     }
 }
