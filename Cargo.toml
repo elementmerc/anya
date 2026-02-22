@@ -48,3 +48,18 @@ toml = "0.8"
 
 # For finding user's home directory
 dirs = "5.0"
+
+[dev-dependencies]
+# For integration testing
+tempfile = "3.10"
+
+# For benchmarking
+criterion = "0.5"
+
+[lib]
+name = "anya_security_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "anya-security-core"
+path = "src/main.rs"
