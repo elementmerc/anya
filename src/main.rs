@@ -330,7 +330,7 @@ fn analyse_single_file(
 
     // Only show banner in normal/verbose mode (never in JSON mode)
     if output_level.should_print_info() && !args.json {
-        println!("{}", "=== Ányá v0.3.0 ===".bold().green());
+        println!("{}", "=== Ányá v0.3.1 ===".bold().green());
         println!("Analysing: {:?}\n", file_path);
     }
 
