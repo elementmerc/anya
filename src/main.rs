@@ -18,9 +18,8 @@
 
 // Import necessary libraries
 use anya_security_core::{
-    is_executable_file, BatchSummary,
-    calculate_hashes, calculate_file_entropy, extract_strings_data,
-    OutputLevel, config, output, pe_parser
+    BatchSummary, OutputLevel, calculate_file_entropy, calculate_hashes, config,
+    extract_strings_data, is_executable_file, output, pe_parser,
 };
 use anyhow::{Context, Result}; // For better error handling
 use clap::Parser; // For parsing command-line arguments
@@ -29,7 +28,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::fs; // For file system operations
 use std::fs::OpenOptions; // For file creation and opening
 use std::io::Write; // For writing to files
-use std::path::{PathBuf}; // For handling file paths // For progress indicators
+use std::path::PathBuf; // For handling file paths // For progress indicators
 use walkdir::WalkDir; // For recursive directory traversal
 
 // Hashing libraries
@@ -781,7 +780,7 @@ fn print_strings(data: &[u8], min_length: usize) {
 
     let is_large = data.len() as u64 > LARGE_FILE_THRESHOLD;
     let start_time = std::time::Instant::now();
-    
+
     let pb = if is_large {
         let bar = create_progress_bar(data.len() as u64, "Extracting strings");
         Some(bar)
@@ -818,7 +817,10 @@ fn print_strings(data: &[u8], min_length: usize) {
                     }
                     string_count += 1;
                 } else if string_count == MAX_DISPLAY {
-                    let msg = format!("  {}", format!("... (showing first {} strings only)", MAX_DISPLAY).yellow());
+                    let msg = format!(
+                        "  {}",
+                        format!("... (showing first {} strings only)", MAX_DISPLAY).yellow()
+                    );
                     if let Some(ref pb) = pb {
                         pb.println(msg);
                     } else {
@@ -842,18 +844,21 @@ fn print_strings(data: &[u8], min_length: usize) {
     }
 
     let elapsed = start_time.elapsed();
-    
+
     // Finish progress bar properly - keep it visible at 100%
     if let Some(pb) = pb {
         pb.set_position(data.len() as u64); // Ensure we're at 100%
         pb.finish_with_message(format!(
-            "✓ Extracted {} strings ({:.2}s)", 
-            string_count, 
+            "✓ Extracted {} strings ({:.2}s)",
+            string_count,
             elapsed.as_secs_f64()
         ));
     }
 
-    println!("\nTotal strings found: {}", string_count.to_string().green().bold());
+    println!(
+        "\nTotal strings found: {}",
+        string_count.to_string().green().bold()
+    );
     println!();
 }
 

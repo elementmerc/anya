@@ -1,10 +1,12 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 fn bench_placeholder(c: &mut Criterion) {
-    c.bench_function("placeholder", |b| b.iter(|| {
-        // Placeholder benchmark
-        let _x = 1 + 1;
-    }));
+    c.bench_function("placeholder", |b| {
+        b.iter(|| {
+            // Placeholder benchmark
+            let _x = 1 + 1;
+        })
+    });
 }
 
 criterion_group!(benches, bench_placeholder);

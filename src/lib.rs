@@ -80,18 +80,33 @@ impl BatchSummary {
 
     pub fn print_summary(&self) {
         use colored::Colorize;
-        
+
         println!("\n{}", "═══ Batch Analysis Summary ═══".cyan().bold());
         println!("Total files:     {}", self.total_files);
         println!("Analysed:        {} {}", self.analysed, "✓".green());
-        println!("Failed:          {} {}", self.failed, if self.failed > 0 { "✗".red() } else { "".normal() });
+        println!(
+            "Failed:          {} {}",
+            self.failed,
+            if self.failed > 0 {
+                "✗".red()
+            } else {
+                "".normal()
+            }
+        );
         println!("Skipped:         {}", self.skipped);
-        println!("Suspicious:      {} {}", self.suspicious, if self.suspicious > 0 { "⚠".yellow() } else { "".normal() });
+        println!(
+            "Suspicious:      {} {}",
+            self.suspicious,
+            if self.suspicious > 0 {
+                "⚠".yellow()
+            } else {
+                "".normal()
+            }
+        );
         println!("Duration:        {:.2}s", self.duration);
         println!("Success rate:    {:.1}%", self.success_rate());
         println!("Analysis rate:   {:.1} files/sec", self.analysis_rate());
     }
-
 
     pub fn analysis_rate(&self) -> f64 {
         if self.duration == 0.0 {
@@ -199,7 +214,7 @@ pub fn is_executable_file(path: &Path) -> bool {
         extension.as_str(),
         "exe" | "dll" | "sys" | "ocx" | "scr" | "cpl" | // Windows
         "elf" | "so" | "bin" |                          // Linux
-        "dylib" | "bundle" | "app"                      // macOS
+        "dylib" | "bundle" | "app" // macOS
     )
 }
 
@@ -276,10 +291,10 @@ pub fn is_suspicious_file(result: &FileAnalysisResult) -> bool {
     }
 
     // Many suspicious APIs
-    if let Some(ref pe) = result.pe_analysis {
-        if pe.imports.suspicious_api_count > 5 {
-            return true;
-        }
+    if let Some(ref pe) = result.pe_analysis
+        && pe.imports.suspicious_api_count > 5
+    {
+        return true;
     }
 
     false
@@ -292,7 +307,10 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
             path: result.path.to_string_lossy().to_string(),
             size_bytes: result.size_bytes as u64,
             size_kb: result.size_bytes as f64 / 1024.0,
-            extension: result.path.extension().map(|e| e.to_string_lossy().to_string()),
+            extension: result
+                .path
+                .extension()
+                .map(|e| e.to_string_lossy().to_string()),
         },
         hashes: result.hashes.clone(),
         entropy: result.entropy.clone(),
