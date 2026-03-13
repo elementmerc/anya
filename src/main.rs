@@ -19,7 +19,7 @@
 // Import necessary libraries
 use anya_security_core::{
     BatchSummary, OutputLevel, calculate_file_entropy, calculate_hashes, config,
-    extract_strings_data, is_executable_file, output, pe_parser,
+    elf_parser, extract_strings_data, is_executable_file, output, pe_parser,
 };
 use anyhow::{Context, Result}; // For better error handling
 use clap::Parser; // For parsing command-line arguments
@@ -372,15 +372,18 @@ fn analyse_single_file(
     let strings_data = extract_strings_data(&file_data, min_string_length);
 
     // Determine file format and analyse
-    let (file_format, pe_data) = match Object::parse(&file_data) {
+    let (file_format, pe_data, elf_data) = match Object::parse(&file_data) {
         Ok(Object::PE(_pe)) => {
             let pe_analysis = pe_parser::analyse_pe_data(&file_data)?;
-            ("Windows PE".to_string(), Some(pe_analysis))
+            ("Windows PE".to_string(), Some(pe_analysis), None)
         }
-        Ok(Object::Elf(_elf)) => ("Linux ELF".to_string(), None),
-        Ok(Object::Mach(_mach)) => ("macOS Mach-O".to_string(), None),
-        Ok(_) => ("Unknown".to_string(), None),
-        Err(_) => ("Unrecognized".to_string(), None),
+        Ok(Object::Elf(_elf)) => {
+            let elf_analysis = elf_parser::analyse_elf_data(&file_data)?;
+            ("Linux ELF".to_string(), None, Some(elf_analysis))
+        }
+        Ok(Object::Mach(_mach)) => ("macOS Mach-O".to_string(), None, None),
+        Ok(_) => ("Unknown".to_string(), None, None),
+        Err(_) => ("Unrecognized".to_string(), None, None),
     };
 
     // If JSON output requested, build and print/save JSON
@@ -400,6 +403,7 @@ fn analyse_single_file(
             entropy: entropy_data,
             strings: strings_data,
             pe_analysis: pe_data,
+            elf_analysis: elf_data,
             file_format,
         };
 
@@ -451,7 +455,9 @@ fn analyse_single_file(
                         .bold()
                         .cyan()
                 );
-                println!("  ELF analysis coming in Phase 3!");
+            }
+            if let Err(e) = elf_parser::analyse_elf(&file_data, output_level) {
+                eprintln!("{} ELF analysis failed: {}", "⚠".yellow(), e);
             }
         }
         Ok(Object::Mach(_mach)) => {

@@ -15,6 +15,7 @@ use walkdir::WalkDir;
 
 // Re-export modules
 pub mod config;
+pub mod elf_parser;
 pub mod output;
 pub mod pe_parser;
 
@@ -56,6 +57,7 @@ pub struct FileAnalysisResult {
     pub strings: output::StringsInfo,
     pub file_format: String,
     pub pe_analysis: Option<output::PEAnalysis>,
+    pub elf_analysis: Option<output::ELFAnalysis>,
 }
 
 /// Batch analysis summary
@@ -234,15 +236,18 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
     let strings = extract_strings_data(&data, min_string_length);
 
     // Determine file format and analyse
-    let (file_format, pe_analysis) = match Object::parse(&data) {
+    let (file_format, pe_analysis, elf_analysis) = match Object::parse(&data) {
         Ok(Object::PE(_)) => {
             let pe_data = pe_parser::analyse_pe_data(&data)?;
-            ("Windows PE".to_string(), Some(pe_data))
+            ("Windows PE".to_string(), Some(pe_data), None)
         }
-        Ok(Object::Elf(_)) => ("Linux ELF".to_string(), None),
-        Ok(Object::Mach(_)) => ("macOS Mach-O".to_string(), None),
-        Ok(_) => ("Unknown".to_string(), None),
-        Err(_) => ("Unrecognized".to_string(), None),
+        Ok(Object::Elf(_)) => {
+            let elf_data = elf_parser::analyse_elf_data(&data)?;
+            ("Linux ELF".to_string(), None, Some(elf_data))
+        }
+        Ok(Object::Mach(_)) => ("macOS Mach-O".to_string(), None, None),
+        Ok(_) => ("Unknown".to_string(), None, None),
+        Err(_) => ("Unrecognized".to_string(), None, None),
     };
 
     Ok(FileAnalysisResult {
@@ -253,6 +258,7 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
         strings,
         file_format,
         pe_analysis,
+        elf_analysis,
     })
 }
 
@@ -290,11 +296,54 @@ pub fn is_suspicious_file(result: &FileAnalysisResult) -> bool {
         return true;
     }
 
-    // Many suspicious APIs
-    if let Some(ref pe) = result.pe_analysis
-        && pe.imports.suspicious_api_count > 5
-    {
-        return true;
+    if let Some(ref pe) = result.pe_analysis {
+        // Many suspicious APIs
+        if pe.imports.suspicious_api_count > 5 {
+            return true;
+        }
+        // W+X sections
+        if pe.sections.iter().any(|s| s.is_wx) {
+            return true;
+        }
+        // TLS callbacks present
+        if pe.tls.as_ref().map_or(false, |t| t.callback_count > 0) {
+            return true;
+        }
+        // High-entropy overlay
+        if pe.overlay.as_ref().map_or(false, |o| o.high_entropy) {
+            return true;
+        }
+        // Multiple anti-analysis categories
+        if pe.anti_analysis.len() >= 2 {
+            return true;
+        }
+        // Packer detected with high confidence
+        if pe.packers.iter().any(|p| p.confidence == "High") {
+            return true;
+        }
+        // Ordinal imports from sensitive DLLs
+        if pe
+            .ordinal_imports
+            .iter()
+            .any(|o| o.dll.eq_ignore_ascii_case("ntdll.dll") || o.dll.eq_ignore_ascii_case("kernel32.dll"))
+        {
+            return true;
+        }
+    }
+
+    if let Some(ref elf) = result.elf_analysis {
+        // W+X ELF sections
+        if elf.sections.iter().any(|s| s.is_wx) {
+            return true;
+        }
+        // Packer detected
+        if !elf.packer_indicators.is_empty() {
+            return true;
+        }
+        // Suspicious function imports
+        if !elf.imports.suspicious_functions.is_empty() {
+            return true;
+        }
     }
 
     false
@@ -316,6 +365,7 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         entropy: result.entropy.clone(),
         strings: result.strings.clone(),
         pe_analysis: result.pe_analysis.clone(),
+        elf_analysis: result.elf_analysis.clone(),
         file_format: result.file_format.clone(),
     }
 }
@@ -513,6 +563,7 @@ mod tests {
             strings: extract_strings_data(b"test", 4),
             file_format: "PE".to_string(),
             pe_analysis: None,
+            elf_analysis: None,
         };
 
         assert!(is_suspicious_file(&result));
@@ -528,6 +579,7 @@ mod tests {
             strings: extract_strings_data(b"test", 4),
             file_format: "PE".to_string(),
             pe_analysis: None,
+            elf_analysis: None,
         };
 
         let json = to_json_output(&result);

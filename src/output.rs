@@ -38,6 +38,10 @@ pub struct AnalysisResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pe_analysis: Option<PEAnalysis>,
 
+    /// ELF-specific analysis (if applicable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub elf_analysis: Option<ELFAnalysis>,
+
     /// File format type
     pub file_format: String,
 }
@@ -131,6 +135,166 @@ pub struct PEAnalysis {
     /// Export analysis (if any)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<ExportAnalysis>,
+
+    /// Imphash (MD5 of normalised import list)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imphash: Option<String>,
+
+    /// PE checksum validation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checksum: Option<ChecksumInfo>,
+
+    /// Rich header (MSVC build metadata)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rich_header: Option<RichHeaderInfo>,
+
+    /// TLS callbacks (execute before entry point)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls: Option<TlsInfo>,
+
+    /// Overlay data (bytes after last section)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overlay: Option<OverlayInfo>,
+
+    /// Detected compiler / language
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compiler: Option<CompilerInfo>,
+
+    /// Packer detection results
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub packers: Vec<PackerFinding>,
+
+    /// Anti-analysis technique indicators
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub anti_analysis: Vec<AntiAnalysisFinding>,
+
+    /// Ordinal-only imports
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ordinal_imports: Vec<OrdinalImport>,
+
+    /// Authenticode signature block (from Security Directory, data dir index 4)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authenticode: Option<AuthenticodeInfo>,
+
+    /// Version information from VS_VERSIONINFO resource
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version_info: Option<VersionInfo>,
+}
+
+/// PE checksum comparison
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChecksumInfo {
+    /// Value stored in the PE optional header
+    pub stored: u32,
+    /// Value computed from the file bytes
+    pub computed: u32,
+    /// True when stored == computed (or stored == 0, meaning not set)
+    pub valid: bool,
+    /// False when stored == 0 (common in user-mode apps and malware)
+    pub stored_nonzero: bool,
+}
+
+/// A single entry decoded from the Rich header
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RichEntry {
+    pub product_id: u16,
+    pub build_number: u16,
+    pub use_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub product_name: Option<String>,
+}
+
+/// Rich header (XOR-encoded MSVC build metadata between DOS stub and PE signature)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RichHeaderInfo {
+    pub xor_key: u32,
+    pub entries: Vec<RichEntry>,
+}
+
+/// TLS (Thread Local Storage) directory information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TlsInfo {
+    pub callback_count: usize,
+    /// Callback addresses as hex RVA strings
+    pub callback_rvas: Vec<String>,
+}
+
+/// Overlay (data appended after the last PE section)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverlayInfo {
+    pub offset: usize,
+    pub size: usize,
+    pub entropy: f64,
+    /// True when entropy > 6.8 (high entropy — may warrant further review)
+    pub high_entropy: bool,
+}
+
+/// Detected compiler or language runtime
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompilerInfo {
+    pub name: String,
+    /// "High", "Medium", or "Low"
+    pub confidence: String,
+}
+
+/// A packer or protector detection result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackerFinding {
+    pub name: String,
+    /// "High", "Medium", or "Low"
+    pub confidence: String,
+    /// "String", "SectionName", "Entropy", or "Heuristic"
+    pub detection_method: String,
+}
+
+/// Anti-analysis technique detected via static indicators
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AntiAnalysisFinding {
+    /// "VmDetection", "DebuggerDetection", "TimingCheck", or "SandboxDetection"
+    pub category: String,
+    /// Specific API name or string pattern that triggered this finding
+    pub indicator: String,
+}
+
+/// An import resolved only by ordinal (no function name string)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrdinalImport {
+    pub dll: String,
+    pub ordinal: u16,
+}
+
+/// Authenticode (PKCS#7) signature information extracted from the PE Security Directory
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthenticodeInfo {
+    /// True if a WIN_CERTIFICATE structure was found in the Security Directory
+    pub present: bool,
+    /// Subject CN of the signing certificate (heuristically extracted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signer_cn: Option<String>,
+    /// Issuer CN of the signing certificate (heuristically extracted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issuer_cn: Option<String>,
+    /// True when signer CN contains "Microsoft"
+    pub is_microsoft_signed: bool,
+    /// Raw certificate block size in bytes
+    pub cert_size: u32,
+}
+
+/// Version information extracted from the VS_VERSIONINFO resource (RT_VERSION)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub company_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub product_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_filename: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legal_copyright: Option<String>,
 }
 
 /// Security features status
@@ -217,6 +381,51 @@ pub struct ExportInfo {
     pub rva: String,
 }
 
+/// ELF file analysis results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ELFAnalysis {
+    pub architecture: String,
+    pub is_64bit: bool,
+    /// "Executable", "Shared Object", "Core", etc.
+    pub file_type: String,
+    pub entry_point: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interpreter: Option<String>,
+    pub sections: Vec<ElfSectionInfo>,
+    pub imports: ElfImportAnalysis,
+    /// Position-independent executable
+    pub is_pie: bool,
+    /// Stack is non-executable (PT_GNU_STACK without PF_X)
+    pub has_nx_stack: bool,
+    /// RELRO segment present (PT_GNU_RELRO)
+    pub has_relro: bool,
+    /// Symbol table is stripped
+    pub is_stripped: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub packer_indicators: Vec<PackerFinding>,
+}
+
+/// A section from an ELF binary
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ElfSectionInfo {
+    pub name: String,
+    pub section_type: String,
+    pub size: u64,
+    pub entropy: f64,
+    pub is_wx: bool,
+    pub is_suspicious: bool,
+}
+
+/// Import summary for an ELF binary
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ElfImportAnalysis {
+    pub library_count: usize,
+    pub libraries: Vec<String>,
+    pub dynamic_symbol_count: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub suspicious_functions: Vec<SuspiciousAPI>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,6 +457,7 @@ mod tests {
                 sample_count: 2,
             },
             pe_analysis: None,
+            elf_analysis: None,
             file_format: "Windows PE".to_string(),
         };
 
@@ -404,6 +614,15 @@ mod tests {
                 libraries: vec![],
             },
             exports: None,
+            imphash: None,
+            checksum: None,
+            rich_header: None,
+            tls: None,
+            overlay: None,
+            compiler: None,
+            packers: vec![],
+            anti_analysis: vec![],
+            ordinal_imports: vec![],
         };
 
         let json = serde_json::to_string_pretty(&pe).unwrap();
@@ -439,11 +658,13 @@ mod tests {
                 sample_count: 0,
             },
             pe_analysis: None, // Should be omitted
+            elf_analysis: None, // Should be omitted
             file_format: "Unknown".to_string(),
         };
 
         let json = serde_json::to_string(&result).unwrap();
         assert!(!json.contains("pe_analysis"));
+        assert!(!json.contains("elf_analysis"));
         assert!(!json.contains("extension"));
     }
 
