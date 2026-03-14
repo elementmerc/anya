@@ -52,3 +52,5 @@ ignore = [
     "RUSTSEC-2025-0119",
 ]
 
+[output]
+deny = ["unmaintained", "unsound"]
