@@ -18,9 +18,8 @@
 
 // Import necessary libraries
 use anya_security_core::{
-    BatchSummary, OutputLevel, calculate_file_entropy, calculate_hashes, config, elf_parser,
-    extract_strings_data, is_executable_file, output, pe_parser,
-    data::verses,
+    BatchSummary, OutputLevel, calculate_file_entropy, calculate_hashes, config, data::verses,
+    elf_parser, extract_strings_data, is_executable_file, output, pe_parser,
 };
 use anyhow::{Context, Result}; // For better error handling
 use clap::{Parser, Subcommand}; // For parsing command-line arguments

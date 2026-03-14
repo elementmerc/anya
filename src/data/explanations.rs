@@ -211,7 +211,10 @@ mod tests {
     fn test_explanations_load() {
         // explanations_data.json must parse without panic and be non-empty.
         let map = get_map();
-        assert!(!map.is_empty(), "explanations_data.json must contain at least one entry");
+        assert!(
+            !map.is_empty(),
+            "explanations_data.json must contain at least one entry"
+        );
     }
 
     #[test]
@@ -219,13 +222,11 @@ mod tests {
         // At least one explanation must reference T1055 (or T1055.xxx) via
         // its mitre_technique_id field.  This validates that process injection
         // — the most common finding — has analyst-facing context.
-        let has_t1055 = get_map()
-            .values()
-            .any(|f| {
-                f.mitre_technique_id
-                    .as_deref()
-                    .map_or(false, |id| id.starts_with("T1055"))
-            });
+        let has_t1055 = get_map().values().any(|f| {
+            f.mitre_technique_id
+                .as_deref()
+                .map_or(false, |id| id.starts_with("T1055"))
+        });
         assert!(
             has_t1055,
             "At least one explanation must reference a T1055 technique"

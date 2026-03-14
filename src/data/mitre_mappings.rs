@@ -136,7 +136,10 @@ mod tests {
     fn test_mitre_techniques_load() {
         // The static map must parse without panic and contain at least one entry.
         let map = get_map();
-        assert!(!map.is_empty(), "mitre_data.json must contain at least one entry");
+        assert!(
+            !map.is_empty(),
+            "mitre_data.json must contain at least one entry"
+        );
     }
 
     #[test]
@@ -145,7 +148,10 @@ mod tests {
         for techniques in get_map().values() {
             for t in techniques {
                 assert!(!t.technique_id.is_empty(), "technique_id must not be empty");
-                assert!(!t.technique_name.is_empty(), "technique_name must not be empty");
+                assert!(
+                    !t.technique_name.is_empty(),
+                    "technique_name must not be empty"
+                );
                 assert!(!t.tactic.is_empty(), "tactic must not be empty");
                 assert!(
                     !t.source_indicator.is_empty(),

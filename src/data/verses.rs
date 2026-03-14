@@ -48,10 +48,7 @@ pub const VERSES: &[(&str, &str)] = &[
         "This is my command—be strong and courageous! Do not be afraid or discouraged. For the Lord your God is with you wherever you go.",
         "Joshua 1:9",
     ),
-    (
-        "For nothing will be impossible with God.",
-        "Luke 1:37",
-    ),
+    ("For nothing will be impossible with God.", "Luke 1:37"),
     (
         "Come to me, all of you who are weary and carry heavy burdens, and I will give you rest.",
         "Matthew 11:28",
@@ -143,7 +140,11 @@ mod tests {
 
     #[test]
     fn test_verse_pool_size() {
-        assert_eq!(VERSES.len(), 30, "Verse pool must contain exactly 30 verses");
+        assert_eq!(
+            VERSES.len(),
+            30,
+            "Verse pool must contain exactly 30 verses"
+        );
     }
 
     #[test]
@@ -187,10 +188,7 @@ mod tests {
     #[test]
     fn test_all_verses_have_reference() {
         for (i, (text, reference)) in VERSES.iter().enumerate() {
-            assert!(
-                !text.is_empty(),
-                "Verse at index {i} has empty text"
-            );
+            assert!(!text.is_empty(), "Verse at index {i} has empty text");
             assert!(
                 !reference.is_empty(),
                 "Verse at index {i} has empty reference"
