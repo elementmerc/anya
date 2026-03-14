@@ -1,6 +1,6 @@
 <div align="center">
 
-<!-- <img src="docs/assets/anya-logo.png" alt="Anya logo" width="96" height="96"> -->
+<img src="icon.svg" alt="Anya logo" width="96" height="96">
 
 # Anya
 
