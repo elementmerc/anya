@@ -7,10 +7,11 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
     />
+    <style>html, body, #root { background: #0d0d0f; margin: 0; padding: 0; min-height: 100vh; }</style>
     <title>Anya</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root" style="background:#0d0d0f;min-height:100vh;"></div>
     <script type="module" src="/ui/main.tsx"></script>
   </body>
 </html>

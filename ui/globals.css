@@ -8,6 +8,14 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  html, body, #root {
+    background-color: #0d0d0f;
+    margin: 0;
+    padding: 0;
+  }
+}
+
 /* ─── Design tokens ───────────────────────────────────────────────────────── */
 :root {
   /* Surfaces */
@@ -145,6 +153,92 @@ body {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ── Splash screen overlay ────────────────────────────────────── */
+.splash-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #0d0d0f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.4s ease;
+}
+
+.splash-overlay.splash-hiding {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.splash-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.splash-svg {
+  width: 220px;
+  height: 198px;
+}
+
+.splash-wordmark {
+  color: #e8e5dc;
+  font-size: 16px;
+  letter-spacing: 0.22em;
+  font-family: system-ui, sans-serif;
+  font-weight: 400;
+  opacity: 0;
+  transform: translateY(6px);
+  animation: splash-text-appear 0.5s ease 1.4s forwards;
+}
+
+@keyframes splash-draw-leg {
+  0%   { stroke-dashoffset: var(--leg-length); opacity: 1; }
+  35%  { stroke-dashoffset: 0; opacity: 1; }
+  70%  { stroke-dashoffset: 0; opacity: 1; }
+  85%  { stroke-dashoffset: 0; opacity: 0.15; }
+  100% { stroke-dashoffset: var(--leg-length); opacity: 0.15; }
+}
+
+@keyframes splash-draw-bar {
+  0%   { stroke-dashoffset: var(--bar-length); opacity: 0; }
+  40%  { stroke-dashoffset: var(--bar-length); opacity: 0; }
+  60%  { stroke-dashoffset: 0; opacity: 1; }
+  70%  { stroke-dashoffset: 0; opacity: 1; }
+  85%  { stroke-dashoffset: 0; opacity: 0.15; }
+  100% { stroke-dashoffset: var(--bar-length); opacity: 0.15; }
+}
+
+@keyframes splash-text-appear {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.splash-leg-left {
+  --leg-length: 310;
+  stroke-dasharray: 310;
+  stroke-dashoffset: 310;
+  animation: splash-draw-leg 2.4s cubic-bezier(0.4, 0, 0.2, 1) 0.15s infinite;
+}
+
+.splash-leg-right {
+  --leg-length: 310;
+  stroke-dasharray: 310;
+  stroke-dashoffset: 310;
+  animation: splash-draw-leg 2.4s cubic-bezier(0.4, 0, 0.2, 1) 0.45s infinite;
+}
+
+.splash-bar {
+  --bar-length: 170;
+  stroke-dasharray: 170;
+  stroke-dashoffset: 170;
+  animation: splash-draw-bar 2.4s cubic-bezier(0.4, 0, 0.2, 1) 0.15s infinite;
+}
+/* ── End splash screen ────────────────────────────────────────── */
 
 @keyframes pulseRing {
   0%, 100% { opacity: 0.6; }

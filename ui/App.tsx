@@ -1,4 +1,5 @@
 import React, { Suspense, useState, lazy, useEffect, useCallback } from "react";
+import { SplashScreen } from "@/components/SplashScreen";
 import { useAnalysis } from "@/hooks/useAnalysis";
 import { useTheme } from "@/hooks/useTheme";
 import { useFontSize } from "@/hooks/useFontSize";
@@ -51,6 +52,26 @@ export default function App() {
   const { fontSize, setFontSize } = useFontSize();
   const [activeTab, setActiveTab] = useState<TabName>("overview");
   const [showSettings, setShowSettings] = useState(false);
+
+  // ── Splash screen ─────────────────────────────────────────────────────────
+  const [splashVisible, setSplashVisible] = useState(true);
+  const [splashHiding, setSplashHiding] = useState(false);
+  const [appReady, setAppReady] = useState(false);
+
+  useEffect(() => {
+    const signalReady = async () => {
+      await document.fonts.ready;
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      setAppReady(true);
+    };
+    signalReady();
+  }, []);
+
+  const handleSplashComplete = useCallback(() => {
+    setSplashHiding(true);
+    setTimeout(() => setSplashVisible(false), 450);
+  }, []);
 
   // ── Bible Verses ──────────────────────────────────────────────────────────
   const [bibleVersesEnabled, setBibleVersesEnabledState] = useState(false);
@@ -152,6 +173,13 @@ export default function App() {
           color: "var(--text-primary)",
         }}
       >
+        {splashVisible && (
+          <SplashScreen
+            onComplete={handleSplashComplete}
+            className={splashHiding ? "splash-hiding" : ""}
+            appReady={appReady}
+          />
+        )}
         <TopBar
           fileName={fileName}
           fileSize={result?.file_info.size_bytes ?? null}

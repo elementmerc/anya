@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
+use tauri::window::Color;
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -207,6 +209,7 @@ pub mod commands {
         let lessons = compute_triggered(&ctx);
         serde_json::to_value(&lessons).map_err(|e| format!("Serialize error: {e}"))
     }
+
 }
 
 // ─── App entry point ─────────────────────────────────────────────────────────
@@ -214,6 +217,13 @@ pub mod commands {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            if let Some(main) = app.get_webview_window("main") {
+                main.set_background_color(Some(Color(13, 13, 15, 255)))
+                    .unwrap_or(());
+            }
+            Ok(())
+        })
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())

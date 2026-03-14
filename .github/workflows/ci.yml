@@ -72,12 +72,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: Run audit
-        run: cargo audit --deny unmaintained --deny unsound
+      - uses: actions-rust-lang/audit@v1
+        name: Audit Rust dependencies
 
   # ── Frontend: TypeScript + build ─────────────────────────────────────────────
   frontend-check:
@@ -86,10 +82,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node 20
+      - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
@@ -108,10 +104,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node 20
+      - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
@@ -156,10 +152,10 @@ jobs:
       - name: Install tauri-driver
         run: cargo install tauri-driver --locked
 
-      - name: Setup Node 20
+      - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install Node dependencies
