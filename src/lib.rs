@@ -309,11 +309,11 @@ pub fn is_suspicious_file(result: &FileAnalysisResult) -> bool {
             return true;
         }
         // TLS callbacks present
-        if pe.tls.as_ref().map_or(false, |t| t.callback_count > 0) {
+        if pe.tls.as_ref().is_some_and(|t| t.callback_count > 0) {
             return true;
         }
         // High-entropy overlay
-        if pe.overlay.as_ref().map_or(false, |o| o.high_entropy) {
+        if pe.overlay.as_ref().is_some_and(|o| o.high_entropy) {
             return true;
         }
         // Multiple anti-analysis categories
@@ -325,11 +325,9 @@ pub fn is_suspicious_file(result: &FileAnalysisResult) -> bool {
             return true;
         }
         // Ordinal imports from sensitive DLLs
-        if pe
-            .ordinal_imports
-            .iter()
-            .any(|o| o.dll.eq_ignore_ascii_case("ntdll.dll") || o.dll.eq_ignore_ascii_case("kernel32.dll"))
-        {
+        if pe.ordinal_imports.iter().any(|o| {
+            o.dll.eq_ignore_ascii_case("ntdll.dll") || o.dll.eq_ignore_ascii_case("kernel32.dll")
+        }) {
             return true;
         }
     }
@@ -371,9 +369,10 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         elf_analysis: result.elf_analysis.clone(),
         file_format: result.file_format.clone(),
         imphash: result.pe_analysis.as_ref().and_then(|p| p.imphash.clone()),
-        checksum_valid: result.pe_analysis.as_ref().and_then(|p| {
-            p.checksum.as_ref().map(|c| !c.stored_nonzero || c.valid)
-        }),
+        checksum_valid: result
+            .pe_analysis
+            .as_ref()
+            .and_then(|p| p.checksum.as_ref().map(|c| !c.stored_nonzero || c.valid)),
         tls_callbacks: result.pe_analysis.as_ref().map_or(vec![], |p| {
             p.tls.as_ref().map_or(vec![], |t| {
                 t.callback_rvas
@@ -385,9 +384,10 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
                     .collect()
             })
         }),
-        ordinal_imports: result.pe_analysis.as_ref().map_or(vec![], |p| {
-            p.ordinal_imports.clone()
-        }),
+        ordinal_imports: result
+            .pe_analysis
+            .as_ref()
+            .map_or(vec![], |p| p.ordinal_imports.clone()),
         overlay: result.pe_analysis.as_ref().and_then(|p| p.overlay.clone()),
         packer_detections: result.pe_analysis.as_ref().map_or(vec![], |p| {
             p.packers
@@ -684,7 +684,10 @@ mod tests {
             image_base: "0x140000000".to_string(),
             entry_point: "0x1000".to_string(),
             file_type: "EXE".to_string(),
-            security: output::SecurityFeatures { aslr_enabled: true, dep_enabled: true },
+            security: output::SecurityFeatures {
+                aslr_enabled: true,
+                dep_enabled: true,
+            },
             sections: vec![],
             imports: output::ImportAnalysis {
                 dll_count: 0,

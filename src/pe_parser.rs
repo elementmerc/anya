@@ -496,8 +496,8 @@ fn print_pe_header_info(pe: &PE, output_level: OutputLevel) {
 fn print_sections(pe: &PE, data: &[u8], _output_level: OutputLevel) {
     println!("\n{}", "Section Analysis:".bold());
     println!(
-        "  {:<12} {:<10} {:<10} {:<10} {:<10} {}",
-        "Name", "VirtSize", "VirtAddr", "RawSize", "Entropy", "Perms"
+        "  {:<12} {:<10} {:<10} {:<10} {:<10} Perms",
+        "Name", "VirtSize", "VirtAddr", "RawSize", "Entropy"
     );
     println!("  {}", "-".repeat(70));
 
@@ -728,7 +728,11 @@ fn print_compiler_info(compiler: &output::CompilerInfo, _output_level: OutputLev
         "Medium" => compiler.confidence.yellow().to_string(),
         _ => compiler.confidence.normal().to_string(),
     };
-    println!("  Detected: {} ({} confidence)", compiler.name.bold(), conf_color);
+    println!(
+        "  Detected: {} ({} confidence)",
+        compiler.name.bold(),
+        conf_color
+    );
 }
 
 fn print_packer_info(packers: &[output::PackerFinding], _output_level: OutputLevel) {
@@ -765,8 +769,17 @@ fn print_rich_header_info(rich: &Option<output::RichHeaderInfo>, output_level: O
                 if r.entries.len() == 1 { "y" } else { "ies" }
             );
             // In verbose mode show up to 5 entries; in normal mode show only named ones
-            let limit = if output_level.should_print_verbose() { 5 } else { 3 };
-            for entry in r.entries.iter().filter(|e| e.product_name.is_some()).take(limit) {
+            let limit = if output_level.should_print_verbose() {
+                5
+            } else {
+                3
+            };
+            for entry in r
+                .entries
+                .iter()
+                .filter(|e| e.product_name.is_some())
+                .take(limit)
+            {
                 println!(
                     "    Notable: {} (build {}, used {} time{})",
                     entry.product_name.as_deref().unwrap_or("?"),
@@ -794,7 +807,8 @@ fn print_tls_info(tls: &Option<output::TlsInfo>, output_level: OutputLevel) {
                 let offsets = t.callback_rvas.join(", ");
                 println!("    Offsets: {}", offsets);
             } else if !t.callback_rvas.is_empty() {
-                let preview: Vec<&str> = t.callback_rvas.iter().map(|s| s.as_str()).take(4).collect();
+                let preview: Vec<&str> =
+                    t.callback_rvas.iter().map(|s| s.as_str()).take(4).collect();
                 let suffix = if t.callback_rvas.len() > 4 {
                     format!(", … ({} total)", t.callback_rvas.len())
                 } else {
@@ -819,13 +833,28 @@ fn print_ordinal_imports(ordinals: &[output::OrdinalImport], output_level: Outpu
         by_dll.entry(&o.dll).or_default().push(o.ordinal);
     }
 
-    println!("  {} {} ordinal import(s) detected", "⚠".yellow(), ordinals.len());
+    println!(
+        "  {} {} ordinal import(s) detected",
+        "⚠".yellow(),
+        ordinals.len()
+    );
     for (dll, ords) in &by_dll {
-        let sensitive = dll.eq_ignore_ascii_case("ntdll.dll") || dll.eq_ignore_ascii_case("kernel32.dll");
-        let tag = if sensitive { format!(" {}", "[⚠ sensitive]".red()) } else { String::new() };
+        let sensitive =
+            dll.eq_ignore_ascii_case("ntdll.dll") || dll.eq_ignore_ascii_case("kernel32.dll");
+        let tag = if sensitive {
+            format!(" {}", "[⚠ sensitive]".red())
+        } else {
+            String::new()
+        };
         if output_level.should_print_verbose() {
             let ord_list: Vec<String> = ords.iter().map(|n| n.to_string()).collect();
-            println!("    {}: {} ordinal(s){} — [{}]", dll, ords.len(), tag, ord_list.join(", "));
+            println!(
+                "    {}: {} ordinal(s){} — [{}]",
+                dll,
+                ords.len(),
+                tag,
+                ord_list.join(", ")
+            );
         } else {
             println!("    {}: {} ordinal(s){}", dll, ords.len(), tag);
         }
@@ -990,7 +1019,10 @@ fn print_pe_summary(
                 o.offset, o.size, o.entropy
             ));
         } else {
-            info.push(format!("Overlay present at 0x{:X} ({} bytes)", o.offset, o.size));
+            info.push(format!(
+                "Overlay present at 0x{:X} ({} bytes)",
+                o.offset, o.size
+            ));
         }
     }
 
@@ -1005,8 +1037,14 @@ fn print_pe_summary(
     // Packers — High confidence → High; Medium → Medium
     for p in packers {
         match p.confidence.as_str() {
-            "High" => high.push(format!("Packer detected: {} ({})", p.name, p.detection_method)),
-            "Medium" => medium.push(format!("Possible packer: {} ({})", p.name, p.detection_method)),
+            "High" => high.push(format!(
+                "Packer detected: {} ({})",
+                p.name, p.detection_method
+            )),
+            "Medium" => medium.push(format!(
+                "Possible packer: {} ({})",
+                p.name, p.detection_method
+            )),
             _ => {}
         }
     }
@@ -1024,11 +1062,13 @@ fn print_pe_summary(
     }
 
     // Ordinal imports from sensitive DLLs → High
-    for o in ordinals
-        .iter()
-        .filter(|o| o.dll.eq_ignore_ascii_case("ntdll.dll") || o.dll.eq_ignore_ascii_case("kernel32.dll"))
-    {
-        high.push(format!("Ordinal import from {} (ordinal {})", o.dll, o.ordinal));
+    for o in ordinals.iter().filter(|o| {
+        o.dll.eq_ignore_ascii_case("ntdll.dll") || o.dll.eq_ignore_ascii_case("kernel32.dll")
+    }) {
+        high.push(format!(
+            "Ordinal import from {} (ordinal {})",
+            o.dll, o.ordinal
+        ));
     }
 
     // Suspicious APIs (Tier 1 only) — 3+ → High; 1–2 → Medium
@@ -1039,17 +1079,28 @@ fn print_pe_summary(
         .count();
 
     // Check for injection cluster (3+ injection-class APIs)
-    let injection_count = pe.imports.iter().filter(|i| {
-        let n = i.name.as_ref().to_lowercase();
-        matches!(
-            n.as_str(),
-            "createremotethread" | "writeprocessmemory" | "virtualallocex"
-            | "ntqueueapcthread" | "rtlcreateuserthread" | "ntcreatethreadex"
-        )
-    }).count();
+    let injection_count = pe
+        .imports
+        .iter()
+        .filter(|i| {
+            let n = i.name.as_ref().to_lowercase();
+            matches!(
+                n.as_str(),
+                "createremotethread"
+                    | "writeprocessmemory"
+                    | "virtualallocex"
+                    | "ntqueueapcthread"
+                    | "rtlcreateuserthread"
+                    | "ntcreatethreadex"
+            )
+        })
+        .count();
 
     if injection_count >= 3 {
-        critical.push(format!("{} process injection APIs clustered", injection_count));
+        critical.push(format!(
+            "{} process injection APIs clustered",
+            injection_count
+        ));
     } else if t1_count >= 3 {
         high.push(format!("{} Tier-1 suspicious APIs detected", t1_count));
     } else if t1_count > 0 {
@@ -1072,12 +1123,12 @@ fn print_pe_summary(
     }
 
     // Filename mismatch between OriginalFilename and actual filename on disk
-    if let Some(vi) = version_info {
-        if let Some(orig) = &vi.original_filename {
-            // Only check if we have a path to compare against
-            // (we don't store the on-disk filename here — leave to future integration)
-            let _ = orig; // TODO: compare against actual filename when path is available
-        }
+    if let Some(vi) = version_info
+        && let Some(orig) = &vi.original_filename
+    {
+        // Only check if we have a path to compare against
+        // (we don't store the on-disk filename here — leave to future integration)
+        let _ = orig; // TODO: compare against actual filename when path is available
     }
 
     // No Authenticode signature on an EXE is informational
@@ -1110,19 +1161,23 @@ fn print_pe_summary(
     }
 
     // ── Verdict ───────────────────────────────────────────────────────────────
-    let verdict = if !critical.is_empty() || high.len() >= 2 || (high.len() == 1 && medium.len() >= 2) {
-        "SUSPICIOUS".red().bold().to_string()
-    } else if !high.is_empty() || medium.len() >= 2 {
-        "REVIEW".yellow().bold().to_string()
-    } else {
-        "CLEAN".green().bold().to_string()
-    };
+    let verdict =
+        if !critical.is_empty() || high.len() >= 2 || (high.len() == 1 && medium.len() >= 2) {
+            "SUSPICIOUS".red().bold().to_string()
+        } else if !high.is_empty() || medium.len() >= 2 {
+            "REVIEW".yellow().bold().to_string()
+        } else {
+            "CLEAN".green().bold().to_string()
+        };
 
     let total = critical.len() + high.len() + medium.len() + info.len();
 
     println!("\n{}", "═══ Analysis Summary ═══".bold().cyan());
     if authenticode.is_microsoft_signed {
-        println!("  {} Microsoft-signed binary (trust score reduced)", "🛡".normal());
+        println!(
+            "  {} Microsoft-signed binary (trust score reduced)",
+            "🛡".normal()
+        );
     } else if authenticode.present {
         println!("  {} Signed binary (trust score reduced)", "🛡".normal());
     }
@@ -1164,13 +1219,13 @@ fn collect_ordinal_imports(pe: &PE) -> Vec<output::OrdinalImport> {
     let mut result = Vec::new();
     for import in &pe.imports {
         let name = import.name.as_ref();
-        if name.starts_with("ORDINAL ") {
-            if let Ok(ordinal) = name["ORDINAL ".len()..].parse::<u16>() {
-                result.push(output::OrdinalImport {
-                    dll: import.dll.to_string(),
-                    ordinal,
-                });
-            }
+        if name.starts_with("ORDINAL ")
+            && let Ok(ordinal) = name["ORDINAL ".len()..].parse::<u16>()
+        {
+            result.push(output::OrdinalImport {
+                dll: import.dll.to_string(),
+                ordinal,
+            });
         }
     }
     result
@@ -1257,7 +1312,7 @@ fn validate_checksum(data: &[u8], pe: &PE) -> output::ChecksumInfo {
         i += 2;
     }
     // Handle odd-length file
-    if len % 2 != 0 && i < len {
+    if !len.is_multiple_of(2) && i < len {
         let word = data[i] as u32;
         sum = sum.wrapping_add(word);
         sum = (sum & 0xFFFF) + (sum >> 16);
@@ -1267,7 +1322,7 @@ fn validate_checksum(data: &[u8], pe: &PE) -> output::ChecksumInfo {
     // Add file size
     sum = sum.wrapping_add(len as u32);
 
-    let computed = (sum & 0xFFFF) as u32;
+    let computed = sum & 0xFFFF;
 
     output::ChecksumInfo {
         stored,
@@ -1297,16 +1352,16 @@ fn detect_overlay(data: &[u8], pe: &PE) -> Option<output::OverlayInfo> {
 
     // Check if the trailing data is the Authenticode certificate block.
     // Data directory index 4 (Security Directory) uses a FILE OFFSET, not an RVA.
-    if let Some(oh) = pe.header.optional_header.as_ref() {
-        if let Some(cert_dd) = oh.data_directories.get_certificate_table() {
-            if cert_dd.virtual_address != 0 && cert_dd.size > 0 {
-                let cert_offset = cert_dd.virtual_address as usize;
-                // Allow an 8-byte alignment tolerance
-                if cert_offset >= end_of_sections && cert_offset <= end_of_sections + 8 {
-                    // The "overlay" is entirely the Authenticode cert — not a real overlay
-                    return None;
-                }
-            }
+    if let Some(oh) = pe.header.optional_header.as_ref()
+        && let Some(cert_dd) = oh.data_directories.get_certificate_table()
+        && cert_dd.virtual_address != 0
+        && cert_dd.size > 0
+    {
+        let cert_offset = cert_dd.virtual_address as usize;
+        // Allow an 8-byte alignment tolerance
+        if cert_offset >= end_of_sections && cert_offset <= end_of_sections + 8 {
+            // The "overlay" is entirely the Authenticode cert — not a real overlay
+            return None;
         }
     }
 
@@ -1513,20 +1568,19 @@ fn detect_compiler(
     rich: &Option<output::RichHeaderInfo>,
 ) -> output::CompilerInfo {
     // 1. .NET: CLR data directory (index 14) non-zero AND mscoree.dll in imports
-    if let Some(oh) = &pe.header.optional_header {
-        if let Some(clr_dd) = oh.data_directories.get_clr_runtime_header() {
-            if clr_dd.virtual_address != 0 {
-                let has_mscoree = pe
-                    .libraries
-                    .iter()
-                    .any(|lib| lib.to_lowercase() == "mscoree.dll");
-                if has_mscoree {
-                    return output::CompilerInfo {
-                        name: ".NET".to_string(),
-                        confidence: "High".to_string(),
-                    };
-                }
-            }
+    if let Some(oh) = &pe.header.optional_header
+        && let Some(clr_dd) = oh.data_directories.get_clr_runtime_header()
+        && clr_dd.virtual_address != 0
+    {
+        let has_mscoree = pe
+            .libraries
+            .iter()
+            .any(|lib| lib.to_lowercase() == "mscoree.dll");
+        if has_mscoree {
+            return output::CompilerInfo {
+                name: ".NET".to_string(),
+                confidence: "High".to_string(),
+            };
         }
     }
 
@@ -1564,10 +1618,7 @@ fn detect_compiler(
         .libraries
         .iter()
         .any(|lib| lib.to_lowercase().starts_with("rtl") && lib.to_lowercase().ends_with(".bpl"));
-    if has_delphi_lib
-        || bytes_contain(data, b"Embarcadero")
-        || bytes_contain(data, b"Borland")
-    {
+    if has_delphi_lib || bytes_contain(data, b"Embarcadero") || bytes_contain(data, b"Borland") {
         return output::CompilerInfo {
             name: "Delphi".to_string(),
             confidence: "Medium".to_string(),
@@ -1576,10 +1627,10 @@ fn detect_compiler(
 
     // 6. MSVC: rich header with known MSVC product IDs, or MSVC runtime imports
     let msvc_product_ids: &[u16] = &[
-        0x006D, 0x006E, 0x0078, 0x0079, 0x007D, 0x007E, 0x0083, 0x0084,
-        0x0091, 0x0092, 0x0099, 0x009A, 0x00AA, 0x00AB,
+        0x006D, 0x006E, 0x0078, 0x0079, 0x007D, 0x007E, 0x0083, 0x0084, 0x0091, 0x0092, 0x0099,
+        0x009A, 0x00AA, 0x00AB,
     ];
-    let has_msvc_rich = rich.as_ref().map_or(false, |r| {
+    let has_msvc_rich = rich.as_ref().is_some_and(|r| {
         r.entries
             .iter()
             .any(|e| msvc_product_ids.contains(&e.product_id))
@@ -1688,7 +1739,10 @@ fn detect_packer(pe: &PE, data: &[u8]) -> Vec<output::PackerFinding> {
         // TODO: advanced packer detection — integrate YARA rules for VMProtect
     }
 
-    if section_names.iter().any(|n| n == "mpress1" || n == "mpress2") {
+    if section_names
+        .iter()
+        .any(|n| n == "mpress1" || n == "mpress2")
+    {
         findings.push(output::PackerFinding {
             name: "MPRESS".to_string(),
             confidence: "High".to_string(),
@@ -1697,16 +1751,16 @@ fn detect_packer(pe: &PE, data: &[u8]) -> Vec<output::PackerFinding> {
     }
 
     // UPX entry-point heuristic: EP before first section start
-    if findings.iter().all(|f| f.name != "UPX") {
-        if let Some(first_section) = pe.sections.first() {
-            if pe.entry > 0 && (pe.entry as u32) < first_section.virtual_address {
-                findings.push(output::PackerFinding {
-                    name: "UPX (entry point heuristic)".to_string(),
-                    confidence: "Medium".to_string(),
-                    detection_method: "Heuristic".to_string(),
-                });
-            }
-        }
+    if findings.iter().all(|f| f.name != "UPX")
+        && let Some(first_section) = pe.sections.first()
+        && pe.entry > 0
+        && (pe.entry as u32) < first_section.virtual_address
+    {
+        findings.push(output::PackerFinding {
+            name: "UPX (entry point heuristic)".to_string(),
+            confidence: "Medium".to_string(),
+            detection_method: "Heuristic".to_string(),
+        });
     }
 
     // Entropy heuristics — only emit if no named packer identified yet
@@ -1727,9 +1781,7 @@ fn detect_packer(pe: &PE, data: &[u8]) -> Vec<output::PackerFinding> {
             })
             .collect();
 
-        let any_high_exec = section_entropies
-            .iter()
-            .any(|(e, exec)| *exec && *e > 7.0);
+        let any_high_exec = section_entropies.iter().any(|(e, exec)| *exec && *e > 7.0);
         if any_high_exec {
             findings.push(output::PackerFinding {
                 name: "high entropy executable section".to_string(),
@@ -1930,7 +1982,10 @@ fn extract_cn_ascii(blob: &[u8], occurrence: usize) -> Option<String> {
 fn print_authenticode_info(auth: &output::AuthenticodeInfo, _output_level: OutputLevel) {
     println!("\n{}", "Authenticode Signature:".bold());
     if !auth.present {
-        println!("  {} Not signed (no Authenticode signature found)", "✗".normal());
+        println!(
+            "  {} Not signed (no Authenticode signature found)",
+            "✗".normal()
+        );
         return;
     }
     println!("  {} Signature block present", "✓".green());
@@ -2413,12 +2468,19 @@ mod tests {
             .chain(NOTEWORTHY_APIS.iter())
             .copied()
             .collect();
-        assert!(combined.len() > 30, "Should have 30+ APIs across both tiers");
+        assert!(
+            combined.len() > 30,
+            "Should have 30+ APIs across both tiers"
+        );
 
         // Verify no duplicates within Tier 1
         use std::collections::HashSet;
         let set: HashSet<_> = SUSPICIOUS_APIS_TIER1.iter().collect();
-        assert_eq!(set.len(), SUSPICIOUS_APIS_TIER1.len(), "No Tier1 duplicates");
+        assert_eq!(
+            set.len(),
+            SUSPICIOUS_APIS_TIER1.len(),
+            "No Tier1 duplicates"
+        );
     }
 
     #[test]
@@ -2441,7 +2503,11 @@ mod tests {
 
         for category in categories {
             let has_api = all_apis.iter().any(|api| categorize_api(api) == category);
-            assert!(has_api, "Category '{}' should have at least one API", category);
+            assert!(
+                has_api,
+                "Category '{}' should have at least one API",
+                category
+            );
         }
     }
 

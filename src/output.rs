@@ -839,7 +839,7 @@ mod tests {
                 samples: vec![],
                 sample_count: 0,
             },
-            pe_analysis: None, // Should be omitted
+            pe_analysis: None,  // Should be omitted
             elf_analysis: None, // Should be omitted
             file_format: "Unknown".to_string(),
             imphash: None,

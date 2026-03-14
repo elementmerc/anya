@@ -4,9 +4,9 @@
 // Uses the same trigger-evaluation logic as the GUI Teacher Mode sidebar.
 
 use crate::data::lessons::{
-    context_from_analysis, get_triggered_lessons, Difficulty, Lesson, TriggerContext,
+    Difficulty, Lesson, TriggerContext, context_from_analysis, get_triggered_lessons,
 };
-use crate::output::{MitreTechnique, PEAnalysis, ELFAnalysis};
+use crate::output::{ELFAnalysis, MitreTechnique, PEAnalysis};
 use colored::Colorize;
 
 /// Print all triggered lessons for an analysis result to stdout.
@@ -23,20 +23,15 @@ pub fn print_guided_output(
     let (file_format, packer_names, import_names, mitre_ids) =
         context_from_analysis(pe, elf, mitre);
 
-    let has_ordinal_imports = pe.map_or(false, |p| !p.ordinal_imports.is_empty());
+    let has_ordinal_imports = pe.is_some_and(|p| !p.ordinal_imports.is_empty());
     let has_tls_callbacks = pe
         .and_then(|p| p.tls.as_ref())
-        .map_or(false, |t| t.callback_count > 0);
+        .is_some_and(|t| t.callback_count > 0);
     let has_high_entropy_overlay = pe
         .and_then(|p| p.overlay.as_ref())
-        .map_or(false, |o| o.high_entropy);
+        .is_some_and(|o| o.high_entropy);
     let max_section_entropy = pe
-        .map(|p| {
-            p.sections
-                .iter()
-                .map(|s| s.entropy)
-                .fold(0.0_f64, f64::max)
-        })
+        .map(|p| p.sections.iter().map(|s| s.entropy).fold(0.0_f64, f64::max))
         .unwrap_or(0.0);
 
     let ctx = TriggerContext {
@@ -60,7 +55,10 @@ pub fn print_guided_output(
     }
 
     println!();
-    println!("{}", "═══ Teacher Mode — Contextual Lessons ═══".cyan().bold());
+    println!(
+        "{}",
+        "═══ Teacher Mode — Contextual Lessons ═══".cyan().bold()
+    );
     println!(
         "  {} lesson{} triggered for this file.\n",
         lessons.len(),
@@ -87,10 +85,7 @@ fn print_lesson(index: usize, total: usize, lesson: &Lesson) {
         index,
         total,
         lesson.title,
-        lesson.difficulty
-            .to_string()
-            .as_str()
-            .normal()
+        lesson.difficulty.to_string().as_str().normal()
     );
 
     println!("{}", header.bold().white());
@@ -124,11 +119,7 @@ fn print_lesson(index: usize, total: usize, lesson: &Lesson) {
         println!();
         println!("  {}", "Glossary".dimmed().bold());
         for term in &lesson.content.glossary {
-            println!(
-                "    {} — {}",
-                term.term.bold(),
-                term.definition.dimmed()
-            );
+            println!("    {} — {}", term.term.bold(), term.definition.dimmed());
         }
     }
 

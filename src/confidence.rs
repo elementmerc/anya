@@ -45,10 +45,7 @@ const BONUS_ELF_PACKER: u32 = 20;
 /// - Ordinal imports from ntdll/kernel32: +12/+10
 /// - Anti-analysis indicators: +8 per unique category (max 4 categories)
 /// - ELF: missing PIE +5, missing NX +8, missing RELRO +5, W+X section +15, packer +20
-pub fn calculate_risk_score(
-    pe: Option<&PEAnalysis>,
-    elf: Option<&ELFAnalysis>,
-) -> u32 {
+pub fn calculate_risk_score(pe: Option<&PEAnalysis>, elf: Option<&ELFAnalysis>) -> u32 {
     let mut score: u32 = 0;
 
     if let Some(pe) = pe {
@@ -72,14 +69,14 @@ pub fn calculate_risk_score(
         }
 
         // TLS callbacks
-        if let Some(tls) = &pe.tls {
-            if tls.callback_count > 0 {
-                score += BONUS_TLS_CALLBACKS;
-            }
+        if let Some(tls) = &pe.tls
+            && tls.callback_count > 0
+        {
+            score += BONUS_TLS_CALLBACKS;
         }
 
         // High-entropy overlay
-        if pe.overlay.as_ref().map_or(false, |o| o.high_entropy) {
+        if pe.overlay.as_ref().is_some_and(|o| o.high_entropy) {
             score += BONUS_HIGH_ENTROPY_OVERLAY;
         }
 
@@ -91,10 +88,11 @@ pub fn calculate_risk_score(
         score += BONUS_ANTI_ANALYSIS_PER_CATEGORY * (unique_categories as u32).min(4);
 
         // Checksum mismatch (stored non-zero but doesn't match computed)
-        if let Some(cs) = &pe.checksum {
-            if cs.stored_nonzero && !cs.valid {
-                score += WEIGHT_MEDIUM;
-            }
+        if let Some(cs) = &pe.checksum
+            && cs.stored_nonzero
+            && !cs.valid
+        {
+            score += WEIGHT_MEDIUM;
         }
     }
 
@@ -373,12 +371,27 @@ mod tests {
             high_entropy: true,
         });
         pe.anti_analysis.extend([
-            AntiAnalysisFinding { category: "DebuggerDetection".to_string(), indicator: "IsDebuggerPresent".to_string() },
-            AntiAnalysisFinding { category: "VmDetection".to_string(), indicator: "GetSystemFirmwareTable".to_string() },
-            AntiAnalysisFinding { category: "TimingCheck".to_string(), indicator: "GetTickCount".to_string() },
-            AntiAnalysisFinding { category: "SandboxDetection".to_string(), indicator: "SleepEx".to_string() },
+            AntiAnalysisFinding {
+                category: "DebuggerDetection".to_string(),
+                indicator: "IsDebuggerPresent".to_string(),
+            },
+            AntiAnalysisFinding {
+                category: "VmDetection".to_string(),
+                indicator: "GetSystemFirmwareTable".to_string(),
+            },
+            AntiAnalysisFinding {
+                category: "TimingCheck".to_string(),
+                indicator: "GetTickCount".to_string(),
+            },
+            AntiAnalysisFinding {
+                category: "SandboxDetection".to_string(),
+                indicator: "SleepEx".to_string(),
+            },
         ]);
-        pe.ordinal_imports.push(OrdinalImport { dll: "ntdll.dll".to_string(), ordinal: 12 });
+        pe.ordinal_imports.push(OrdinalImport {
+            dll: "ntdll.dll".to_string(),
+            ordinal: 12,
+        });
         assert_eq!(calculate_risk_score(Some(&pe), None), 100);
     }
 

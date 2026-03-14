@@ -139,10 +139,7 @@ mod tests {
         // Should have T1055 / T1055.001 at most once
         let t1055_001_count = techs
             .iter()
-            .filter(|t| {
-                t.technique_id == "T1055"
-                    && t.sub_technique_id.as_deref() == Some("001")
-            })
+            .filter(|t| t.technique_id == "T1055" && t.sub_technique_id.as_deref() == Some("001"))
             .count();
         assert_eq!(t1055_001_count, 1);
     }

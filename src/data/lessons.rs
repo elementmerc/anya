@@ -157,11 +157,10 @@ fn trigger_matches(trigger: &LessonTrigger, ctx: &TriggerContext<'_>) -> bool {
     match trigger {
         LessonTrigger::Always => true,
 
-        LessonTrigger::FileFormat { format } => match (format, &ctx.file_format) {
-            (FileFormat::Pe, Some(FileFormat::Pe)) => true,
-            (FileFormat::Elf, Some(FileFormat::Elf)) => true,
-            _ => false,
-        },
+        LessonTrigger::FileFormat { format } => matches!(
+            (format, &ctx.file_format),
+            (FileFormat::Pe, Some(FileFormat::Pe)) | (FileFormat::Elf, Some(FileFormat::Elf))
+        ),
 
         LessonTrigger::HighEntropy { threshold } => ctx.max_section_entropy >= *threshold,
 
@@ -201,10 +200,7 @@ fn trigger_matches(trigger: &LessonTrigger, ctx: &TriggerContext<'_>) -> bool {
         LessonTrigger::OverlayPresent => {
             // True if an overlay exists (high entropy or not)
             ctx.has_high_entropy_overlay
-                || ctx
-                    .pe_analysis
-                    .and_then(|p| p.overlay.as_ref())
-                    .is_some()
+                || ctx.pe_analysis.and_then(|p| p.overlay.as_ref()).is_some()
         }
 
         LessonTrigger::ElfSecurityMissing => {
@@ -231,9 +227,7 @@ fn trigger_matches(trigger: &LessonTrigger, ctx: &TriggerContext<'_>) -> bool {
         LessonTrigger::RiskScoreAbove { threshold } => {
             // Risk score is computed externally; caller can filter these out
             // or pass a pre-computed score. Default: do not trigger.
-            ctx.risk_score
-                .map(|s| s >= *threshold)
-                .unwrap_or(false)
+            ctx.risk_score.map(|s| s >= *threshold).unwrap_or(false)
         }
     }
 }
@@ -302,7 +296,11 @@ mod tests {
     #[test]
     fn test_all_lessons_loads() {
         let lessons = all_lessons();
-        assert!(lessons.len() >= 15, "expected at least 15 lessons, got {}", lessons.len());
+        assert!(
+            lessons.len() >= 15,
+            "expected at least 15 lessons, got {}",
+            lessons.len()
+        );
     }
 
     #[test]
@@ -351,8 +349,18 @@ mod tests {
             elf_analysis: None,
             risk_score: None,
         };
-        assert!(trigger_matches(&LessonTrigger::FileFormat { format: FileFormat::Pe }, &ctx));
-        assert!(!trigger_matches(&LessonTrigger::FileFormat { format: FileFormat::Elf }, &ctx));
+        assert!(trigger_matches(
+            &LessonTrigger::FileFormat {
+                format: FileFormat::Pe
+            },
+            &ctx
+        ));
+        assert!(!trigger_matches(
+            &LessonTrigger::FileFormat {
+                format: FileFormat::Elf
+            },
+            &ctx
+        ));
     }
 
     #[test]
@@ -370,9 +378,15 @@ mod tests {
             elf_analysis: None,
             risk_score: None,
         };
-        assert!(!trigger_matches(&LessonTrigger::HighEntropy { threshold: 6.5 }, &ctx));
+        assert!(!trigger_matches(
+            &LessonTrigger::HighEntropy { threshold: 6.5 },
+            &ctx
+        ));
         ctx.max_section_entropy = 7.2;
-        assert!(trigger_matches(&LessonTrigger::HighEntropy { threshold: 6.5 }, &ctx));
+        assert!(trigger_matches(
+            &LessonTrigger::HighEntropy { threshold: 6.5 },
+            &ctx
+        ));
     }
 
     #[test]
@@ -391,13 +405,20 @@ mod tests {
             elf_analysis: None,
             risk_score: None,
         };
-        assert!(trigger_matches(&LessonTrigger::PackerDetected { name: None }, &ctx));
         assert!(trigger_matches(
-            &LessonTrigger::PackerDetected { name: Some("upx".to_string()) },
+            &LessonTrigger::PackerDetected { name: None },
+            &ctx
+        ));
+        assert!(trigger_matches(
+            &LessonTrigger::PackerDetected {
+                name: Some("upx".to_string())
+            },
             &ctx
         ));
         assert!(!trigger_matches(
-            &LessonTrigger::PackerDetected { name: Some("themida".to_string()) },
+            &LessonTrigger::PackerDetected {
+                name: Some("themida".to_string())
+            },
             &ctx
         ));
     }
@@ -435,7 +456,10 @@ mod tests {
         // Missing one → false
         assert!(!trigger_matches(
             &LessonTrigger::ApiComboPresent {
-                apis: vec!["VirtualAllocEx".to_string(), "CreateToolhelp32Snapshot".to_string()]
+                apis: vec![
+                    "VirtualAllocEx".to_string(),
+                    "CreateToolhelp32Snapshot".to_string()
+                ]
             },
             &ctx
         ));
@@ -458,11 +482,15 @@ mod tests {
             risk_score: None,
         };
         assert!(trigger_matches(
-            &LessonTrigger::MitreDetected { technique_id: "T1622".to_string() },
+            &LessonTrigger::MitreDetected {
+                technique_id: "T1622".to_string()
+            },
             &ctx
         ));
         assert!(!trigger_matches(
-            &LessonTrigger::MitreDetected { technique_id: "T1003".to_string() },
+            &LessonTrigger::MitreDetected {
+                technique_id: "T1003".to_string()
+            },
             &ctx
         ));
     }

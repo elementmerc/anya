@@ -2,7 +2,6 @@
 ///
 /// These tests use a handcrafted minimal PE32+ binary so they do not depend on
 /// any external sample file and run offline.
-
 mod helpers;
 
 use anya_security_core::pe_parser::analyse_pe_data;
@@ -144,7 +143,10 @@ fn test_pe_checksum_zero_stored() {
     let pe = analyse_pe_data(&helpers::build_minimal_pe()).unwrap();
     let cs = pe.checksum.as_ref().expect("checksum field should be Some");
     assert_eq!(cs.stored, 0);
-    assert!(!cs.stored_nonzero, "stored_nonzero should be false when checksum is 0");
+    assert!(
+        !cs.stored_nonzero,
+        "stored_nonzero should be false when checksum is 0"
+    );
 }
 
 // ─── Overlay ─────────────────────────────────────────────────────────────────
@@ -154,7 +156,10 @@ fn test_pe_no_overlay_for_exact_size() {
     // The minimal PE is exactly 1024 bytes; last section ends at 0x400.
     // No overlay should be detected.
     let pe = analyse_pe_data(&helpers::build_minimal_pe()).unwrap();
-    assert!(pe.overlay.is_none(), "No overlay expected for exact-size PE");
+    assert!(
+        pe.overlay.is_none(),
+        "No overlay expected for exact-size PE"
+    );
 }
 
 #[test]
@@ -185,7 +190,10 @@ fn test_pe_no_tls_callbacks() {
 #[test]
 fn test_pe_no_packers_detected() {
     let pe = analyse_pe_data(&helpers::build_minimal_pe()).unwrap();
-    assert!(pe.packers.is_empty(), "No packers expected in clean minimal PE");
+    assert!(
+        pe.packers.is_empty(),
+        "No packers expected in clean minimal PE"
+    );
 }
 
 #[test]

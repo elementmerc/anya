@@ -4,9 +4,9 @@
 // Copyright (C) 2026 Daniel Iwugo
 // Licensed under AGPL-3.0-or-later
 
+use crate::OutputLevel;
 use crate::output;
 use crate::pe_parser::is_suspicious_api;
-use crate::OutputLevel;
 use anyhow::Result;
 use colored::*;
 use goblin::elf::Elf;
@@ -167,8 +167,7 @@ const SUSPICIOUS_LINUX_FUNCTIONS: &[&str] = &[
 ];
 
 fn is_suspicious_elf_function(name: &str) -> bool {
-    SUSPICIOUS_LINUX_FUNCTIONS.contains(&name)
-        || is_suspicious_api(name) // reuse the PE suspicious API list for common names
+    SUSPICIOUS_LINUX_FUNCTIONS.contains(&name) || is_suspicious_api(name) // reuse the PE suspicious API list for common names
 }
 
 // ─── Import analysis ──────────────────────────────────────────────────────────
@@ -183,13 +182,13 @@ fn analyse_elf_imports(elf: &Elf) -> output::ElfImportAnalysis {
         // Only imported symbols have no section index (SHN_UNDEF = 0)
         if sym.st_shndx == 0 && sym.st_name != 0 {
             dynamic_symbol_count += 1;
-            if let Some(name) = elf.dynstrtab.get_at(sym.st_name) {
-                if is_suspicious_elf_function(name) {
-                    suspicious_functions.push(output::SuspiciousAPI {
-                        name: name.to_string(),
-                        category: "Suspicious Linux Function".to_string(),
-                    });
-                }
+            if let Some(name) = elf.dynstrtab.get_at(sym.st_name)
+                && is_suspicious_elf_function(name)
+            {
+                suspicious_functions.push(output::SuspiciousAPI {
+                    name: name.to_string(),
+                    category: "Suspicious Linux Function".to_string(),
+                });
             }
         }
     }
@@ -519,12 +518,14 @@ pub fn analyse_elf(data: &[u8], output_level: OutputLevel) -> Result<()> {
         analysis.imports.dynamic_symbol_count
     );
     if !analysis.imports.suspicious_functions.is_empty() {
-        println!(
-            "\n  {} Suspicious Functions Detected:",
-            "⚠".red().bold()
-        );
+        println!("\n  {} Suspicious Functions Detected:", "⚠".red().bold());
         for f in &analysis.imports.suspicious_functions {
-            println!("    {} {} - {}", "•".red(), f.name.red(), f.category.yellow());
+            println!(
+                "    {} {} - {}",
+                "•".red(),
+                f.name.red(),
+                f.category.yellow()
+            );
         }
     }
 

@@ -116,12 +116,9 @@ pub mod commands {
 
     /// Write a previously-computed JSON result to a user-chosen path.
     #[tauri::command]
-    pub async fn export_json(
-        result: serde_json::Value,
-        output_path: String,
-    ) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(&result)
-            .map_err(|e| format!("Serialise error: {e}"))?;
+    pub async fn export_json(result: serde_json::Value, output_path: String) -> Result<(), String> {
+        let json =
+            serde_json::to_string_pretty(&result).map_err(|e| format!("Serialise error: {e}"))?;
         std::fs::write(&output_path, json).map_err(|e| format!("Write error: {e}"))
     }
 
@@ -162,8 +159,8 @@ pub mod commands {
             output::AnalysisResult,
         };
 
-        let analysis: AnalysisResult = serde_json::from_value(result)
-            .map_err(|e| format!("Deserialize error: {e}"))?;
+        let analysis: AnalysisResult =
+            serde_json::from_value(result).map_err(|e| format!("Deserialize error: {e}"))?;
 
         let pe = analysis.pe_analysis.as_ref();
         let elf = analysis.elf_analysis.as_ref();
@@ -181,12 +178,7 @@ pub mod commands {
             .and_then(|p| p.overlay.as_ref())
             .map_or(false, |o| o.high_entropy);
         let max_section_entropy = pe
-            .map(|p| {
-                p.sections
-                    .iter()
-                    .map(|s| s.entropy)
-                    .fold(0.0_f64, f64::max)
-            })
+            .map(|p| p.sections.iter().map(|s| s.entropy).fold(0.0_f64, f64::max))
             .unwrap_or(0.0);
 
         let ctx = TriggerContext {
