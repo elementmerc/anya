@@ -1,7 +1,9 @@
 # ── Stage 1: builder ───────────────────────────────────────────────────────
-# edition = "2024" requires rustc ≥ 1.85; rust:1.85-slim-bookworm is the
-# minimum version that compiles this crate.
-FROM rust:1.85-slim-bookworm AS builder
+# edition = "2024" requires rustc ≥ 1.85; the crate also uses let_chains
+# and is_multiple_of which need a recent stable toolchain.
+FROM rust:slim-bookworm AS builder
+
+ARG VERSION
 
 # Install only the libraries needed to link the binary
 RUN apt-get update && \
@@ -31,41 +33,36 @@ RUN mkdir -p src && \
 
 RUN cargo build --release -p anya-security-core 2>/dev/null || true
 
-# Remove stub artifacts so our code is recompiled cleanly in the next step
-RUN find target/release -maxdepth 2 \( \
-        -name "anya-security-core" \
-        -o -name "anya_security_core*" \
-    \) -exec rm -f {} + 2>/dev/null || true
+# Remove stub artifacts AND cargo fingerprints so our real code is
+# recompiled cleanly. Without removing .fingerprint entries, cargo
+# thinks the stub binary is still valid and skips recompilation.
+RUN rm -rf target/release/.fingerprint/anya-* \
+           target/release/deps/anya-* \
+           target/release/deps/anya_* \
+           target/release/deps/libanya_* \
+           target/release/anya \
+           target/release/anya.d
 
 # ── Compile the real source ─────────────────────────────────────────────────
 COPY src ./src
 
 RUN cargo build --release -p anya-security-core
 
-# Verify the binary was produced and strip debug symbols to minimise size
-RUN ls -lh target/release/anya-security-core && \
-    strip target/release/anya-security-core
+# Verify the binary was produced and strip debug symbols to minimise size.
+# The [[bin]] in Cargo.toml sets name = "anya", so the binary is target/release/anya.
+RUN ls -lh target/release/anya && \
+    strip target/release/anya
 
 
 # ── Stage 2: minimal runtime image ─────────────────────────────────────────
-FROM debian:bookworm-slim AS runtime
+# The binary links only libc + libgcc_s (no OpenSSL). distroless/cc has
+# exactly those libs, no shell, no package manager — ~25 MB base.
+FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
 
-# Runtime dependencies only — no build tools, no compilers
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        ca-certificates \
-        libssl3 \
-    && rm -rf /var/lib/apt/lists/*
+ARG VERSION
 
-# Run as a dedicated non-root user — no login shell, no home directory writes
-RUN groupadd -r anya && \
-    useradd  -r -g anya -s /sbin/nologin -M anya
-
-# Copy the stripped binary and rename it to the short 'anya' command
-COPY --from=builder /build/target/release/anya-security-core /usr/local/bin/anya
-
-# Verify dynamic library linkage — surfaces unexpected deps at build time
-RUN ldd /usr/local/bin/anya || true
+# Copy the stripped binary
+COPY --from=builder /build/target/release/anya /usr/local/bin/anya
 
 # Volumes
 # /samples  — mount PE/ELF files to analyse (recommend read-only)
@@ -73,12 +70,13 @@ RUN ldd /usr/local/bin/anya || true
 # /config   — optional config file override (~/.config/anya/config.toml layout)
 VOLUME ["/samples", "/output", "/config"]
 
-USER anya
+# distroless/cc-debian12:nonroot already runs as uid 65532 (nonroot)
 
 LABEL org.opencontainers.image.title="Anya" \
       org.opencontainers.image.description="Privacy-first PE/ELF malware analyser" \
       org.opencontainers.image.licenses="AGPL-3.0" \
-      org.opencontainers.image.source="https://github.com/elementmerc/anya"
+      org.opencontainers.image.source="https://github.com/elementmerc/anya" \
+      org.opencontainers.image.version="${VERSION}"
 
 ENTRYPOINT ["/usr/local/bin/anya"]
 CMD ["--help"]

@@ -17,7 +17,7 @@
 
 ---
 
-Anya analyses binary files without executing them. Drop a PE or ELF onto the GUI, or pipe files through the CLI. Get hashes, entropy, imports, sections, MITRE ATT&CK mappings, and a risk score. All in under a second, all locally.
+Anya analyses binary files without executing them. Drop a PE or ELF onto the GUI, or pipe files through the CLI. Get hashes, entropy, imports, sections, MITRE ATT&CK mappings, and a risk score. All in under seconds, all locally.
 
 **Anya** (AHN-yah) means "eye" in Igbo.
 
