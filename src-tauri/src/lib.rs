@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
 use tauri::window::Color;
+use tauri::Manager;
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ pub fn compute_risk_score(result: &anya_security_core::output::AnalysisResult) -
             score += (tls.callback_count as i64).min(3) * 5;
         }
 
-        if pe.overlay.as_ref().map_or(false, |o| o.high_entropy) {
+        if pe.overlay.as_ref().is_some_and(|o| o.high_entropy) {
             score += 15;
         }
 
@@ -181,13 +181,13 @@ pub mod commands {
             context_from_analysis(pe, elf, mitre);
 
         // Compute auxiliary booleans
-        let has_ordinal_imports = pe.map_or(false, |p| !p.ordinal_imports.is_empty());
+        let has_ordinal_imports = pe.is_some_and(|p| !p.ordinal_imports.is_empty());
         let has_tls_callbacks = pe
             .and_then(|p| p.tls.as_ref())
-            .map_or(false, |t| t.callback_count > 0);
+            .is_some_and(|t| t.callback_count > 0);
         let has_high_entropy_overlay = pe
             .and_then(|p| p.overlay.as_ref())
-            .map_or(false, |o| o.high_entropy);
+            .is_some_and(|o| o.high_entropy);
         let max_section_entropy = pe
             .map(|p| p.sections.iter().map(|s| s.entropy).fold(0.0_f64, f64::max))
             .unwrap_or(0.0);
@@ -209,7 +209,6 @@ pub mod commands {
         let lessons = compute_triggered(&ctx);
         serde_json::to_value(&lessons).map_err(|e| format!("Serialize error: {e}"))
     }
-
 }
 
 // ─── App entry point ─────────────────────────────────────────────────────────
