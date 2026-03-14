@@ -24,6 +24,15 @@ authors_note = "Christ is King"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[package.metadata.rpm]
+package = "anya"
+
+[package.metadata.rpm.cargo]
+buildflags = ["--release", "--locked"]
+
+[package.metadata.rpm.targets]
+anya = { path = "/usr/bin/anya" }
+
 [dependencies]
 # For command-line argument parsing
 clap = { version = "4.5", features = ["derive"] }
