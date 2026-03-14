@@ -51,6 +51,3 @@ ignore = [
     # Safe to ignore: no CVE, purely a maintenance flag
     "RUSTSEC-2025-0119",
 ]
-
-[output]
-deny = ["unmaintained", "unsound"]
