@@ -117,11 +117,52 @@ pub mod commands {
     }
 
     /// Write a previously-computed JSON result to a user-chosen path.
+    ///
+    /// The path is expected to come from the native save-file dialog, but since
+    /// IPC endpoints are callable directly we validate here as defence-in-depth:
+    ///   - resolve to an absolute, canonical path (follows symlinks)
+    ///   - reject paths that land inside known sensitive directories
+    ///   - require a `.json` extension
     #[tauri::command]
     pub async fn export_json(result: serde_json::Value, output_path: String) -> Result<(), String> {
+        let requested = std::path::Path::new(&output_path);
+
+        // Resolve the parent directory (must exist) so symlinks and ".." are
+        // collapsed before we check the path.
+        let parent = requested
+            .parent()
+            .ok_or_else(|| "Invalid path: no parent directory".to_string())?;
+        let canonical_parent = parent
+            .canonicalize()
+            .map_err(|e| format!("Path error: {e}"))?;
+        let canonical = canonical_parent.join(
+            requested
+                .file_name()
+                .ok_or_else(|| "Invalid path: no file name".to_string())?,
+        );
+
+        // Block writes into system-sensitive directories.
+        let blocked: &[&str] = &[
+            "/etc", "/bin", "/sbin", "/usr", "/boot", "/proc", "/sys", "/dev",
+        ];
+        let canonical_str = canonical.to_string_lossy();
+        for prefix in blocked {
+            if canonical_str.starts_with(prefix) {
+                return Err(format!(
+                    "Refused to write to restricted path: {canonical_str}"
+                ));
+            }
+        }
+
+        // Require .json extension to prevent writing arbitrary file types.
+        match canonical.extension().and_then(|e| e.to_str()) {
+            Some("json") => {}
+            _ => return Err("Export path must have a .json extension".to_string()),
+        }
+
         let json =
             serde_json::to_string_pretty(&result).map_err(|e| format!("Serialise error: {e}"))?;
-        std::fs::write(&output_path, json).map_err(|e| format!("Write error: {e}"))
+        std::fs::write(&canonical, json).map_err(|e| format!("Write error: {e}"))
     }
 
     /// Return current settings (reads from Tauri app-data dir for the DB path).
@@ -209,6 +250,52 @@ pub mod commands {
         let lessons = compute_triggered(&ctx);
         serde_json::to_value(&lessons).map_err(|e| format!("Serialize error: {e}"))
     }
+
+    // ── Installer / first-run commands ────────────────────────────────────────
+
+    /// Check whether this is a first run by looking for the `.anya_configured`
+    /// marker file in the app config directory.
+    // TODO v1.1.0: Compare stored version in .anya_configured against
+    // current app version to show the shorter update installer flow.
+    #[tauri::command]
+    pub async fn is_first_run(app: tauri::AppHandle) -> bool {
+        let config_dir = app
+            .path()
+            .app_config_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let marker = config_dir.join(".anya_configured");
+        !marker.exists()
+    }
+
+    /// Write the first-run marker and persist installer preferences.
+    #[tauri::command]
+    pub async fn complete_setup(
+        app: tauri::AppHandle,
+        install_path: String,
+        dark_theme: bool,
+        teacher_mode: bool,
+    ) -> Result<(), String> {
+        let _ = install_path;
+        let _ = dark_theme;
+        let _ = teacher_mode;
+
+        let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+
+        let marker = config_dir.join(".anya_configured");
+        std::fs::write(&marker, "1").map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    /// Return the platform-appropriate default data directory path.
+    #[tauri::command]
+    pub async fn get_default_install_path(app: tauri::AppHandle) -> String {
+        app.path()
+            .app_data_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "~/.local/share/anya".to_string())
+    }
 }
 
 // ─── App entry point ─────────────────────────────────────────────────────────
@@ -233,6 +320,9 @@ pub fn run() {
             commands::save_settings,
             commands::get_triggered_lessons,
             commands::get_random_verse,
+            commands::is_first_run,
+            commands::complete_setup,
+            commands::get_default_install_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Anya");

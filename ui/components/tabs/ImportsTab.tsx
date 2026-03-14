@@ -2,11 +2,11 @@ import { useState, useMemo } from "react";
 import { ChevronRight, AlertTriangle, Search } from "lucide-react";
 import { getApiDescription } from "@/lib/apiDescriptions";
 import { useTeacherFocus } from "@/hooks/useTeacherMode";
+import dllExplanations from "@/data/dll_explanations.json";
 import type { AnalysisResult } from "@/types/analysis";
 
 interface Props {
   result: AnalysisResult;
-  /** Called when a MITRE badge is clicked; navigates to MITRE tab and highlights the card. */
   onMitreNavigate?: (techId: string) => void;
 }
 
@@ -14,6 +14,12 @@ interface DllEntry {
   dll: string;
   functions: string[];
   suspiciousCount: number;
+}
+
+const dllDescriptions = dllExplanations as Record<string, string>;
+
+function getDllDescription(dll: string): string | undefined {
+  return dllDescriptions[dll] ?? dllDescriptions[dll.toUpperCase()] ?? dllDescriptions[dll.toLowerCase()];
 }
 
 function Highlight({ text, query }: { text: string; query: string }) {
@@ -31,18 +37,13 @@ function Highlight({ text, query }: { text: string; query: string }) {
   );
 }
 
-// Build a map of API name (lowercase) → first MITRE technique (full object)
 function buildMitreMap(techniques: Props["result"]["mitre_techniques"]) {
   const map = new Map<string, { id: string; name: string; tactic: string }>();
   if (techniques) {
     for (const t of techniques) {
       const key = t.source_indicator.toLowerCase();
       if (!map.has(key)) {
-        map.set(key, {
-          id: t.technique_id,
-          name: t.technique_name,
-          tactic: t.tactic,
-        });
+        map.set(key, { id: t.technique_id, name: t.technique_name, tactic: t.tactic });
       }
     }
   }
@@ -56,7 +57,6 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [suspiciousOnly, setSuspiciousOnly] = useState(false);
-  const [tooltip, setTooltip] = useState<{ fn: string; x: number; y: number } | null>(null);
 
   if (!pe) {
     return (
@@ -70,7 +70,6 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
 
   const dllMap = useMemo<DllEntry[]>(() => {
     const suspApiNames = pe.imports.suspicious_apis.map((a) => a.name);
-
     const knownHosts: Record<string, string[]> = {
       "kernel32.dll":   ["CreateRemoteThread","WriteProcessMemory","VirtualAllocEx","CreateService","StartService","DeleteFile","MoveFile","CopyFile"],
       "kernelbase.dll": ["VirtualAllocEx","OpenProcess","OpenProcessToken","AdjustTokenPrivileges"],
@@ -81,10 +80,8 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
       "advapi32.dll":   ["RegSetValueEx","RegCreateKeyEx","CryptEncrypt","CryptDecrypt","CryptAcquireContext"],
       "ws2_32.dll":     ["WSAStartup","socket","connect"],
     };
-
     const assigned = new Set<string>();
     const entries: DllEntry[] = [];
-
     for (const dll of pe.imports.libraries) {
       const hostFns = knownHosts[dll.toLowerCase()] ?? [];
       const fns = suspApiNames.filter((n) => {
@@ -94,13 +91,11 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
       });
       entries.push({ dll, functions: fns, suspiciousCount: fns.length });
     }
-
     const unassigned = suspApiNames.filter((n) => !assigned.has(n));
     if (unassigned.length > 0 && entries.length > 0) {
       entries[0].functions.push(...unassigned);
       entries[0].suspiciousCount += unassigned.length;
     }
-
     return entries;
   }, [pe]);
 
@@ -133,10 +128,7 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
   }, [lSearch, filtered, expanded]);
 
   return (
-    <div
-      style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column" }}
-      onClick={() => setTooltip(null)}
-    >
+    <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column" }}>
       {/* Toolbar */}
       <div style={{ flexShrink: 0, padding: "16px 24px 12px", background: "var(--bg-base)", borderBottom: "1px solid var(--border-subtle)" }}>
         <div style={{ maxWidth: 1600, margin: "0 auto", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -177,37 +169,75 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
               </p>
             ) : filtered.map((entry, idx) => {
               const isOpen = effectiveExpanded.has(entry.dll);
+              const dllDesc = getDllDescription(entry.dll);
+              const isExpandable = entry.suspiciousCount > 0 || !!dllDesc;
+
               return (
                 <div key={entry.dll} style={{ borderTop: idx > 0 ? "1px solid var(--border-subtle)" : undefined }}>
-                  <button
-                    onClick={() => toggle(entry.dll)}
-                    aria-expanded={isOpen}
-                    style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "0 16px", height: 40, background: "transparent", border: "none", cursor: "pointer", transition: "background 150ms ease-out", textAlign: "left" }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--bg-elevated)"; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
-                  >
-                    <ChevronRight size={14} style={{ color: "var(--text-muted)", flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "rotate(0)", transition: "transform 150ms ease-out" }} />
-                    <span style={{ flex: 1, fontSize: "var(--font-size-sm)", fontFamily: "var(--font-mono)", color: "var(--text-primary)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      <Highlight text={entry.dll} query={search} />
-                    </span>
-                    {entry.suspiciousCount > 0 && (
-                      <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: "var(--font-size-xs)", padding: "2px 8px", borderRadius: 999, background: "rgba(249,115,22,0.12)", color: "var(--risk-high)", flexShrink: 0 }}>
-                        <AlertTriangle size={10} />{entry.suspiciousCount}
+                  {/* DLL header row */}
+                  {isExpandable ? (
+                    <button
+                      onClick={() => {
+                        toggle(entry.dll);
+                        if (teacherEnabled && dllDesc) {
+                          focus({ type: "dll", name: entry.dll, description: dllDesc });
+                        }
+                      }}
+                      aria-expanded={isOpen}
+                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", minHeight: 40, background: "transparent", border: "none", cursor: "pointer", transition: "background 150ms ease-out", textAlign: "left" }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--bg-elevated)"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+                    >
+                      <ChevronRight size={14} style={{ color: "var(--text-muted)", flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "rotate(0)", transition: "transform 150ms ease-out", alignSelf: "center" }} />
+                      <span style={{ flex: 1, fontSize: "var(--font-size-sm)", fontFamily: "var(--font-mono)", color: "var(--text-primary)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <Highlight text={entry.dll} query={search} />
                       </span>
-                    )}
-                  </button>
+                      {entry.suspiciousCount > 0 && (
+                        <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: "var(--font-size-xs)", padding: "2px 8px", borderRadius: 999, background: "rgba(249,115,22,0.12)", color: "var(--risk-high)", flexShrink: 0 }}>
+                          <AlertTriangle size={10} />{entry.suspiciousCount}
+                        </span>
+                      )}
+                    </button>
+                  ) : (
+                    /* Static row — no chevron, no expand */
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px 8px 40px", minHeight: 40 }}>
+                      <span style={{ flex: 1, fontSize: "var(--font-size-sm)", fontFamily: "var(--font-mono)", color: "var(--text-primary)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <Highlight text={entry.dll} query={search} />
+                      </span>
+                    </div>
+                  )}
 
-                  {isOpen && entry.functions.length > 0 && (
+                  {/* Expanded content */}
+                  {isOpen && isExpandable && (
                     <div style={{ background: "var(--bg-base)", borderTop: "1px solid var(--border-subtle)" }}>
+                      {/* DLL description (shown on expand) */}
+                      {dllDesc && (
+                        <div style={{ padding: "8px 16px 8px 40px" }}>
+                          <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                            {dllDesc}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Suspicious functions */}
                       {entry.functions.map((fn) => {
                         const isSusp = suspiciousSet.has(fn.toLowerCase());
                         const category = pe.imports.suspicious_apis.find((a) => a.name.toLowerCase() === fn.toLowerCase())?.category;
-                        const hasDesc = !!getApiDescription(fn);
+                        const fnDesc = isSusp ? getApiDescription(fn) : undefined;
                         const mitreTech = mitreMap.get(fn.toLowerCase());
                         return (
                           <div
                             key={fn}
-                            style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 16px 0 40px", height: 36, background: isSusp ? "var(--suspicious-bg)" : "transparent" }}
+                            style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 16px 8px 40px", background: isSusp ? "var(--suspicious-bg)" : "transparent", cursor: teacherEnabled && isSusp ? "pointer" : undefined }}
+                            onClick={() => {
+                              if (teacherEnabled && isSusp) {
+                                if (mitreTech) {
+                                  focus({ type: "mitre", techniqueId: mitreTech.id, techniqueName: mitreTech.name, tactic: mitreTech.tactic });
+                                } else {
+                                  focus({ type: "api", name: fn, category: category ?? undefined });
+                                }
+                              }
+                            }}
                             onMouseEnter={() => {
                               if (teacherEnabled && isSusp) {
                                 if (mitreTech) {
@@ -221,12 +251,19 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
                               if (teacherEnabled) blur();
                             }}
                           >
-                            {isSusp && <AlertTriangle size={12} style={{ color: "var(--risk-high)", flexShrink: 0 }} />}
-                            <span className="selectable" style={{ flex: 1, fontSize: "var(--font-size-sm)", fontFamily: "var(--font-mono)", color: isSusp ? "var(--risk-high)" : "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              <Highlight text={fn} query={search} />
-                            </span>
+                            {isSusp && <AlertTriangle size={12} style={{ color: "var(--risk-high)", flexShrink: 0, marginTop: 3 }} />}
+                            <div style={{ flex: 1, overflow: "hidden" }}>
+                              <span className="selectable" title={fn} style={{ fontSize: "var(--font-size-sm)", fontFamily: "var(--font-mono)", color: isSusp ? "var(--risk-high)" : "var(--text-secondary)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                <Highlight text={fn} query={search} />
+                              </span>
+                              {fnDesc && (
+                                <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)", display: "block", lineHeight: 1.4, marginTop: 2 }}>
+                                  {fnDesc}
+                                </span>
+                              )}
+                            </div>
                             {category && (
-                              <span style={{ fontSize: "var(--font-size-xs)", padding: "2px 7px", borderRadius: 999, background: "rgba(249,115,22,0.12)", color: "var(--risk-high)", flexShrink: 0, whiteSpace: "nowrap" }}>
+                              <span style={{ fontSize: "var(--font-size-xs)", padding: "2px 7px", borderRadius: 999, background: "rgba(249,115,22,0.12)", color: "var(--risk-high)", flexShrink: 0, whiteSpace: "nowrap", marginTop: 2 }}>
                                 {category}
                               </span>
                             )}
@@ -236,37 +273,16 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
                                 title={`MITRE ATT&CK ${mitreTech.id} — click to view in MITRE tab`}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (onMitreNavigate) {
-                                    onMitreNavigate(mitreTech.id);
-                                  }
+                                  if (onMitreNavigate) onMitreNavigate(mitreTech.id);
                                 }}
                                 style={{
-                                  fontSize: "var(--font-size-xs)",
-                                  padding: "2px 6px",
-                                  borderRadius: 4,
-                                  background: "rgba(99,102,241,0.15)",
-                                  color: "rgb(129,140,248)",
-                                  border: "1px solid rgba(99,102,241,0.3)",
-                                  flexShrink: 0,
-                                  whiteSpace: "nowrap",
-                                  cursor: "pointer",
-                                  fontFamily: "var(--font-mono)",
-                                  fontWeight: 600,
+                                  fontSize: "var(--font-size-xs)", padding: "2px 6px", borderRadius: 4,
+                                  background: "rgba(99,102,241,0.15)", color: "rgb(129,140,248)",
+                                  border: "1px solid rgba(99,102,241,0.3)", flexShrink: 0, whiteSpace: "nowrap",
+                                  cursor: "pointer", fontFamily: "var(--font-mono)", fontWeight: 600, marginTop: 2,
                                 }}
                               >
                                 {mitreTech.id}
-                              </button>
-                            )}
-                            {hasDesc && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const r = e.currentTarget.getBoundingClientRect();
-                                  setTooltip({ fn, x: r.left, y: r.bottom + 4 });
-                                }}
-                                style={{ background: "none", border: "1px solid var(--border)", padding: "1px 6px", fontSize: "var(--font-size-xs)", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, borderRadius: "var(--radius-sm)", lineHeight: 1.4 }}
-                              >
-                                why?
                               </button>
                             )}
                           </div>
@@ -280,17 +296,6 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
           </div>
         </div>
       </div>
-
-      {/* Tooltip */}
-      {tooltip && (
-        <div
-          className="animate-tooltip-in"
-          style={{ position: "fixed", top: Math.min(tooltip.y, window.innerHeight - 120), left: Math.min(tooltip.x, window.innerWidth - 320), zIndex: 50, maxWidth: 300, padding: "10px 14px", borderRadius: "var(--radius)", background: "var(--bg-elevated)", border: "1px solid var(--border)", fontSize: "var(--font-size-xs)", color: "var(--text-secondary)", lineHeight: 1.5, boxShadow: "0 4px 16px rgba(0,0,0,0.3)" }}
-        >
-          <p style={{ margin: "0 0 4px", fontWeight: 600, color: "var(--text-primary)", fontSize: "var(--font-size-sm)" }}>{tooltip.fn}</p>
-          <p style={{ margin: 0 }}>{getApiDescription(tooltip.fn)}</p>
-        </div>
-      )}
     </div>
   );
 }

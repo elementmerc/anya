@@ -20,7 +20,8 @@ export type TeacherFocusItem =
       /** Optional: API indicators that triggered this technique. */
       indicators?: { source: string; confidence: string }[];
     }
-  | { type: "api"; name: string; category?: string };
+  | { type: "api"; name: string; category?: string }
+  | { type: "dll"; name: string; description?: string };
 
 // ── Context shape ───────────────────────────────────────────────────────────
 

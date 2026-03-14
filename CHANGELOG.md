@@ -2,6 +2,30 @@
 
 All notable changes to Anya will be documented in this file.
 
+## [1.0.1] - 2026-03-14
+
+### Added
+- **First-run installer** — 5-step setup wizard (licence, install location, preferences, progress, done) with live dark/light theme switching
+- **DLL and function explanations** — inline descriptions for 40 DLLs and 112 suspicious APIs in the Imports tab, loaded from JSON data files
+- **Draggable Teacher sidebar** — left edge drag handle to resize from 280px up to 50% of window width
+- **DLL/function focus in Teacher Mode** — clicking a DLL or function in the Imports tab shows its explanation in the Teacher sidebar
+- **Splash screen theme adaptation** — splash background and logo colours match the user's dark/light theme
+- **Settings modal animations** — scale + fade enter/exit transitions
+- **Sliding tab indicator** — active tab underline smoothly slides between tabs
+- **Risk ring animation delay** — 400ms delay before the score counter starts, 50% slower fill animation
+
+### Fixed
+- **Dockerfile** — wrong binary path (`anya-security-core` → `anya`), stale stub binary due to missing fingerprint cleanup, Rust version too old for `let_chains`
+- **Docker runtime** — switched from `debian:bookworm-slim` (128MB) to `gcr.io/distroless/cc-debian12:nonroot` (40.5MB); fixed container write permissions for non-root user
+- **Icon quality** — regenerated `icon.ico` with standard Windows sizes (16/24/32/48/64/256px) at 8-bit depth; fixed macOS `Rgba16` bundling error
+- **Settings modal overflow** — added `max-h-[85vh]` with scrollable content area
+- **Entropy chart labels** — moved "Suspicious" and "Encrypted" text above reference lines with proper top margin
+- **Integration tests** — fixed binary name, Bible verse subcommand detection, batch JSON validation, Docker output permissions, `debian/rules` execute bit
+- **`export_json` path validation** — canonicalization, blocked system directories, `.json` extension enforcement
+- **`debian/control`** — removed `cargo, rustc` from `Build-Depends` (installed via rustup in CI)
+- **Release workflow** — Node.js 20 → 22, added `publish-crate` job for crates.io
+- Minor fixes and improvements
+
 ## [1.0.0] - 2026-03-14
 
 ### Analysis engine

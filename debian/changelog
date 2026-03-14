@@ -1,3 +1,13 @@
+anya (1.0.1-1) stable; urgency=medium
+
+  * Release v1.0.1.
+  * Added first-run installer with 5-step setup wizard.
+  * Added DLL and function explanation data files for Imports tab.
+  * Added draggable Teacher Mode sidebar.
+  * Minor fixes and improvements.
+
+ -- Daniel Iwugo <daniel@themalwarefiles.com>  Sat, 14 Mar 2026 00:00:00 +0000
+
 anya (1.0.0-1) stable; urgency=medium
 
   * Release v1.0.0.

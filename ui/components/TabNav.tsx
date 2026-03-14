@@ -1,3 +1,4 @@
+import { useRef, useState, useEffect, useCallback } from "react";
 import {
   LayoutDashboard,
   Activity,
@@ -32,11 +33,39 @@ interface Props {
 }
 
 export default function TabNav({ active, onChange, badges }: Props) {
+  const navRef = useRef<HTMLElement>(null);
+  const tabRefs = useRef<Map<TabName, HTMLButtonElement>>(new Map());
+  const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null);
+
+  const updateIndicator = useCallback(() => {
+    const nav = navRef.current;
+    const btn = tabRefs.current.get(active);
+    if (!nav || !btn) return;
+    const navRect = nav.getBoundingClientRect();
+    const btnRect = btn.getBoundingClientRect();
+    setIndicator({
+      left: btnRect.left - navRect.left + 8,
+      width: btnRect.width - 16,
+    });
+  }, [active]);
+
+  useEffect(() => {
+    updateIndicator();
+  }, [updateIndicator]);
+
+  // Update on resize in case tab widths change
+  useEffect(() => {
+    window.addEventListener("resize", updateIndicator);
+    return () => window.removeEventListener("resize", updateIndicator);
+  }, [updateIndicator]);
+
   return (
     <nav
+      ref={navRef}
       role="tablist"
       aria-label="Analysis sections"
       style={{
+        position: "relative",
         height: 40,
         flexShrink: 0,
         display: "flex",
@@ -54,6 +83,7 @@ export default function TabNav({ active, onChange, badges }: Props) {
         return (
           <button
             key={id}
+            ref={(el) => { if (el) tabRefs.current.set(id, el); }}
             role="tab"
             aria-selected={isActive}
             aria-controls={`panel-${id}`}
@@ -86,21 +116,6 @@ export default function TabNav({ active, onChange, badges }: Props) {
             {/* Hide label below 640px */}
             <span className="hidden sm:inline">{label}</span>
 
-            {/* Active underline */}
-            {isActive && (
-              <span
-                style={{
-                  position: "absolute",
-                  bottom: 0,
-                  left: 8,
-                  right: 8,
-                  height: 2,
-                  background: "var(--accent)",
-                  borderRadius: "1px 1px 0 0",
-                }}
-              />
-            )}
-
             {/* Warning badge */}
             {hasBadge && (
               <span
@@ -119,6 +134,23 @@ export default function TabNav({ active, onChange, badges }: Props) {
           </button>
         );
       })}
+
+      {/* Sliding active underline */}
+      {indicator && (
+        <span
+          style={{
+            position: "absolute",
+            bottom: 0,
+            left: indicator.left,
+            width: indicator.width,
+            height: 2,
+            background: "var(--accent)",
+            borderRadius: "1px 1px 0 0",
+            transition: "left 250ms cubic-bezier(0.4,0,0.2,1), width 250ms cubic-bezier(0.4,0,0.2,1)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
     </nav>
   );
 }

@@ -1,5 +1,7 @@
 import React, { Suspense, useState, lazy, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { SplashScreen } from "@/components/SplashScreen";
+import { Installer } from "@/components/Installer";
 import { useAnalysis } from "@/hooks/useAnalysis";
 import { useTheme } from "@/hooks/useTheme";
 import { useFontSize } from "@/hooks/useFontSize";
@@ -48,10 +50,30 @@ function tabHasBadge(id: TabName, result: AnalysisResult | null): boolean {
 
 export default function App() {
   const { result, riskScore, isLoading, error, analyse, reset } = useAnalysis();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, setTheme } = useTheme();
   const { fontSize, setFontSize } = useFontSize();
   const [activeTab, setActiveTab] = useState<TabName>("overview");
   const [showSettings, setShowSettings] = useState(false);
+
+  // ── First-run detection ─────────────────────────────────────────────────────
+  const [firstRun, setFirstRun] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    invoke<boolean>("is_first_run")
+      .then(setFirstRun)
+      .catch(() => setFirstRun(false));
+  }, []);
+
+  const handleInstallerComplete = useCallback(
+    (prefs: { darkTheme: boolean; teacherMode: boolean; installPath: string }) => {
+      setTheme(prefs.darkTheme ? "dark" : "light");
+      setTeacherEnabledState(prefs.teacherMode);
+      void saveTeacherSettings({ enabled: prefs.teacherMode });
+      void saveSettingsToDb({ theme: prefs.darkTheme ? "dark" : "light" });
+      setFirstRun(false);
+    },
+    [setTheme]
+  );
 
   // ── Splash screen ─────────────────────────────────────────────────────────
   const [splashVisible, setSplashVisible] = useState(true);
@@ -160,6 +182,10 @@ export default function App() {
     ? result.file_info.path.split(/[\\/]/).pop() ?? ""
     : "";
 
+  // First-run check: show nothing briefly while checking, then installer or app
+  if (firstRun === null) return null;
+  if (firstRun) return <Installer onComplete={handleInstallerComplete} />;
+
   return (
     <TeacherModeContext.Provider value={teacherCtx}>
       <div
@@ -178,6 +204,7 @@ export default function App() {
             onComplete={handleSplashComplete}
             className={splashHiding ? "splash-hiding" : ""}
             appReady={appReady}
+            theme={theme}
           />
         )}
         <TopBar

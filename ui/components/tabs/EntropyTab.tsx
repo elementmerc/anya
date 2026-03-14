@@ -129,7 +129,7 @@ export default function EntropyTab({ result }: Props) {
             <BarChart
               data={sections}
               layout="vertical"
-              margin={{ top: 8, right: 60, bottom: 8, left: 8 }}
+              margin={{ top: 24, right: 60, bottom: 8, left: 8 }}
             >
               <CartesianGrid
                 strokeDasharray="3 3"
@@ -157,13 +157,13 @@ export default function EntropyTab({ result }: Props) {
                 x={5.0}
                 stroke="var(--risk-medium)"
                 strokeDasharray="4 3"
-                label={{ value: "Suspicious", position: "insideTopRight", fill: "var(--risk-medium)", fontSize: 11 }}
+                label={{ value: "Suspicious", position: "top", fill: "var(--risk-medium)", fontSize: 11 }}
               />
               <ReferenceLine
                 x={7.0}
                 stroke="var(--risk-critical)"
                 strokeDasharray="4 3"
-                label={{ value: "Encrypted", position: "insideTopRight", fill: "var(--risk-critical)", fontSize: 11 }}
+                label={{ value: "Encrypted", position: "top", fill: "var(--risk-critical)", fontSize: 11 }}
               />
               <Bar dataKey="entropy" radius={[0, 3, 3, 0]} maxBarSize={24}>
                 {sections.map((s, i) => (

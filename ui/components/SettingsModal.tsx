@@ -35,6 +35,12 @@ export default function SettingsModal({
   const { enabled: teacherEnabled, setEnabled: setTeacherEnabled } = useTeacherMode();
   const [dbPath, setDbPath] = useState("");
   const [loading, setLoading] = useState(true);
+  const [closing, setClosing] = useState(false);
+
+  function handleClose() {
+    setClosing(true);
+    setTimeout(onClose, 200);
+  }
 
   useEffect(() => {
     void getSettings().then((s) => setDbPath(s.db_path)).finally(() => setLoading(false));
@@ -61,16 +67,24 @@ export default function SettingsModal({
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/50"
-        onClick={onClose}
+        className="absolute inset-0"
+        onClick={handleClose}
         aria-hidden="true"
+        style={{
+          background: "rgba(0,0,0,0.5)",
+          animation: closing ? "settings-backdrop-out 200ms ease forwards" : "settings-backdrop-in 200ms ease forwards",
+        }}
       />
 
       {/* Panel */}
       <div
         data-testid="settings-panel"
-        className="relative w-[520px] max-w-[95vw] rounded-xl shadow-2xl overflow-hidden"
-        style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}
+        className="relative w-[520px] max-w-[95vw] max-h-[85vh] flex flex-col rounded-xl shadow-2xl overflow-hidden"
+        style={{
+          background: "var(--bg-surface)",
+          border: "1px solid var(--border)",
+          animation: closing ? "settings-panel-out 200ms ease forwards" : "settings-panel-in 250ms cubic-bezier(0.34,1.56,0.64,1) forwards",
+        }}
       >
         {/* Header */}
         <div
@@ -81,7 +95,7 @@ export default function SettingsModal({
             Settings
           </h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1 rounded transition-colors hover:bg-[var(--bg-elevated)] active:scale-[0.97]"
             aria-label="Close settings"
           >
@@ -89,7 +103,7 @@ export default function SettingsModal({
           </button>
         </div>
 
-        <div className="px-6 py-5 space-y-7">
+        <div className="px-6 py-5 space-y-7 overflow-y-auto flex-1 min-h-0">
           {/* ── Storage ──────────────────────────────────────────── */}
           <section>
             <h3

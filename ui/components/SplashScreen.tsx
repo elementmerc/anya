@@ -4,9 +4,10 @@ interface SplashScreenProps {
   onComplete: () => void;
   className?: string;
   appReady: boolean;
+  theme?: "dark" | "light";
 }
 
-export function SplashScreen({ onComplete, className, appReady }: SplashScreenProps) {
+export function SplashScreen({ onComplete, className, appReady, theme = "dark" }: SplashScreenProps) {
   const calledRef = useRef(false);
   const startTime = useRef(Date.now());
 
@@ -28,7 +29,7 @@ export function SplashScreen({ onComplete, className, appReady }: SplashScreenPr
   }, [appReady, onComplete]);
 
   return (
-    <div className={`splash-overlay${className ? ` ${className}` : ""}`}>
+    <div className={`splash-overlay theme-${theme}${className ? ` ${className}` : ""}`}>
       <div className="splash-content">
         <svg
           className="splash-svg"
@@ -38,21 +39,21 @@ export function SplashScreen({ onComplete, className, appReady }: SplashScreenPr
           <line
             className="splash-leg-left"
             x1="36" y1="158" x2="100" y2="22"
-            stroke="#e8e5dc"
+            stroke="var(--splash-leg-color)"
             strokeWidth="14"
             strokeLinecap="round"
           />
           <line
             className="splash-leg-right"
             x1="164" y1="158" x2="100" y2="22"
-            stroke="#e8e5dc"
+            stroke="var(--splash-leg-color)"
             strokeWidth="14"
             strokeLinecap="round"
           />
           <line
             className="splash-bar"
             x1="58" y1="96" x2="142" y2="96"
-            stroke="#EF9F27"
+            stroke="#D85A30"
             strokeWidth="12"
             strokeLinecap="round"
           />

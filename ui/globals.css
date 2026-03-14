@@ -159,11 +159,22 @@ body {
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: #0d0d0f;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: opacity 0.4s ease;
+}
+
+.splash-overlay.theme-dark {
+  background: #0d0d0f;
+  --splash-leg-color: #e8e5dc;
+  --splash-wordmark-color: #e8e5dc;
+}
+
+.splash-overlay.theme-light {
+  background: #f5f2eb;
+  --splash-leg-color: #111113;
+  --splash-wordmark-color: #111113;
 }
 
 .splash-overlay.splash-hiding {
@@ -184,7 +195,7 @@ body {
 }
 
 .splash-wordmark {
-  color: #e8e5dc;
+  color: var(--splash-wordmark-color, #e8e5dc);
   font-size: 16px;
   letter-spacing: 0.22em;
   font-family: system-ui, sans-serif;
@@ -239,6 +250,25 @@ body {
   animation: splash-draw-bar 2.4s cubic-bezier(0.4, 0, 0.2, 1) 0.15s infinite;
 }
 /* ── End splash screen ────────────────────────────────────────── */
+
+/* ── Settings modal animations ───────────────────────────────── */
+@keyframes settings-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes settings-backdrop-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes settings-panel-in {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes settings-panel-out {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to   { opacity: 0; transform: scale(0.95) translateY(8px); }
+}
+/* ── End settings modal animations ───────────────────────────── */
 
 @keyframes pulseRing {
   0%, 100% { opacity: 0.6; }

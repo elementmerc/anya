@@ -94,4 +94,62 @@ describe("TeacherSidebar", () => {
     fireEvent.click(closeBtn);
     expect(setEnabled).toHaveBeenCalledWith(false);
   });
+
+  it("shows DLL name when a dll focus item is set", () => {
+    renderWithContext({
+      enabled: true,
+      focusedItem: {
+        type: "dll",
+        name: "KERNEL32.dll",
+        description: "Core Windows API — file I/O, memory management, process and thread creation.",
+      },
+    });
+    expect(screen.getByText("KERNEL32.dll")).toBeInTheDocument();
+  });
+
+  it("shows DLL description in the Simple explanation card", () => {
+    renderWithContext({
+      enabled: true,
+      focusedItem: {
+        type: "dll",
+        name: "KERNEL32.dll",
+        description: "Core Windows API — file I/O, memory management, process and thread creation.",
+      },
+    });
+    expect(screen.getByText(/Core Windows API/)).toBeInTheDocument();
+    expect(screen.getByText(/Simple explanation/i)).toBeInTheDocument();
+  });
+
+  it("shows 'Dynamic-Link Library' badge for DLL focus items", () => {
+    renderWithContext({
+      enabled: true,
+      focusedItem: {
+        type: "dll",
+        name: "USER32.dll",
+        description: "Windows UI API.",
+      },
+    });
+    expect(screen.getByText("Dynamic-Link Library")).toBeInTheDocument();
+  });
+
+  it("shows API name and category when an api focus item is set", () => {
+    renderWithContext({
+      enabled: true,
+      focusedItem: {
+        type: "api",
+        name: "CreateRemoteThread",
+        category: "Code Injection",
+      },
+    });
+    expect(screen.getByText("CreateRemoteThread")).toBeInTheDocument();
+    expect(screen.getByText("Code Injection")).toBeInTheDocument();
+  });
+
+  it("renders the drag handle when enabled", () => {
+    const { container } = renderWithContext({ enabled: true });
+    const outerDiv = container.firstChild as HTMLElement;
+    // The drag handle is the first child inside the outer div, with cursor: col-resize
+    const dragHandle = outerDiv.querySelector('[style*="col-resize"]');
+    expect(dragHandle).toBeTruthy();
+  });
 });

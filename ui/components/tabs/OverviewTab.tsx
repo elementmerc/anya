@@ -26,16 +26,22 @@ function RiskRing({ score, color }: { score: number; color: string }) {
   const frameRef = useRef<number>(0);
 
   useEffect(() => {
-    const start = performance.now();
-    const duration = 800;
-    function tick(now: number) {
-      const t = Math.min((now - start) / duration, 1);
-      const ease = 1 - Math.pow(1 - t, 3); // ease-out cubic
-      setAnimated(Math.round(score * ease));
-      if (t < 1) frameRef.current = requestAnimationFrame(tick);
-    }
-    frameRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frameRef.current);
+    const delay = 400;
+    const duration = 1200;
+    const delayTimer = setTimeout(() => {
+      const start = performance.now();
+      function tick(now: number) {
+        const t = Math.min((now - start) / duration, 1);
+        const ease = 1 - Math.pow(1 - t, 3); // ease-out cubic
+        setAnimated(Math.round(score * ease));
+        if (t < 1) frameRef.current = requestAnimationFrame(tick);
+      }
+      frameRef.current = requestAnimationFrame(tick);
+    }, delay);
+    return () => {
+      clearTimeout(delayTimer);
+      cancelAnimationFrame(frameRef.current);
+    };
   }, [score]);
 
   const filled = (animated / 100) * CIRCUMFERENCE;

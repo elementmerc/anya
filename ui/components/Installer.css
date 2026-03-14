@@ -1,0 +1,174 @@
+.installer {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.35s ease;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+.installer.light { background: #f5f2eb; }
+.installer.dark  { background: #0d0d0f; }
+
+.installer-card {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  height: 460px;
+  padding: 28px;
+  border-radius: 12px;
+  transition: background 0.35s, border-color 0.35s;
+}
+.installer.light .installer-card { background: transparent; }
+.installer.dark  .installer-card { background: transparent; }
+
+/* Text colours — all driven by parent theme class */
+.installer.light .inst-title  { color: #111113; }
+.installer.dark  .inst-title  { color: #e8e5dc; }
+.installer.light .inst-sub    { color: rgba(17,17,19,0.4); }
+.installer.dark  .inst-sub    { color: rgba(232,229,220,0.4); }
+.installer.light .card-head   { color: #111113; }
+.installer.dark  .card-head   { color: #e8e5dc; }
+.installer.light .card-body   { color: rgba(17,17,19,0.5); }
+.installer.dark  .card-body   { color: rgba(232,229,220,0.45); }
+.installer.light .tog-lbl     { color: rgba(17,17,19,0.7); }
+.installer.dark  .tog-lbl     { color: rgba(232,229,220,0.7); }
+.installer.light .inst-hint   { color: rgba(17,17,19,0.25); }
+.installer.dark  .inst-hint   { color: rgba(232,229,220,0.22); }
+.installer.light .done-title  { color: #111113; }
+.installer.dark  .done-title  { color: #e8e5dc; }
+.installer.light .done-sub    { color: rgba(17,17,19,0.4); }
+.installer.dark  .done-sub    { color: rgba(232,229,220,0.4); }
+.installer.light .done-opt-text { color: #111113; }
+.installer.dark  .done-opt-text { color: #e8e5dc; }
+
+/* Step card panel */
+.inst-panel {
+  border-radius: 10px;
+  padding: 18px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 14px;
+  transition: background 0.35s, border-color 0.35s;
+}
+.installer.light .inst-panel {
+  background: rgba(0,0,0,0.04);
+  border: 0.5px solid rgba(0,0,0,0.1);
+}
+.installer.dark .inst-panel {
+  background: rgba(255,255,255,0.04);
+  border: 0.5px solid rgba(255,255,255,0.08);
+}
+
+/* Toggle */
+.anya-tog {
+  -webkit-appearance: none; appearance: none;
+  width: 34px; height: 19px; border-radius: 10px;
+  position: relative; cursor: pointer; outline: none; flex-shrink: 0;
+  transition: background 0.22s, border-color 0.22s;
+}
+.installer.light .anya-tog { background: #d0cdc6; border: 1px solid rgba(0,0,0,0.12); }
+.installer.dark  .anya-tog { background: #222224; border: 1px solid rgba(255,255,255,0.12); }
+.anya-tog:checked { background: #D85A30 !important; border-color: #D85A30 !important; }
+.anya-tog::after {
+  content: ''; position: absolute;
+  top: 50%; left: 3px; transform: translateY(-50%);
+  width: 13px; height: 13px; border-radius: 50%; background: #fff;
+  transition: left 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.anya-tog:checked::after { left: calc(100% - 16px); }
+
+/* Path field + browse button */
+.path-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.path-display {
+  flex: 1; border-radius: 6px; padding: 7px 10px;
+  font-size: 11px; font-family: monospace; outline: none;
+  cursor: default; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: background 0.3s, border-color 0.3s, color 0.3s;
+}
+.installer.light .path-display {
+  background: rgba(0,0,0,0.05); border: 0.5px solid rgba(0,0,0,0.15); color: #111113;
+}
+.installer.dark .path-display {
+  background: rgba(255,255,255,0.05); border: 0.5px solid rgba(255,255,255,0.12); color: #e8e5dc;
+}
+.browse-btn {
+  border-radius: 6px; padding: 7px 12px; font-size: 11px; cursor: pointer;
+  font-family: inherit; white-space: nowrap;
+  transition: background 0.3s, border-color 0.3s, color 0.3s;
+}
+.installer.light .browse-btn {
+  background: rgba(0,0,0,0.06); border: 0.5px solid rgba(0,0,0,0.15); color: #111113;
+}
+.installer.dark .browse-btn {
+  background: rgba(255,255,255,0.06); border: 0.5px solid rgba(255,255,255,0.15); color: #e8e5dc;
+}
+
+/* Progress bar */
+.prog-track {
+  height: 3px; border-radius: 2px; overflow: hidden; margin-bottom: 6px;
+  transition: background 0.3s;
+}
+.installer.light .prog-track { background: rgba(0,0,0,0.1); }
+.installer.dark  .prog-track { background: rgba(255,255,255,0.08); }
+.prog-fill { height: 100%; background: #D85A30; border-radius: 2px; transition: width 0.4s ease; }
+.prog-lbl { font-size: 11px; transition: color 0.3s; }
+.installer.light .prog-lbl { color: rgba(17,17,19,0.4); }
+.installer.dark  .prog-lbl { color: rgba(232,229,220,0.4); }
+
+/* Done options */
+.done-opt {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: 8px; cursor: pointer;
+  transition: background 0.3s, border-color 0.3s;
+}
+.installer.light .done-opt {
+  background: rgba(0,0,0,0.04); border: 0.5px solid rgba(0,0,0,0.08);
+}
+.installer.dark .done-opt {
+  background: rgba(255,255,255,0.04); border: 0.5px solid rgba(255,255,255,0.08);
+}
+.done-opt-check {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; border-radius: 4px; cursor: pointer;
+  outline: none; flex-shrink: 0; position: relative;
+  transition: background 0.2s, border-color 0.2s;
+}
+.installer.light .done-opt-check {
+  background: rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.2);
+}
+.installer.dark .done-opt-check {
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15);
+}
+.done-opt-check:checked { background: #D85A30 !important; border-color: #D85A30 !important; }
+.done-opt-check:checked::after {
+  content: '\2713'; display: block; color: white; font-size: 10px;
+  text-align: center; line-height: 16px; position: absolute; inset: 0;
+}
+
+/* Buttons */
+.btn-back {
+  background: transparent; border-radius: 6px; padding: 8px 14px;
+  font-size: 12px; cursor: pointer; font-family: inherit;
+  transition: border-color 0.3s, color 0.3s;
+}
+.installer.light .btn-back { border: 0.5px solid rgba(0,0,0,0.15); color: rgba(17,17,19,0.5); }
+.installer.dark  .btn-back { border: 0.5px solid rgba(255,255,255,0.12); color: rgba(232,229,220,0.5); }
+.btn-next {
+  background: #D85A30; border: none; color: #fff; border-radius: 6px;
+  padding: 8px 18px; font-size: 12px; font-weight: 500; cursor: pointer;
+  font-family: inherit; transition: opacity 0.15s, background 0.3s;
+}
+.btn-next:disabled { opacity: 0.3; cursor: default; }
+.btn-next:not(:disabled):hover { opacity: 0.85; }
+
+/* Step dots */
+.dot { width: 5px; height: 5px; border-radius: 50%; transition: all 0.3s; }
+.dot.done, .dot.active { background: #D85A30; }
+.dot.active { transform: scale(1.5); }
+.installer.light .dot:not(.done):not(.active) { background: rgba(0,0,0,0.15); }
+.installer.dark  .dot:not(.done):not(.active) { background: rgba(255,255,255,0.15); }
