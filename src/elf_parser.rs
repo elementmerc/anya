@@ -268,7 +268,186 @@ pub fn analyse_elf_data(data: &[u8]) -> Result<output::ELFAnalysis> {
         has_relro,
         is_stripped,
         packer_indicators,
+        // new fields — populated by analyse_elf_extended() in elf_analysis.rs
+        got_plt_suspicious: vec![],
+        rpath_anomalies: vec![],
+        has_dwarf_info: false,
+        interpreter_suspicious: false,
+        suspicious_section_names: vec![],
+        suspicious_libc_calls: vec![],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── elf_machine_to_str ────────────────────────────────────────────────
+
+    #[test]
+    fn test_elf_machine_x86_64() {
+        assert_eq!(elf_machine_to_str(0x3E), "x86_64");
+    }
+
+    #[test]
+    fn test_elf_machine_arm32() {
+        assert_eq!(elf_machine_to_str(0x28), "ARM (32-bit)");
+    }
+
+    #[test]
+    fn test_elf_machine_aarch64() {
+        assert_eq!(elf_machine_to_str(0xB7), "AArch64 (ARM64)");
+    }
+
+    #[test]
+    fn test_elf_machine_unknown() {
+        assert_eq!(elf_machine_to_str(0xFF), "Unknown");
+        assert_eq!(elf_machine_to_str(0x00), "Unknown");
+    }
+
+    // ── elf_type_to_str ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_elf_type_executable() {
+        assert_eq!(elf_type_to_str(2), "Executable");
+    }
+
+    #[test]
+    fn test_elf_type_shared_object() {
+        assert_eq!(elf_type_to_str(3), "Shared Object");
+    }
+
+    #[test]
+    fn test_elf_type_relocatable() {
+        assert_eq!(elf_type_to_str(1), "Relocatable");
+    }
+
+    #[test]
+    fn test_elf_type_unknown() {
+        assert_eq!(elf_type_to_str(99), "Unknown");
+    }
+
+    // ── elf_section_type_to_str ───────────────────────────────────────────
+
+    #[test]
+    fn test_elf_section_type_progbits() {
+        assert_eq!(elf_section_type_to_str(1), "PROGBITS");
+    }
+
+    #[test]
+    fn test_elf_section_type_symtab() {
+        assert_eq!(elf_section_type_to_str(2), "SYMTAB");
+    }
+
+    #[test]
+    fn test_elf_section_type_null() {
+        assert_eq!(elf_section_type_to_str(0), "NULL");
+    }
+
+    #[test]
+    fn test_elf_section_type_nobits() {
+        assert_eq!(elf_section_type_to_str(8), "NOBITS");
+    }
+
+    #[test]
+    fn test_elf_section_type_other() {
+        assert_eq!(elf_section_type_to_str(255), "OTHER");
+    }
+
+    // ── calculate_entropy ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_entropy_empty_data() {
+        assert_eq!(calculate_entropy(&[]), 0.0);
+    }
+
+    #[test]
+    fn test_entropy_uniform_bytes() {
+        // All same byte → entropy = 0
+        let data = vec![0xAA; 1000];
+        assert_eq!(calculate_entropy(&data), 0.0);
+    }
+
+    #[test]
+    fn test_entropy_all_256_values() {
+        // Perfect uniform distribution → entropy ≈ 8.0
+        let data: Vec<u8> = (0..=255u8).collect();
+        let e = calculate_entropy(&data);
+        assert!((e - 8.0).abs() < 0.01, "Expected ~8.0, got {}", e);
+    }
+
+    #[test]
+    fn test_entropy_high_for_random_like_data() {
+        // Cycling through 256 values many times keeps entropy at max
+        let data: Vec<u8> = (0..512u16).map(|i| (i % 256) as u8).collect();
+        let e = calculate_entropy(&data);
+        assert!(e > 7.9, "Expected near-max entropy, got {}", e);
+    }
+
+    // ── bytes_contain ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bytes_contain_found() {
+        assert!(bytes_contain(b"Hello UPX! World", b"UPX!"));
+    }
+
+    #[test]
+    fn test_bytes_contain_not_found() {
+        assert!(!bytes_contain(b"Hello World", b"UPX!"));
+    }
+
+    #[test]
+    fn test_bytes_contain_at_start() {
+        assert!(bytes_contain(b"UPX!rest", b"UPX!"));
+    }
+
+    #[test]
+    fn test_bytes_contain_at_end() {
+        assert!(bytes_contain(b"restUPX!", b"UPX!"));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bytes_contain_empty_needle_panics() {
+        // slice.windows(0) panics — callers must never pass an empty needle
+        bytes_contain(b"anything", b"");
+    }
+
+    #[test]
+    fn test_bytes_contain_needle_longer_than_haystack() {
+        assert!(!bytes_contain(b"AB", b"ABC"));
+    }
+
+    // ── is_suspicious_elf_function ────────────────────────────────────────
+
+    #[test]
+    fn test_is_suspicious_elf_function_ptrace() {
+        assert!(is_suspicious_elf_function("ptrace"));
+    }
+
+    #[test]
+    fn test_is_suspicious_elf_function_execve() {
+        assert!(is_suspicious_elf_function("execve"));
+    }
+
+    #[test]
+    fn test_is_suspicious_elf_function_dlopen() {
+        assert!(is_suspicious_elf_function("dlopen"));
+    }
+
+    #[test]
+    fn test_is_suspicious_elf_function_not_suspicious() {
+        assert!(!is_suspicious_elf_function("printf"));
+        assert!(!is_suspicious_elf_function("malloc"));
+        assert!(!is_suspicious_elf_function("strlen"));
+    }
+
+    #[test]
+    fn test_is_suspicious_elf_function_pe_crossover() {
+        // PE suspicious APIs also flag as suspicious in ELF context
+        assert!(is_suspicious_elf_function("CreateRemoteThread"));
+        assert!(is_suspicious_elf_function("WriteProcessMemory"));
+    }
 }
 
 /// Pretty-print ELF analysis to stdout.

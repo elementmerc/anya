@@ -1,0 +1,116 @@
+{
+  "T1055": {
+    "simple": "Imagine you have a calculator app running on your computer. Process injection is like sneaking code into that calculator so it secretly does evil things while looking completely normal. Security software watches for new programs starting up, so malware hides inside programs that are already trusted and running — your antivirus doesn't notice because it looks like the calculator is doing all the work."
+  },
+  "T1055.001": {
+    "simple": "This is one specific way of hiding inside another program. The malware tells Windows to load a special 'plugin file' (a DLL) into a running program it doesn't belong in. Once loaded, that plugin can do anything the program can do — access the internet, read files, steal passwords — all disguised as a normal program."
+  },
+  "T1055.012": {
+    "simple": "Process hollowing is like identity theft for programs. The malware starts a legitimate Windows program (like notepad.exe), immediately puts it on pause, hollows out its insides, stuffs its own evil code inside, then lets it run. Task Manager shows notepad.exe running, but it's actually the malware in disguise."
+  },
+  "T1622": {
+    "simple": "A debugger is a special tool security researchers use to watch malware run in slow motion, step by step. This technique is the malware checking 'is someone watching me right now?' — like a criminal who acts normal when they notice a security camera. If it detects the researcher's tools, it does nothing suspicious. Once no one's watching, it does the real damage."
+  },
+  "T1497": {
+    "simple": "Security companies often test suspicious programs in a fake computer environment called a 'sandbox' — like a glass box they can observe safely. This technique is the malware trying to figure out if it's in that fake box. It looks for clues (unusual hardware specs, too-clean file systems, timing oddities). If it thinks it's being watched in a sandbox, it plays completely innocent. On a real computer, it attacks."
+  },
+  "T1497.003": {
+    "simple": "Sandboxes used by security tools usually only let a program run for a short time before analyzing it. So some malware just sleeps — it waits and does nothing for a long time, hoping the sandbox gives up and marks it as safe. The malware then wakes up and attacks later when no one expects it."
+  },
+  "T1027": {
+    "simple": "Antivirus software recognizes malware by its code, like recognizing a face. This technique is malware wearing a disguise — it scrambles and encrypts its own code so security tools don't recognize it. The disguise only comes off when the malware actually needs to run. It's like a note written in a secret code that decodes itself when you hold it up to the light."
+  },
+  "T1027.002": {
+    "simple": "A packer squishes and encrypts a program into a tiny bundle, like vacuum-sealing it. When the bundle runs, it unpacks itself in memory. Legitimate programs do this to save space, but malware does it to hide. Antivirus sees the packed bundle and doesn't recognize it as dangerous — the real malicious code only appears in memory at runtime, hidden from scanners."
+  },
+  "T1562": {
+    "simple": "Your computer has security tools running — antivirus, firewall, Windows Defender, event logs. This technique is the malware turning those off, like a burglar disabling the alarm system before robbing a bank. Once the defenders are blind, the malware can do whatever it wants without getting caught or leaving traces."
+  },
+  "T1140": {
+    "simple": "To stay hidden from antivirus scanners, malware often stores its real payload — the dangerous code — in scrambled or encoded form. This technique is the moment it unscrambles itself, like opening a locked box. The decoding happens right before the malicious code needs to run, so security tools that scanned the file earlier saw nothing dangerous."
+  },
+  "T1036": {
+    "simple": "This is malware in costume. It might name itself 'svchost.exe' (a real, trusted Windows process), use a fake Microsoft icon, or copy itself into a Windows system folder. The goal is to fool users into thinking it's a normal part of Windows. Like a thief wearing a security guard uniform to blend in."
+  },
+  "T1070": {
+    "simple": "Windows keeps a record of everything that happens — programs run, files changed, logins attempted — in event logs. This is like your computer's diary. After an attack, forensic investigators read this diary to figure out what happened. This technique is the malware tearing out the relevant pages of that diary to destroy the evidence of what it did."
+  },
+  "T1574": {
+    "simple": "When Windows programs need extra code, they load files called DLLs. Windows searches for them in a specific order of folders. This technique exploits that search order — the malware places its own fake DLL in a folder that Windows checks first. A legitimate program then accidentally loads the fake DLL instead of the real one, giving the malware a free ride."
+  },
+  "T1547": {
+    "simple": "Malware wants to survive after you restart your computer. This technique adds the malware to your computer's 'startup list' — a set of registry entries or folders that Windows automatically runs every time you log in. It's like writing your name on the school attendance list for every future class, even ones you don't sign up for."
+  },
+  "T1547.001": {
+    "simple": "The Windows Registry has special keys that list programs to run every time a user logs in. This is one of the most common ways malware ensures it restarts after every reboot. It's like sticking a reminder note inside your front door so you always see it when you come home — except the note starts up malware instead of reminding you of groceries."
+  },
+  "T1053": {
+    "simple": "Windows has a built-in alarm clock for programs called Task Scheduler. Legitimate software uses it to run updates or backups. Malware abuses it to schedule itself to run regularly, or at a specific time when the computer is less monitored — like midnight. Even if you stop the malware manually, the scheduled task will restart it later."
+  },
+  "T1112": {
+    "simple": "The Windows Registry is like a giant settings book that controls almost everything about how Windows behaves. Malware writes to it to change rules — disabling security features, adding itself to startup, hiding files. It's like sneaking into the principal's office and rewriting the school rules so you never get in trouble."
+  },
+  "T1134": {
+    "simple": "In Windows, every running program carries an 'identity badge' (access token) that says what it's allowed to do. Administrators have powerful badges. This technique is the malware stealing or copying an administrator's badge and using it for itself — suddenly able to do anything an admin can do, like install software, change settings, or access any file."
+  },
+  "T1056": {
+    "simple": "Your keyboard is the main way you communicate with your computer — and everything you type (passwords, credit cards, messages) goes through it. Keylogging is secretly recording every single keystroke. The malware silently logs what you type and sends it to the attacker. They can reconstruct your passwords and private messages from the recording."
+  },
+  "T1056.001": {
+    "simple": "This is the classic spy technique applied to computers. The malware installs an invisible hook into Windows that intercepts every key you press before the key reaches any program. You type your bank password into your browser — the keylogger captures it before the browser even sees it. The recording is sent to the attacker."
+  },
+  "T1113": {
+    "simple": "This technique secretly photographs your screen at regular intervals and sends those pictures to the attacker. They can see your emails, documents, passwords being typed, or anything else visible on screen. It's like someone standing behind you, snapping photos of your monitor every few seconds without you knowing."
+  },
+  "T1003": {
+    "simple": "Windows stores hashed copies of passwords in memory so it doesn't need to ask you to log in again constantly. This technique extracts those stored password hashes from Windows memory. The attacker can then use those hashes directly to log into other computers on the network — they don't even need to know the real password. It's like finding a duplicate key hidden under a doormat."
+  },
+  "T1082": {
+    "simple": "Before attacking, a burglar checks what kind of locks are on the doors and where the cameras are. This technique is malware doing the same reconnaissance — looking up your Windows version, installed software, hardware specs, and network setup. With this information, it picks the best attack method for your specific system."
+  },
+  "T1083": {
+    "simple": "Malware needs to find what's worth stealing before it steals it. This technique scans your folders and files, looking for documents, databases, configuration files with passwords, or any other valuable data. It's like a thief methodically going through every drawer in a house before deciding what to take."
+  },
+  "T1057": {
+    "simple": "This technique lists all programs currently running on the computer. Malware does this to look for security tools (antivirus, debuggers) to avoid, find valuable targets (browsers, email clients that store credentials), or check that its own processes are running. It's like a spy cataloguing who's in the building."
+  },
+  "T1106": {
+    "simple": "Windows has two levels of API: high-level functions most programs use, and deep low-level 'Native API' calls that go almost directly to the operating system kernel. Security tools often monitor the high-level calls but miss the low-level ones. Malware that calls the Native API directly is trying to slip past these security monitors by taking the back door instead of the front entrance."
+  },
+  "T1059": {
+    "simple": "PowerShell and cmd.exe are legitimate, built-in Windows tools for running commands. Because they're built into Windows, they're trusted by default. Malware abuses them to run commands that do the real damage — download files, change settings, delete backups — because using a trusted built-in tool looks less suspicious than running a custom malware executable."
+  },
+  "T1021": {
+    "simple": "Once inside one computer, attackers want to spread to other computers on the same network. Remote desktop and other remote services are designed to let you control a computer from far away. Attackers use stolen credentials to log into other computers on the network as if they're sitting right in front of them, spreading their access across the organization."
+  },
+  "T1071": {
+    "simple": "Malware needs to communicate with its controller (the attacker) to receive instructions and send back stolen data. Firewalls block weird traffic, but they allow normal web browsing. So malware hides its spy communications inside regular-looking HTTP web traffic or DNS queries, blending in with everyone else's internet use. It's like writing secret messages in what looks like ordinary letters."
+  },
+  "T1105": {
+    "simple": "The first piece of malware that lands on a computer is often just a small 'downloader'. Once it's inside, it reaches out to the attacker's server and downloads the real tools — password stealers, ransomware, remote access software. It's like a small scout breaking into a building and then opening a window so the rest of the team can climb in with all the equipment."
+  },
+  "T1041": {
+    "simple": "After stealing data, malware needs to get it back to the attacker without being detected. This technique sends the stolen information through the same channel the malware already uses to receive commands. Since that channel already blends in as normal traffic, the stolen data slips out unnoticed — hidden inside what looks like regular communication."
+  },
+  "T1486": {
+    "simple": "Ransomware scrambles all your files — photos, documents, videos — with encryption so you can't open them anymore. It's like someone changing the lock on your filing cabinet and taking the only key. The attacker then demands money to give you the key. Without it, your files are just scrambled nonsense, effectively destroyed unless you pay up or restore from backup."
+  },
+  "T1489": {
+    "simple": "Before ransomware locks your files, it needs to be able to access them. Files that are in use by running programs (like database files, email files) are locked by those programs. This technique stops those programs first — like telling all the office workers to go home before locking the building — so the malware can access and encrypt every file."
+  },
+  "T1490": {
+    "simple": "Windows has safety nets: System Restore points, Volume Shadow Copies (automatic backups of your files), and recovery partitions. These are what help you recover from disasters. Ransomware destroys these safety nets before encrypting your files — deleting the backups — so you can't simply restore to before the attack. The ransom becomes your only option."
+  },
+  "T1573": {
+    "simple": "When malware communicates with its attacker, security tools monitor that traffic looking for suspicious patterns. Encrypted channels scramble the communications so monitoring tools can't read what's being said. It's like whispering into a phone while in a crowded room — people might see you talking, but can't hear what you're actually saying."
+  },
+  "T1018": {
+    "simple": "When attackers want to spread through a network, they first need a map. This technique scans the network for other computers — what IP addresses exist, what hostnames are used, what services are running. It's like the malware drawing a map of the neighborhood before deciding which houses to break into next."
+  },
+  "T1068": {
+    "simple": "Software has bugs. Sometimes those bugs let a program do things it shouldn't — like gaining administrator powers from a limited account. This technique exploits one of those bugs to 'jump ranks', going from a limited user account to full administrator control. It's like finding a loophole in school rules that technically lets a student override a teacher's decision."
+  },
+  "T1548.002": {
+    "simple": "Windows UAC (User Account Control) is the popup that asks 'Do you want to allow this program to make changes to your device?' Bypassing UAC means the malware gains administrator privileges without that popup ever appearing. You never get asked for permission — the malware just silently promotes itself to full admin."
+  }
+}

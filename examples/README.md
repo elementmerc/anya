@@ -69,11 +69,8 @@ cargo run --example custom_config
 ### 1. Analyze a File
 
 ```bash
-# Download a test file (or use your own)
-curl -o test.exe https://example.com/sample.exe
-
-# Run basic analysis
-cargo run --example basic_analysis -- test.exe
+# Use any PE file, or compile a test binary (see tests/fixtures/README.md)
+cargo run --example basic_analysis -- /path/to/file.exe
 ```
 
 ### 2. Batch Process a Directory

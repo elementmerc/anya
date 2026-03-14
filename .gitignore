@@ -39,3 +39,9 @@ Thumbs.db
 # Personal additions
 *.rs.bk
 tests/test files/Notepad.exe
+node_modules
+*Zone.Identifier*
+
+# Integration test script and assets (not for public repo)
+scripts/
+.github/DOCKER_SETUP.md

@@ -1,0 +1,170 @@
+{
+  "process_injection_combo": {
+    "title": "Process Injection Capability",
+    "explanation": "This file imports VirtualAllocEx, WriteProcessMemory, and CreateRemoteThread together — the complete toolkit for classic process injection. It can allocate memory inside another running process, write arbitrary code into it, and execute that code.",
+    "why_suspicious": "Legitimate software almost never needs to write executable code into another process's memory. This combination appears in virtually every process-injecting malware family.",
+    "malware_families": ["Cobalt Strike", "Meterpreter", "PlugX", "njRAT"],
+    "mitre_technique_id": "T1055.001",
+    "confidence": "Critical"
+  },
+  "debugger_check": {
+    "title": "Debugger Detection",
+    "explanation": "This file calls APIs to check whether it is currently being run inside a debugger.",
+    "why_suspicious": "Legitimate software rarely needs to know if it is being debugged. Malware uses this to alter its behaviour or terminate when an analyst is watching.",
+    "malware_families": ["Most packed malware", "Banking trojans", "RATs"],
+    "mitre_technique_id": "T1622",
+    "confidence": "High"
+  },
+  "upx_packed": {
+    "title": "UPX Packer Detected",
+    "explanation": "The UPX packer signature was found. UPX compresses executables and, when used by malware, hides the real import table from static analysis tools.",
+    "why_suspicious": "The real imports and code only become visible after the file unpacks itself in memory at runtime.",
+    "malware_families": ["Mirai", "Various commodity malware"],
+    "mitre_technique_id": "T1027.002",
+    "confidence": "Medium"
+  },
+  "import_by_ordinal": {
+    "title": "APIs Hidden by Ordinal",
+    "explanation": "Some imports reference Windows functions by number rather than by name. The actual API called cannot be determined without resolving the ordinal against the target DLL at runtime.",
+    "why_suspicious": "Malware uses ordinal imports specifically to hide which APIs it uses from static analysis tools.",
+    "malware_families": ["Various evasion-focused malware"],
+    "mitre_technique_id": "T1027",
+    "confidence": "Medium"
+  },
+  "tls_callbacks": {
+    "title": "TLS Callbacks Present",
+    "explanation": "Thread Local Storage callbacks are functions that run before the program's main entry point — before most debuggers attach and before the analyst's tools are ready.",
+    "why_suspicious": "Malware uses TLS callbacks to run anti-analysis code or decrypt the real payload before execution appears to begin.",
+    "malware_families": ["Packed malware", "Various"],
+    "mitre_technique_id": "T1497.002",
+    "confidence": "High"
+  },
+  "overlay_data": {
+    "title": "Data Appended After Last Section",
+    "explanation": "This file has data appended after its last PE section. This region is not part of the normal PE structure.",
+    "why_suspicious": "Droppers commonly append encrypted payloads or configuration data here. It is invisible to tools that only analyse PE sections.",
+    "malware_families": ["Droppers", "Loaders", "Packers"],
+    "mitre_technique_id": "T1027",
+    "confidence": "High"
+  },
+  "overlay_data_low_entropy": {
+    "title": "Data Appended After Last Section",
+    "explanation": "This file has data appended after its last PE section. The entropy of this data is relatively low, suggesting plain text or structured data rather than encrypted content.",
+    "why_suspicious": "Overlay data may contain configuration, decoy content, or self-extracting installer resources.",
+    "malware_families": ["Installers", "Droppers", "Self-extractors"],
+    "mitre_technique_id": "T1027",
+    "confidence": "Medium"
+  },
+  "elf_stripped": {
+    "title": "Symbol Table Stripped",
+    "explanation": "This ELF binary has had its symbol table removed. Function names and debugging information are not present.",
+    "why_suspicious": "Stripping is standard practice in malware deployment to hinder reverse engineering, though legitimate release builds are also often stripped.",
+    "malware_families": ["Linux malware broadly", "Botnet agents"],
+    "mitre_technique_id": "T1027",
+    "confidence": "Low"
+  },
+  "elf_suspicious_interp": {
+    "title": "Non-Standard ELF Interpreter",
+    "explanation": "This binary specifies an unusual dynamic linker path.",
+    "why_suspicious": "Linux malware sometimes specifies a custom linker to load malicious shared libraries before standard ones.",
+    "malware_families": ["Linux rootkits", "Loaders"],
+    "mitre_technique_id": "T1574.006",
+    "confidence": "High"
+  },
+  "lsass_dump_combo": {
+    "title": "Credential Dumping Capability",
+    "explanation": "This file imports MinidumpWriteDump alongside OpenProcess — the combination used to dump LSASS memory and extract Windows credentials.",
+    "why_suspicious": "No legitimate software needs to create a minidump of the Windows authentication process.",
+    "malware_families": ["Mimikatz", "Various credential stealers"],
+    "mitre_technique_id": "T1003.001",
+    "confidence": "Critical"
+  },
+  "keylogger_combo": {
+    "title": "Keylogging Capability",
+    "explanation": "This file imports APIs used to monitor keyboard input, either through low-level hooks or by polling key states.",
+    "why_suspicious": "Legitimate software has no need to monitor all keystrokes system-wide.",
+    "malware_families": ["RATs", "Banking trojans", "Spyware"],
+    "mitre_technique_id": "T1056.001",
+    "confidence": "High"
+  },
+  "vm_check": {
+    "title": "Virtual Machine Detection",
+    "explanation": "This file contains strings or API calls used to detect whether it is running inside a virtual machine or sandbox environment.",
+    "why_suspicious": "Malware uses VM checks to remain dormant during automated analysis and only activate on real victim machines.",
+    "malware_families": ["APT malware", "Banking trojans", "Ransomware"],
+    "mitre_technique_id": "T1497.001",
+    "confidence": "Medium"
+  },
+  "timing_evasion": {
+    "title": "Timing-Based Evasion",
+    "explanation": "This file imports multiple timing functions. Malware often measures elapsed time to detect sandboxes that accelerate execution.",
+    "why_suspicious": "Sandboxes often run at accelerated speed. Malware that detects an unusually short elapsed time assumes it's being analysed and changes behaviour.",
+    "malware_families": ["Various sandbox-aware malware"],
+    "mitre_technique_id": "T1497.003",
+    "confidence": "Medium"
+  },
+  "persistence_combo": {
+    "title": "Persistence Mechanism",
+    "explanation": "This file imports APIs for writing to the Windows registry and/or creating services — the two most common persistence methods on Windows.",
+    "why_suspicious": "Legitimate installers use these APIs briefly during setup. Malware uses them to ensure it survives reboots.",
+    "malware_families": ["RATs", "Backdoors", "Banking trojans"],
+    "mitre_technique_id": "T1547.001",
+    "confidence": "High"
+  },
+  "privilege_escalation": {
+    "title": "Privilege Escalation Capability",
+    "explanation": "This file imports token manipulation APIs that allow elevating process privileges beyond what the current user is normally granted.",
+    "why_suspicious": "Privilege escalation is a key step in almost every significant attack. Legitimate software rarely needs to impersonate other users or adjust token privileges.",
+    "malware_families": ["Ransomware", "APT tools", "Lateral movement tools"],
+    "mitre_technique_id": "T1134.001",
+    "confidence": "High"
+  },
+  "network_combo": {
+    "title": "Network Communication Capability",
+    "explanation": "This file imports multiple networking APIs capable of establishing outbound connections, downloading files, and sending or receiving data.",
+    "why_suspicious": "While network access is common in legitimate software, the specific combination of lower-level networking APIs alongside other suspicious indicators is characteristic of C2 communication.",
+    "malware_families": ["RATs", "Backdoors", "Droppers"],
+    "mitre_technique_id": "T1071.001",
+    "confidence": "Medium"
+  },
+  "clipboard_access": {
+    "title": "Clipboard Access",
+    "explanation": "This file imports APIs to read the clipboard contents.",
+    "why_suspicious": "Clipboard monitoring is used by banking malware to steal cryptocurrency wallet addresses and credentials that the user copies.",
+    "malware_families": ["Banking trojans", "Cryptocurrency stealers", "Spyware"],
+    "mitre_technique_id": "T1115",
+    "confidence": "Medium"
+  },
+  "checksum_mismatch": {
+    "title": "PE Checksum Mismatch",
+    "explanation": "The checksum stored in the PE header does not match the checksum computed from the file's actual bytes.",
+    "why_suspicious": "Legitimate system files always have correct checksums. A mismatch suggests the file was modified after creation — either by a patcher, by the packer that produced it, or to evade signature-based detection.",
+    "malware_families": ["Modified system files", "Trojanised binaries"],
+    "mitre_technique_id": "T1036",
+    "confidence": "Medium"
+  },
+  "rich_header_anomaly": {
+    "title": "Rich Header Present",
+    "explanation": "This file contains a Rich header — metadata left by the Microsoft linker that records the build tools used to compile the file.",
+    "why_suspicious": "Rich headers are useful for attribution: comparing the build tool fingerprint against known malware families can identify campaign clusters. An absent Rich header in an otherwise typical MSVC binary may indicate it was manually removed to hinder attribution.",
+    "malware_families": ["APT toolkits (tracked by Rich header)"],
+    "mitre_technique_id": null,
+    "confidence": "Low"
+  },
+  "compiler_dotnet": {
+    "title": ".NET Executable",
+    "explanation": "This is a .NET managed executable. The actual code is CIL bytecode that the .NET runtime JIT-compiles at load time.",
+    "why_suspicious": "The CIL bytecode is trivially decompiled with tools like dnSpy or ILSpy, revealing logic that would be opaque in a native binary. Malware authors know this and often use heavy obfuscation (.NET obfuscators like ConfuserEx, de4dot targets).",
+    "malware_families": ["Many commodity RATs", "Ransomware", "Stealers"],
+    "mitre_technique_id": null,
+    "confidence": "Low"
+  },
+  "compiler_go": {
+    "title": "Go (Golang) Executable",
+    "explanation": "This binary was compiled with the Go toolchain. Go statically links all dependencies, producing large binaries with a distinctive structure.",
+    "why_suspicious": "Go has become popular for malware because it produces cross-platform binaries easily, the runtime makes string extraction harder, and many AV signatures are tuned for C/C++ binaries.",
+    "malware_families": ["Various modern RATs", "Linux malware", "Cryptominers"],
+    "mitre_technique_id": null,
+    "confidence": "Low"
+  }
+}

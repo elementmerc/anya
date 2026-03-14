@@ -2444,4 +2444,43 @@ mod tests {
             assert!(has_api, "Category '{}' should have at least one API", category);
         }
     }
+
+    // ── is_noteworthy_api ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_noteworthy_api_returns_true_for_tier2() {
+        assert!(is_noteworthy_api("OpenProcess"));
+        assert!(is_noteworthy_api("OpenProcessToken"));
+        assert!(is_noteworthy_api("AdjustTokenPrivileges"));
+        assert!(is_noteworthy_api("CryptEncrypt"));
+        assert!(is_noteworthy_api("CryptDecrypt"));
+        assert!(is_noteworthy_api("DeleteFile"));
+        assert!(is_noteworthy_api("WSAStartup"));
+        assert!(is_noteworthy_api("socket"));
+        assert!(is_noteworthy_api("connect"));
+    }
+
+    #[test]
+    fn test_is_noteworthy_api_returns_false_for_unknown() {
+        assert!(!is_noteworthy_api("GetProcAddress"));
+        assert!(!is_noteworthy_api("LoadLibraryA"));
+        assert!(!is_noteworthy_api("printf"));
+        assert!(!is_noteworthy_api("malloc"));
+    }
+
+    #[test]
+    fn test_is_noteworthy_api_returns_false_for_tier1() {
+        // Tier 1 (suspicious) APIs are NOT in the noteworthy list
+        assert!(!is_noteworthy_api("CreateRemoteThread"));
+        assert!(!is_noteworthy_api("WriteProcessMemory"));
+        assert!(!is_noteworthy_api("VirtualAllocEx"));
+        assert!(!is_noteworthy_api("URLDownloadToFile"));
+    }
+
+    #[test]
+    fn test_is_noteworthy_api_case_insensitive() {
+        assert!(is_noteworthy_api("OPENPROCESS"));
+        assert!(is_noteworthy_api("openprocess"));
+        assert!(is_noteworthy_api("OpenProcess"));
+    }
 }

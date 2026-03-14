@@ -14,8 +14,11 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 // Re-export modules
+pub mod confidence;
 pub mod config;
+pub mod data;
 pub mod elf_parser;
+pub mod guided_output;
 pub mod output;
 pub mod pe_parser;
 
@@ -367,6 +370,113 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         pe_analysis: result.pe_analysis.clone(),
         elf_analysis: result.elf_analysis.clone(),
         file_format: result.file_format.clone(),
+        imphash: result.pe_analysis.as_ref().and_then(|p| p.imphash.clone()),
+        checksum_valid: result.pe_analysis.as_ref().and_then(|p| {
+            p.checksum.as_ref().map(|c| !c.stored_nonzero || c.valid)
+        }),
+        tls_callbacks: result.pe_analysis.as_ref().map_or(vec![], |p| {
+            p.tls.as_ref().map_or(vec![], |t| {
+                t.callback_rvas
+                    .iter()
+                    .map(|rva| output::TlsCallback {
+                        virtual_address: rva.clone(),
+                        raw_offset: 0,
+                    })
+                    .collect()
+            })
+        }),
+        ordinal_imports: result.pe_analysis.as_ref().map_or(vec![], |p| {
+            p.ordinal_imports.clone()
+        }),
+        overlay: result.pe_analysis.as_ref().and_then(|p| p.overlay.clone()),
+        packer_detections: result.pe_analysis.as_ref().map_or(vec![], |p| {
+            p.packers
+                .iter()
+                .map(|pk| output::PackerDetection {
+                    name: pk.name.clone(),
+                    confidence: match pk.confidence.as_str() {
+                        "Critical" => output::ConfidenceLevel::Critical,
+                        "High" => output::ConfidenceLevel::High,
+                        "Medium" => output::ConfidenceLevel::Medium,
+                        _ => output::ConfidenceLevel::Low,
+                    },
+                    method: pk.detection_method.clone(),
+                    evidence: format!("{} detected via {}", pk.name, pk.detection_method),
+                })
+                .collect()
+        }),
+        compiler_detection: result.pe_analysis.as_ref().and_then(|p| {
+            p.compiler.as_ref().map(|c| output::CompilerDetection {
+                compiler: c.name.clone(),
+                language: c.name.clone(),
+                confidence: match c.confidence.as_str() {
+                    "High" => output::ConfidenceLevel::High,
+                    "Medium" => output::ConfidenceLevel::Medium,
+                    _ => output::ConfidenceLevel::Low,
+                },
+                evidence: vec![],
+            })
+        }),
+        anti_analysis_indicators: result.pe_analysis.as_ref().map_or(vec![], |p| {
+            p.anti_analysis
+                .iter()
+                .map(|a| output::AntiAnalysisIndicator {
+                    technique: a.category.clone(),
+                    evidence: a.indicator.clone(),
+                    confidence: output::ConfidenceLevel::High,
+                    mitre_technique_id: match a.category.as_str() {
+                        "DebuggerDetection" => "T1622".to_string(),
+                        "VmDetection" => "T1497.001".to_string(),
+                        "TimingCheck" => "T1497.003".to_string(),
+                        _ => "T1497".to_string(),
+                    },
+                })
+                .collect()
+        }),
+        mitre_techniques: {
+            // Collect all import names from suspicious APIs and map to MITRE techniques
+            let import_names: Vec<&str> = result
+                .pe_analysis
+                .as_ref()
+                .map(|p| {
+                    p.imports
+                        .suspicious_apis
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect()
+                })
+                .unwrap_or_default();
+            data::mitre_mappings::map_techniques_from_imports(&import_names)
+        },
+        confidence_scores: {
+            let import_names: Vec<&str> = result
+                .pe_analysis
+                .as_ref()
+                .map(|p| {
+                    p.imports
+                        .suspicious_apis
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let techniques = data::mitre_mappings::map_techniques_from_imports(&import_names);
+            confidence::calculate_confidence(&techniques)
+        },
+        plain_english_findings: {
+            let import_names: Vec<&str> = result
+                .pe_analysis
+                .as_ref()
+                .map(|p| {
+                    p.imports
+                        .suspicious_apis
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect()
+                })
+                .unwrap_or_default();
+            data::explanations::get_explanation_for_api_combo(&import_names)
+        },
     }
 }
 
@@ -549,23 +659,341 @@ mod tests {
         assert_eq!(summary.analysis_rate(), 2.0); // 8 files / 4 seconds
     }
 
+    // ── is_suspicious_file helpers ──────────────────────────────────────────
+
+    fn clean_entropy() -> output::EntropyInfo {
+        output::EntropyInfo {
+            value: 4.0,
+            category: "Moderate".to_string(),
+            is_suspicious: false,
+        }
+    }
+
+    fn high_entropy() -> output::EntropyInfo {
+        output::EntropyInfo {
+            value: 7.8,
+            category: "Very High".to_string(),
+            is_suspicious: true,
+        }
+    }
+
+    fn baseline_pe() -> output::PEAnalysis {
+        output::PEAnalysis {
+            architecture: "PE32+ (64-bit)".to_string(),
+            is_64bit: true,
+            image_base: "0x140000000".to_string(),
+            entry_point: "0x1000".to_string(),
+            file_type: "EXE".to_string(),
+            security: output::SecurityFeatures { aslr_enabled: true, dep_enabled: true },
+            sections: vec![],
+            imports: output::ImportAnalysis {
+                dll_count: 0,
+                total_imports: 0,
+                suspicious_api_count: 0,
+                suspicious_apis: vec![],
+                libraries: vec![],
+            },
+            exports: None,
+            imphash: None,
+            checksum: None,
+            rich_header: None,
+            tls: None,
+            overlay: None,
+            compiler: None,
+            packers: vec![],
+            anti_analysis: vec![],
+            ordinal_imports: vec![],
+            authenticode: None,
+            version_info: None,
+        }
+    }
+
+    fn baseline_result() -> FileAnalysisResult {
+        FileAnalysisResult {
+            path: PathBuf::from("test.exe"),
+            size_bytes: 1024,
+            hashes: calculate_hashes(b"test"),
+            entropy: clean_entropy(),
+            strings: extract_strings_data(b"test", 4),
+            file_format: "Windows PE".to_string(),
+            pe_analysis: None,
+            elf_analysis: None,
+        }
+    }
+
+    // ── is_suspicious_file tests ─────────────────────────────────────────────
+
     #[test]
     fn test_is_suspicious_file_high_entropy() {
         let result = FileAnalysisResult {
             path: PathBuf::from("test.exe"),
             size_bytes: 1000,
             hashes: calculate_hashes(b"test"),
-            entropy: output::EntropyInfo {
-                value: 7.8,
-                category: "Very High".to_string(),
-                is_suspicious: true,
-            },
+            entropy: high_entropy(),
             strings: extract_strings_data(b"test", 4),
             file_format: "PE".to_string(),
             pe_analysis: None,
             elf_analysis: None,
         };
 
+        assert!(is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_clean() {
+        let result = baseline_result();
+        assert!(!is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_wx_section() {
+        let mut pe = baseline_pe();
+        pe.sections.push(output::SectionInfo {
+            name: ".evil".to_string(),
+            virtual_size: 0x1000,
+            virtual_address: "0x1000".to_string(),
+            raw_size: 0x1000,
+            entropy: 3.0,
+            is_suspicious: false,
+            is_wx: true,
+        });
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_many_suspicious_apis() {
+        let mut pe = baseline_pe();
+        pe.imports.suspicious_api_count = 6;
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_exactly_five_apis_not_suspicious() {
+        let mut pe = baseline_pe();
+        pe.imports.suspicious_api_count = 5; // threshold is > 5
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(!is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_high_confidence_packer() {
+        let mut pe = baseline_pe();
+        pe.packers.push(output::PackerFinding {
+            name: "UPX".to_string(),
+            confidence: "High".to_string(),
+            detection_method: "String".to_string(),
+        });
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_medium_confidence_packer_not_suspicious() {
+        let mut pe = baseline_pe();
+        pe.packers.push(output::PackerFinding {
+            name: "unknown packer".to_string(),
+            confidence: "Medium".to_string(),
+            detection_method: "Entropy".to_string(),
+        });
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(!is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_tls_callbacks() {
+        let mut pe = baseline_pe();
+        pe.tls = Some(output::TlsInfo {
+            callback_count: 2,
+            callback_rvas: vec!["0x1234".to_string(), "0x5678".to_string()],
+        });
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_tls_zero_callbacks_not_suspicious() {
+        let mut pe = baseline_pe();
+        pe.tls = Some(output::TlsInfo {
+            callback_count: 0,
+            callback_rvas: vec![],
+        });
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(!is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_high_entropy_overlay() {
+        let mut pe = baseline_pe();
+        pe.overlay = Some(output::OverlayInfo {
+            offset: 0x400,
+            size: 256,
+            entropy: 7.5,
+            high_entropy: true,
+        });
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_low_entropy_overlay_not_suspicious() {
+        let mut pe = baseline_pe();
+        pe.overlay = Some(output::OverlayInfo {
+            offset: 0x400,
+            size: 256,
+            entropy: 3.0,
+            high_entropy: false,
+        });
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(!is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_two_anti_analysis_categories() {
+        let mut pe = baseline_pe();
+        pe.anti_analysis.push(output::AntiAnalysisFinding {
+            category: "DebuggerDetection".to_string(),
+            indicator: "IsDebuggerPresent".to_string(),
+        });
+        pe.anti_analysis.push(output::AntiAnalysisFinding {
+            category: "TimingCheck".to_string(),
+            indicator: "GetTickCount".to_string(),
+        });
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_one_anti_analysis_not_suspicious() {
+        let mut pe = baseline_pe();
+        pe.anti_analysis.push(output::AntiAnalysisFinding {
+            category: "DebuggerDetection".to_string(),
+            indicator: "IsDebuggerPresent".to_string(),
+        });
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(!is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_ntdll_ordinal_import() {
+        let mut pe = baseline_pe();
+        pe.ordinal_imports.push(output::OrdinalImport {
+            dll: "ntdll.dll".to_string(),
+            ordinal: 42,
+        });
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_kernel32_ordinal_import() {
+        let mut pe = baseline_pe();
+        pe.ordinal_imports.push(output::OrdinalImport {
+            dll: "kernel32.dll".to_string(),
+            ordinal: 7,
+        });
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_user32_ordinal_not_sensitive() {
+        let mut pe = baseline_pe();
+        pe.ordinal_imports.push(output::OrdinalImport {
+            dll: "user32.dll".to_string(),
+            ordinal: 100,
+        });
+        let mut result = baseline_result();
+        result.pe_analysis = Some(pe);
+        assert!(!is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_elf_wx_section() {
+        let mut result = baseline_result();
+        result.file_format = "Linux ELF".to_string();
+        result.elf_analysis = Some(output::ELFAnalysis {
+            architecture: "x86_64".to_string(),
+            is_64bit: true,
+            file_type: "Executable".to_string(),
+            entry_point: "0x1000".to_string(),
+            interpreter: None,
+            sections: vec![output::ElfSectionInfo {
+                name: ".text".to_string(),
+                section_type: "PROGBITS".to_string(),
+                size: 0x1000,
+                entropy: 3.0,
+                is_wx: true,
+                is_suspicious: false,
+            }],
+            imports: output::ElfImportAnalysis {
+                library_count: 0,
+                libraries: vec![],
+                dynamic_symbol_count: 0,
+                suspicious_functions: vec![],
+            },
+            is_pie: true,
+            has_nx_stack: true,
+            has_relro: true,
+            is_stripped: false,
+            packer_indicators: vec![],
+            got_plt_suspicious: vec![],
+            rpath_anomalies: vec![],
+            has_dwarf_info: false,
+            interpreter_suspicious: false,
+            suspicious_section_names: vec![],
+            suspicious_libc_calls: vec![],
+        });
+        assert!(is_suspicious_file(&result));
+    }
+
+    #[test]
+    fn test_is_suspicious_file_elf_packer() {
+        let mut result = baseline_result();
+        result.file_format = "Linux ELF".to_string();
+        result.elf_analysis = Some(output::ELFAnalysis {
+            architecture: "x86_64".to_string(),
+            is_64bit: true,
+            file_type: "Executable".to_string(),
+            entry_point: "0x1000".to_string(),
+            interpreter: None,
+            sections: vec![],
+            imports: output::ElfImportAnalysis {
+                library_count: 0,
+                libraries: vec![],
+                dynamic_symbol_count: 0,
+                suspicious_functions: vec![],
+            },
+            is_pie: false,
+            has_nx_stack: false,
+            has_relro: false,
+            is_stripped: true,
+            packer_indicators: vec![output::PackerFinding {
+                name: "UPX".to_string(),
+                confidence: "High".to_string(),
+                detection_method: "String".to_string(),
+            }],
+            got_plt_suspicious: vec![],
+            rpath_anomalies: vec![],
+            has_dwarf_info: false,
+            interpreter_suspicious: false,
+            suspicious_section_names: vec![],
+            suspicious_libc_calls: vec![],
+        });
         assert!(is_suspicious_file(&result));
     }
 

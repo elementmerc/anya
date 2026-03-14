@@ -2,20 +2,22 @@
 
 Anya supports JSON output for integration with automation tools, databases, and security platforms.
 
+JSON output is available from the CLI. The desktop GUI stores the same structure in the local SQLite database (`result_json` column).
+
 ## Basic Usage
 
 ```bash
 # Standard human-readable output
-anya --file malware.exe
+anya-security-core --file malware.exe
 
 # Machine-readable JSON output
-anya --file malware.exe --json
+anya-security-core --file malware.exe --json
 
 # Pretty-print with jq
-anya --file malware.exe --json | jq '.'
+anya-security-core --file malware.exe --json | jq '.'
 
 # Extract specific fields
-anya --file malware.exe --json | jq '.hashes.sha256'
+anya-security-core --file malware.exe --json | jq '.hashes.sha256'
 ```
 
 ## JSON Schema
@@ -111,7 +113,7 @@ anya --file malware.exe --json | jq '.hashes.sha256'
 ### Extract Hash for VirusTotal Lookup
 
 ```bash
-SHA256=$(anya --file malware.exe --json | jq -r '.hashes.sha256')
+SHA256=$(anya-security-core --file malware.exe --json | jq -r '.hashes.sha256')
 curl "https://www.virustotal.com/api/v3/files/$SHA256" \
   -H "x-apikey: $VT_API_KEY"
 ```
@@ -124,7 +126,7 @@ import json
 from pymongo import MongoClient
 
 # Analyse file
-result = subprocess.run(['anya', '--file', 'malware.exe', '--json'],
+result = subprocess.run(['anya-security-core', '--file', 'malware.exe', '--json'],
                        capture_output=True, text=True)
 data = json.loads(result.stdout)
 
@@ -139,7 +141,7 @@ db.samples.insert_one(data)
 ```bash
 # Analyse all files and save results
 for file in samples/*.exe; do
-    anya --file "$file" --json >> results.jsonl
+    anya-security-core --file "$file" --json >> results.jsonl
 done
 
 # Find suspicious files
@@ -150,11 +152,11 @@ cat results.jsonl | jq 'select(.entropy.is_suspicious == true)'
 
 ```bash
 # Find files with code injection APIs
-anya --file *.exe --json | \
+anya-security-core --file *.exe --json | \
   jq 'select(.pe_analysis.imports.suspicious_apis[].category == "Code Injection")'
 
 # Files with disabled ASLR
-anya --file *.dll --json | \
+anya-security-core --file *.dll --json | \
   jq 'select(.pe_analysis.security.aslr_enabled == false)'
 ```
 

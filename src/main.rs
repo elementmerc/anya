@@ -116,6 +116,10 @@ struct Args {
     /// Use custom config file (default: ~/.config/anya/config.toml)
     #[arg(short, long, value_name = "FILE")]
     config: Option<PathBuf>,
+
+    /// Show contextual learning lessons after analysis (Teacher Mode for CLI)
+    #[arg(long)]
+    guided: bool,
 }
 
 /// Creates a styled progress bar for tracking long-running operations
@@ -405,6 +409,17 @@ fn analyse_single_file(
             pe_analysis: pe_data,
             elf_analysis: elf_data,
             file_format,
+            imphash: None,
+            checksum_valid: None,
+            tls_callbacks: vec![],
+            ordinal_imports: vec![],
+            overlay: None,
+            packer_detections: vec![],
+            compiler_detection: None,
+            anti_analysis_indicators: vec![],
+            mitre_techniques: vec![],
+            confidence_scores: std::collections::HashMap::new(),
+            plain_english_findings: vec![],
         };
 
         // Serialise to JSON (pretty-printed with indentation)
@@ -491,6 +506,37 @@ fn analyse_single_file(
     // In quiet mode, summarize findings
     if output_level == OutputLevel::Quiet {
         print_quiet_summary(&file_data);
+    }
+
+    // --guided: print contextual learning lessons
+    if args.guided {
+        use anya_security_core::{
+            confidence::calculate_risk_score,
+            data::mitre_mappings::map_techniques_from_imports,
+            guided_output::print_guided_output,
+        };
+        // Re-parse the file for guided mode (already fast since it's in-memory)
+        let pe = match Object::parse(&file_data) {
+            Ok(Object::PE(_)) => pe_parser::analyse_pe_data(&file_data).ok(),
+            _ => None,
+        };
+        let elf = match Object::parse(&file_data) {
+            Ok(Object::Elf(_)) => anya_security_core::elf_parser::analyse_elf_data(&file_data).ok(),
+            _ => None,
+        };
+        let import_names: Vec<&str> = pe
+            .as_ref()
+            .map(|p| {
+                p.imports
+                    .suspicious_apis
+                    .iter()
+                    .map(|a| a.name.as_str())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let techniques = map_techniques_from_imports(&import_names);
+        let risk = calculate_risk_score(pe.as_ref(), elf.as_ref());
+        print_guided_output(pe.as_ref(), elf.as_ref(), &techniques, risk);
     }
 
     Ok(())

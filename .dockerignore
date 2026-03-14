@@ -1,0 +1,35 @@
+# Build artefacts
+target/
+
+# Tauri GUI — not built in Docker (requires a display server)
+src-tauri/
+
+# Frontend assets — not needed for CLI build
+node_modules/
+ui/
+index.html
+package.json
+package-lock.json
+postcss.config.cjs
+tailwind.config.js
+tsconfig.json
+vite.config.ts
+components.json
+
+# Git metadata
+.git/
+.gitignore
+.github/
+
+# Documentation (not needed at build time)
+*.md
+!LICENSE.TXT
+
+# Test assets (can be large; tests run via cargo test, not in the image)
+tests/assets/
+
+# IDE / editor artefacts
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -2,6 +2,31 @@
 
 All notable changes to Anya will be documented in this file.
 
+## [0.3.2] - 2026-03-13
+
+### Added
+- Desktop GUI (`anya-gui`) — Tauri v2 app with React/TypeScript frontend
+  - Drag-and-drop file analysis with tab-based results (Overview, Sections, Imports, Entropy, Strings, Security)
+  - Risk scoring system (0–100) with colour-coded severity
+  - Local SQLite history via `@tauri-apps/plugin-sql` — no data leaves the device
+  - Dark/light theme toggle with persistence
+  - Font size setting (Small 13 px / Default 14 px / Large 15 px / XL 16 px) with persistence
+  - Configurable database path
+- Docker support
+  - Multi-stage `Dockerfile` targeting `debian:bookworm-slim` runtime (<50 MB)
+  - `docker-compose.yml` with single-file and batch-scan service definitions
+  - `docker/seccomp.json` — minimal syscall allowlist; explicit deny for `ptrace`, `mount`, `kexec_load`
+  - `Makefile` with `docker-build`, `docker-test`, `docker-push` targets
+- Legal and policy documents
+  - `COMMERCIAL_LICENSE.md` — dual-licensing notice, rights table, commercial enquiry path
+  - `SECURITY.md` — responsible disclosure policy, scope definition, response timeline, safe harbour
+  - `PRIVACY.md` — zero-collection privacy policy; local SQLite only; per-platform DB paths
+  - `TERMS_OF_SERVICE_STUB.md` — pre-release stub; AGPL-3.0 as operative licence until formal terms are published
+
+### Changed
+- README rewritten to reflect current state: two products (CLI + GUI), three install paths, no roadmap hints
+- ARCHITECTURE.md updated: workspace structure, Tauri IPC layer, actual SQLite schema, removed future-state sections
+
 ## [0.3.1] - 2026-02-22
 ### Added
 - Production testing infrastructure (23% coverage, 75+ tests)

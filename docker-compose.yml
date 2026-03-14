@@ -1,0 +1,56 @@
+services:
+
+  # ── Single file analysis ───────────────────────────────────────────────────
+  # Place suspicious.exe in ./samples/ then run:
+  #   docker compose run --rm anya-single
+  # Or override the target file:
+  #   docker compose run --rm anya-single anya --file /samples/other.dll --json
+  anya-single:
+    image: anya:latest
+    build: .
+    volumes:
+      - ./samples:/samples:ro     # read-only — Anya never modifies the sample
+      - ./output:/output:rw
+    command:
+      - "--file"
+      - "/samples/suspicious.exe"
+      - "--json"
+      - "--output"
+      - "/output/result.json"
+      - "--no-color"
+    read_only: true               # container filesystem is read-only
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:./docker/seccomp.json
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=64m,noexec      # writable tmp; no execute permission
+
+  # ── Batch directory analysis ───────────────────────────────────────────────
+  # Analyses every PE/ELF in ./samples/ and writes one JSONL file per run.
+  # Results are appended to output/batch.jsonl so you can accumulate runs.
+  #   docker compose run --rm anya-batch
+  anya-batch:
+    image: anya:latest
+    build: .
+    volumes:
+      - ./samples:/samples:ro
+      - ./output:/output:rw
+    command:
+      - "--directory"
+      - "/samples"
+      - "--recursive"
+      - "--json"
+      - "--output"
+      - "/output/batch.jsonl"
+      - "--append"
+      - "--no-color"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:./docker/seccomp.json
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=64m,noexec

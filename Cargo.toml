@@ -1,3 +1,7 @@
+[workspace]
+members = ["src-tauri"]
+resolver = "2"
+
 [package]
 name = "anya-security-core"
 version = "0.3.1"
@@ -69,5 +73,5 @@ name = "anya_security_core"
 path = "src/lib.rs"
 
 [[bin]]
-name = "anya-security-core"
+name = "anya"
 path = "src/main.rs"

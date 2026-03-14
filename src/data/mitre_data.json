@@ -1,0 +1,146 @@
+{
+  "virtualalloc": [
+    {"technique_id": "T1055", "sub_technique_id": null, "technique_name": "Process Injection", "tactic": "Defense Evasion", "confidence": "Low"}
+  ],
+  "virtualallocex": [
+    {"technique_id": "T1055", "sub_technique_id": "001", "technique_name": "Dynamic-link Library Injection", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "writeprocessmemory": [
+    {"technique_id": "T1055", "sub_technique_id": "001", "technique_name": "Dynamic-link Library Injection", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "createremotethread": [
+    {"technique_id": "T1055", "sub_technique_id": "001", "technique_name": "Dynamic-link Library Injection", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "createremotethreadex": [
+    {"technique_id": "T1055", "sub_technique_id": "001", "technique_name": "Dynamic-link Library Injection", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "ntcreatethreadex": [
+    {"technique_id": "T1055", "sub_technique_id": "001", "technique_name": "Dynamic-link Library Injection", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "rtlcreateuserthread": [
+    {"technique_id": "T1055", "sub_technique_id": "001", "technique_name": "Dynamic-link Library Injection", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "queueuserapc": [
+    {"technique_id": "T1055", "sub_technique_id": "002", "technique_name": "Portable Executable Injection", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "ntqueueapcthread": [
+    {"technique_id": "T1055", "sub_technique_id": "002", "technique_name": "Portable Executable Injection", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "setwindowshookex": [
+    {"technique_id": "T1055", "sub_technique_id": "011", "technique_name": "Extra Window Memory Injection", "tactic": "Defense Evasion", "confidence": "Medium"},
+    {"technique_id": "T1056", "sub_technique_id": "001", "technique_name": "Keylogging", "tactic": "Collection", "confidence": "Medium"}
+  ],
+  "setwindowshookexa": [
+    {"technique_id": "T1055", "sub_technique_id": "011", "technique_name": "Extra Window Memory Injection", "tactic": "Defense Evasion", "confidence": "Medium"},
+    {"technique_id": "T1056", "sub_technique_id": "001", "technique_name": "Keylogging", "tactic": "Collection", "confidence": "Medium"}
+  ],
+  "setwindowshookexw": [
+    {"technique_id": "T1055", "sub_technique_id": "011", "technique_name": "Extra Window Memory Injection", "tactic": "Defense Evasion", "confidence": "Medium"},
+    {"technique_id": "T1056", "sub_technique_id": "001", "technique_name": "Keylogging", "tactic": "Collection", "confidence": "Medium"}
+  ],
+  "ntallocatevirtualmemory": [
+    {"technique_id": "T1055", "sub_technique_id": null, "technique_name": "Process Injection", "tactic": "Defense Evasion", "confidence": "Medium"}
+  ],
+  "unmapviewofsection": [
+    {"technique_id": "T1055", "sub_technique_id": "012", "technique_name": "Process Hollowing", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "ntunmapviewofsection": [
+    {"technique_id": "T1055", "sub_technique_id": "012", "technique_name": "Process Hollowing", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "isdebuggerpresent": [
+    {"technique_id": "T1622", "sub_technique_id": null, "technique_name": "Debugger Evasion", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "checkremotedebuggerpresent": [
+    {"technique_id": "T1622", "sub_technique_id": null, "technique_name": "Debugger Evasion", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "ntqueryinformationprocess": [
+    {"technique_id": "T1622", "sub_technique_id": null, "technique_name": "Debugger Evasion", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "sleep": [
+    {"technique_id": "T1497", "sub_technique_id": "003", "technique_name": "Time Based Evasion", "tactic": "Defense Evasion", "confidence": "Low"}
+  ],
+  "gettickcount": [
+    {"technique_id": "T1497", "sub_technique_id": "003", "technique_name": "Time Based Evasion", "tactic": "Defense Evasion", "confidence": "Medium"}
+  ],
+  "gettickcount64": [
+    {"technique_id": "T1497", "sub_technique_id": "003", "technique_name": "Time Based Evasion", "tactic": "Defense Evasion", "confidence": "Medium"}
+  ],
+  "queryperformancecounter": [
+    {"technique_id": "T1497", "sub_technique_id": "003", "technique_name": "Time Based Evasion", "tactic": "Defense Evasion", "confidence": "Medium"}
+  ],
+  "cpuid": [
+    {"technique_id": "T1497", "sub_technique_id": "001", "technique_name": "System Checks", "tactic": "Defense Evasion", "confidence": "Medium"}
+  ],
+  "regsetvalueex": [
+    {"technique_id": "T1547", "sub_technique_id": "001", "technique_name": "Registry Run Keys / Startup Folder", "tactic": "Persistence", "confidence": "High"}
+  ],
+  "regcreatekeyex": [
+    {"technique_id": "T1547", "sub_technique_id": "001", "technique_name": "Registry Run Keys / Startup Folder", "tactic": "Persistence", "confidence": "Medium"}
+  ],
+  "regopenkey": [
+    {"technique_id": "T1547", "sub_technique_id": "001", "technique_name": "Registry Run Keys / Startup Folder", "tactic": "Persistence", "confidence": "Low"}
+  ],
+  "createservice": [
+    {"technique_id": "T1543", "sub_technique_id": "003", "technique_name": "Windows Service", "tactic": "Persistence", "confidence": "High"}
+  ],
+  "openscmanager": [
+    {"technique_id": "T1543", "sub_technique_id": "003", "technique_name": "Windows Service", "tactic": "Persistence", "confidence": "Medium"}
+  ],
+  "startservice": [
+    {"technique_id": "T1543", "sub_technique_id": "003", "technique_name": "Windows Service", "tactic": "Persistence", "confidence": "Medium"}
+  ],
+  "minidumpwritedump": [
+    {"technique_id": "T1003", "sub_technique_id": "001", "technique_name": "LSASS Memory", "tactic": "Credential Access", "confidence": "Critical"}
+  ],
+  "getasynckeystate": [
+    {"technique_id": "T1056", "sub_technique_id": "001", "technique_name": "Keylogging", "tactic": "Collection", "confidence": "High"}
+  ],
+  "getkeystate": [
+    {"technique_id": "T1056", "sub_technique_id": "001", "technique_name": "Keylogging", "tactic": "Collection", "confidence": "Medium"}
+  ],
+  "adjusttokenprivileges": [
+    {"technique_id": "T1134", "sub_technique_id": "001", "technique_name": "Token Impersonation/Theft", "tactic": "Privilege Escalation", "confidence": "High"}
+  ],
+  "impersonateloggedonuser": [
+    {"technique_id": "T1134", "sub_technique_id": "001", "technique_name": "Token Impersonation/Theft", "tactic": "Privilege Escalation", "confidence": "High"}
+  ],
+  "duplicatetokenex": [
+    {"technique_id": "T1134", "sub_technique_id": "001", "technique_name": "Token Impersonation/Theft", "tactic": "Privilege Escalation", "confidence": "High"}
+  ],
+  "openclipboard": [
+    {"technique_id": "T1115", "sub_technique_id": null, "technique_name": "Clipboard Data", "tactic": "Collection", "confidence": "Medium"}
+  ],
+  "getclipboarddata": [
+    {"technique_id": "T1115", "sub_technique_id": null, "technique_name": "Clipboard Data", "tactic": "Collection", "confidence": "High"}
+  ],
+  "internetopenurl": [
+    {"technique_id": "T1071", "sub_technique_id": "001", "technique_name": "Web Protocols", "tactic": "Command and Control", "confidence": "High"}
+  ],
+  "internetopen": [
+    {"technique_id": "T1071", "sub_technique_id": "001", "technique_name": "Web Protocols", "tactic": "Command and Control", "confidence": "High"}
+  ],
+  "httpopenrequest": [
+    {"technique_id": "T1071", "sub_technique_id": "001", "technique_name": "Web Protocols", "tactic": "Command and Control", "confidence": "High"}
+  ],
+  "winhttpopenrequest": [
+    {"technique_id": "T1071", "sub_technique_id": "001", "technique_name": "Web Protocols", "tactic": "Command and Control", "confidence": "High"}
+  ],
+  "wsastartup": [
+    {"technique_id": "T1071", "sub_technique_id": null, "technique_name": "Application Layer Protocol", "tactic": "Command and Control", "confidence": "Low"}
+  ],
+  "cryptencrypt": [
+    {"technique_id": "T1027", "sub_technique_id": null, "technique_name": "Obfuscated Files or Information", "tactic": "Defense Evasion", "confidence": "Medium"}
+  ],
+  "cryptdecrypt": [
+    {"technique_id": "T1027", "sub_technique_id": null, "technique_name": "Obfuscated Files or Information", "tactic": "Defense Evasion", "confidence": "Medium"}
+  ],
+  "urlopentofile": [
+    {"technique_id": "T1105", "sub_technique_id": null, "technique_name": "Ingress Tool Transfer", "tactic": "Command and Control", "confidence": "High"}
+  ],
+  "urldownloadtofile": [
+    {"technique_id": "T1105", "sub_technique_id": null, "technique_name": "Ingress Tool Transfer", "tactic": "Command and Control", "confidence": "High"}
+  ],
+  "urldownloadtofilea": [
+    {"technique_id": "T1105", "sub_technique_id": null, "technique_name": "Ingress Tool Transfer", "tactic": "Command and Control", "confidence": "High"}
+  ]
+}

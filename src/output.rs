@@ -18,6 +18,7 @@
 
 /// JSON output structures for machine-readable analysis results
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Complete analysis result
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +45,51 @@ pub struct AnalysisResult {
 
     /// File format type
     pub file_format: String,
+
+    // ── New analysis engine fields ────────────────────────────────────────
+    /// Imphash (MD5 of normalised import list) — top-level shortcut
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imphash: Option<String>,
+
+    /// PE checksum validity (true = stored matches computed or stored is zero)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checksum_valid: Option<bool>,
+
+    /// TLS callback virtual addresses
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tls_callbacks: Vec<TlsCallback>,
+
+    /// Ordinal-only imports — top-level shortcut
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ordinal_imports: Vec<OrdinalImport>,
+
+    /// Overlay bytes appended after the last section
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlay: Option<OverlayInfo>,
+
+    /// Detected packers/protectors
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub packer_detections: Vec<PackerDetection>,
+
+    /// Detected compiler or language runtime
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compiler_detection: Option<CompilerDetection>,
+
+    /// Anti-analysis technique indicators
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub anti_analysis_indicators: Vec<AntiAnalysisIndicator>,
+
+    /// MITRE ATT&CK technique mappings derived from all indicators
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mitre_techniques: Vec<MitreTechnique>,
+
+    /// Per-indicator confidence levels
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub confidence_scores: HashMap<String, ConfidenceLevel>,
+
+    /// Analyst-facing plain-English findings
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plain_english_findings: Vec<PlainEnglishFinding>,
 }
 
 /// File metadata
@@ -161,15 +207,12 @@ pub struct PEAnalysis {
     pub compiler: Option<CompilerInfo>,
 
     /// Packer detection results
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub packers: Vec<PackerFinding>,
 
     /// Anti-analysis technique indicators
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub anti_analysis: Vec<AntiAnalysisFinding>,
 
     /// Ordinal-only imports
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ordinal_imports: Vec<OrdinalImport>,
 
     /// Authenticode signature block (from Security Directory, data dir index 4)
@@ -401,8 +444,32 @@ pub struct ELFAnalysis {
     pub has_relro: bool,
     /// Symbol table is stripped
     pub is_stripped: bool,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub packer_indicators: Vec<PackerFinding>,
+
+    // ── New ELF analysis fields ───────────────────────────────────────────
+    /// GOT/PLT symbols flagged as suspicious
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub got_plt_suspicious: Vec<String>,
+
+    /// RPATH/RUNPATH entries that look anomalous
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rpath_anomalies: Vec<String>,
+
+    /// True if .debug_info section is present
+    #[serde(default)]
+    pub has_dwarf_info: bool,
+
+    /// True if the interpreter path is non-standard
+    #[serde(default)]
+    pub interpreter_suspicious: bool,
+
+    /// Section names that look unusual or obfuscated
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suspicious_section_names: Vec<String>,
+
+    /// Suspicious libc / syscall wrappers found in dynamic imports
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suspicious_libc_calls: Vec<SuspiciousLibcCall>,
 }
 
 /// A section from an ELF binary
@@ -422,8 +489,110 @@ pub struct ElfImportAnalysis {
     pub library_count: usize,
     pub libraries: Vec<String>,
     pub dynamic_symbol_count: usize,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub suspicious_functions: Vec<SuspiciousAPI>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// New analysis engine structs (v1 engine expansion)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Confidence level for a detection or finding
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ConfidenceLevel {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl std::fmt::Display for ConfidenceLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfidenceLevel::Low => write!(f, "Low"),
+            ConfidenceLevel::Medium => write!(f, "Medium"),
+            ConfidenceLevel::High => write!(f, "High"),
+            ConfidenceLevel::Critical => write!(f, "Critical"),
+        }
+    }
+}
+
+/// A MITRE ATT&CK technique mapped from a static indicator
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MitreTechnique {
+    /// Base technique ID (e.g. "T1055")
+    pub technique_id: String,
+    /// Sub-technique suffix if applicable (e.g. "001")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sub_technique_id: Option<String>,
+    pub technique_name: String,
+    pub tactic: String,
+    /// The API name or indicator that triggered this mapping
+    pub source_indicator: String,
+    pub confidence: ConfidenceLevel,
+}
+
+/// A plain-English analyst finding surfaced to the UI
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlainEnglishFinding {
+    pub title: String,
+    pub explanation: String,
+    pub why_suspicious: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub malware_families: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mitre_technique_id: Option<String>,
+    pub confidence: ConfidenceLevel,
+}
+
+/// Anti-analysis technique detected via static indicators
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AntiAnalysisIndicator {
+    /// "DebuggerDetection", "VmDetection", "TimingEvasion", "SandboxDetection"
+    pub technique: String,
+    pub evidence: String,
+    pub confidence: ConfidenceLevel,
+    pub mitre_technique_id: String,
+}
+
+/// Packer / protector detection result (richer than PackerFinding)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackerDetection {
+    pub name: String,
+    pub confidence: ConfidenceLevel,
+    /// Detection method: "String", "SectionName", "Entropy", "Heuristic"
+    pub method: String,
+    /// Specific evidence that triggered the detection
+    pub evidence: String,
+}
+
+/// Compiler / language runtime detection result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompilerDetection {
+    pub compiler: String,
+    pub language: String,
+    pub confidence: ConfidenceLevel,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<String>,
+}
+
+/// A single TLS callback entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TlsCallback {
+    /// Virtual address as hex string
+    pub virtual_address: String,
+    /// File offset
+    pub raw_offset: u64,
+}
+
+/// A suspicious libc / syscall wrapper found in an ELF binary
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SuspiciousLibcCall {
+    pub name: String,
+    pub category: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mitre_technique_id: Option<String>,
+    pub confidence: ConfidenceLevel,
 }
 
 #[cfg(test)]
@@ -459,6 +628,17 @@ mod tests {
             pe_analysis: None,
             elf_analysis: None,
             file_format: "Windows PE".to_string(),
+            imphash: None,
+            checksum_valid: None,
+            tls_callbacks: vec![],
+            ordinal_imports: vec![],
+            overlay: None,
+            packer_detections: vec![],
+            compiler_detection: None,
+            anti_analysis_indicators: vec![],
+            mitre_techniques: vec![],
+            confidence_scores: HashMap::new(),
+            plain_english_findings: vec![],
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -623,6 +803,8 @@ mod tests {
             packers: vec![],
             anti_analysis: vec![],
             ordinal_imports: vec![],
+            authenticode: None,
+            version_info: None,
         };
 
         let json = serde_json::to_string_pretty(&pe).unwrap();
@@ -660,6 +842,17 @@ mod tests {
             pe_analysis: None, // Should be omitted
             elf_analysis: None, // Should be omitted
             file_format: "Unknown".to_string(),
+            imphash: None,
+            checksum_valid: None,
+            tls_callbacks: vec![],
+            ordinal_imports: vec![],
+            overlay: None,
+            packer_detections: vec![],
+            compiler_detection: None,
+            anti_analysis_indicators: vec![],
+            mitre_techniques: vec![],
+            confidence_scores: HashMap::new(),
+            plain_english_findings: vec![],
         };
 
         let json = serde_json::to_string(&result).unwrap();
