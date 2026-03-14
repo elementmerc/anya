@@ -1,0 +1,59 @@
+# cargo-audit configuration
+#
+# All advisories below are for transitive dependencies pulled in by Tauri,
+# sqlx, or indicatif. None are in code this project owns or can update
+# independently — the advisories are suppressed here so CI stays strict
+# for any NEW findings while ignoring known, unresolvable upstream noise.
+#
+# Revisit whenever Tauri or sqlx ships a major version that drops these deps.
+
+[advisories]
+ignore = [
+    # rsa – Marvin Attack timing side-channel (no fixed version exists)
+    # Pulled in: tauri-plugin-sql → sqlx-mysql → rsa
+    "RUSTSEC-2023-0071",
+
+    # GTK3 / gtk-rs bindings – gtk-rs dropped GTK3 support upstream
+    # Pulled in: Tauri Linux window stack (wry → gtk, webkit2gtk, tao, muda…)
+    "RUSTSEC-2024-0411",   # gdkwayland-sys
+    "RUSTSEC-2024-0412",   # gdk
+    "RUSTSEC-2024-0413",   # atk
+    "RUSTSEC-2024-0414",   # gdkx11-sys
+    "RUSTSEC-2024-0415",   # gtk
+    "RUSTSEC-2024-0416",   # atk-sys
+    "RUSTSEC-2024-0417",   # gdkx11
+    "RUSTSEC-2024-0418",   # gdk-sys
+    "RUSTSEC-2024-0419",   # gtk3-macros
+    "RUSTSEC-2024-0420",   # gtk-sys
+
+    # glib – unsound VariantStrIter Iterator impl
+    # Pulled in: Tauri Linux stack (webkit2gtk → glib)
+    "RUSTSEC-2024-0429",
+
+    # proc-macro-error – unmaintained
+    # Pulled in: Tauri Linux stack (gtk3-macros → proc-macro-error)
+    "RUSTSEC-2024-0370",
+
+    # fxhash – unmaintained
+    # Pulled in: tauri-utils → kuchikiki → selectors → fxhash
+    "RUSTSEC-2025-0057",
+
+    # unic-* – all unmaintained
+    # Pulled in: tauri-utils → urlpattern → unic-*
+    "RUSTSEC-2025-0075",   # unic-char-range
+    "RUSTSEC-2025-0080",   # unic-common
+    "RUSTSEC-2025-0081",   # unic-char-property
+    "RUSTSEC-2025-0098",   # unic-ucd-version
+    "RUSTSEC-2025-0100",   # unic-ucd-ident
+
+    # number_prefix – unmaintained
+    # Pulled in: indicatif → number_prefix (indicatif is a direct dep)
+    # Safe to ignore: no CVE, purely a maintenance flag
+    "RUSTSEC-2025-0119",
+]
+
+[yanked]
+# js-sys 0.3.88 and wasm-bindgen 0.2.111 are yanked upstream wasm crates
+# pulled in transitively by Tauri / reqwest. Disable yanked-version checks
+# until Tauri bumps its wasm-bindgen dependency.
+enabled = false

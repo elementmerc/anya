@@ -12,7 +12,7 @@ fn test_batch_directory() {
     fs::write(temp_dir.path().join("file2.dll"), b"Test 2").unwrap();
     fs::write(temp_dir.path().join("file3.txt"), b"Ignored").unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_anya-security-core"))
+    let output = Command::new(env!("CARGO_BIN_EXE_anya"))
         .arg("--directory")
         .arg(temp_dir.path())
         .arg("--quiet")
@@ -31,7 +31,7 @@ fn test_batch_recursive() {
     fs::write(temp_dir.path().join("root.exe"), b"Root").unwrap();
     fs::write(subdir.join("nested.exe"), b"Nested").unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_anya-security-core"))
+    let output = Command::new(env!("CARGO_BIN_EXE_anya"))
         .arg("--directory")
         .arg(temp_dir.path())
         .arg("--recursive")

@@ -10,7 +10,7 @@ fn test_json_output_basic() {
     let test_file = temp_dir.path().join("test.txt");
     fs::write(&test_file, b"Hello World").unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_anya-security-core"))
+    let output = Command::new(env!("CARGO_BIN_EXE_anya"))
         .arg("--file")
         .arg(&test_file)
         .arg("--json")
@@ -35,7 +35,7 @@ fn test_json_to_file() {
 
     fs::write(&test_file, b"Test").unwrap();
 
-    let status = Command::new(env!("CARGO_BIN_EXE_anya-security-core"))
+    let status = Command::new(env!("CARGO_BIN_EXE_anya"))
         .arg("--file")
         .arg(&test_file)
         .arg("--json")
