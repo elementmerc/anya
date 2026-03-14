@@ -76,7 +76,7 @@ jobs:
         run: cargo install cargo-audit --locked
 
       - name: Run audit
-        run: cargo audit -c audit.toml --deny warnings
+        run: cargo audit --config audit.toml --deny warnings
 
   # ── Frontend: TypeScript + build ─────────────────────────────────────────────
   frontend-check:
