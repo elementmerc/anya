@@ -14,6 +14,9 @@
 import { spawn, type ChildProcess } from "child_process";
 import * as path from "path";
 import * as os from "os";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Resolved path to the built application binary.
 const APPLICATION_PATH = path.resolve(
