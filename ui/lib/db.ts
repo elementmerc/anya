@@ -73,6 +73,11 @@ async function initSchema(db: Database): Promise<void> {
       ('show_intermediate',    'true'),
       ('show_advanced',        'false')
   `);
+  // Seed general settings defaults
+  await db.execute(`
+    INSERT OR IGNORE INTO settings (key, value) VALUES
+      ('bible_verses_enabled', 'false')
+  `);
 }
 
 // ─── Analysis storage ─────────────────────────────────────────────────────
@@ -149,6 +154,9 @@ export async function loadSettings(): Promise<Partial<AppSettings>> {
   }
   if (["small", "default", "large", "xl"].includes(map["font_size"])) {
     settings.font_size = map["font_size"] as AppSettings["font_size"];
+  }
+  if (map["bible_verses_enabled"] !== undefined) {
+    settings.bible_verses_enabled = map["bible_verses_enabled"] === "true";
   }
   return settings;
 }

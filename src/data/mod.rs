@@ -4,3 +4,4 @@
 pub mod explanations;
 pub mod lessons;
 pub mod mitre_mappings;
+pub mod verses;

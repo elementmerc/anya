@@ -19,11 +19,18 @@
 ```
 anya/
 ├── src/                        # anya-security-core (Rust crate)
-│   ├── main.rs                 # CLI entry point
+│   ├── main.rs                 # CLI entry point (binary: anya)
 │   ├── lib.rs                  # Public library API + core orchestration
 │   ├── config.rs               # TOML configuration management
 │   ├── output.rs               # JSON-serialisable data structures
-│   └── pe_parser.rs            # PE analysis logic
+│   ├── pe_parser.rs            # PE analysis logic
+│   ├── elf_parser.rs           # ELF analysis logic
+│   └── data/
+│       ├── mod.rs              # Data submodule exports
+│       ├── explanations.rs     # Human-readable finding descriptions
+│       ├── lessons.rs          # Teacher Mode lesson definitions + trigger logic
+│       ├── mitre_mappings.rs   # API → MITRE ATT&CK technique mappings
+│       └── verses.rs           # 30 NLT Bible verses (shared CLI + GUI pool)
 ├── src-tauri/                  # anya-gui (Tauri package)
 │   ├── src/
 │   │   ├── main.rs             # Tauri application entry point
@@ -40,23 +47,35 @@ anya/
 │   ├── components/
 │   │   ├── DropZone.tsx        # File drop target
 │   │   ├── TopBar.tsx          # Header with file info and controls
-│   │   ├── SettingsModal.tsx   # Settings panel (theme, font size, DB path)
+│   │   ├── BibleVerseBar.tsx   # 36 px status bar — rotating NLT verse (10-min cycle)
+│   │   ├── SettingsModal.tsx   # Settings panel (theme, font size, DB path, Teacher Mode, Bible Verses)
+│   │   ├── TeacherSidebar.tsx  # Contextual lesson sidebar (Teacher Mode)
 │   │   └── tabs/
 │   │       ├── OverviewTab.tsx
 │   │       ├── SectionsTab.tsx
 │   │       ├── ImportsTab.tsx
 │   │       ├── EntropyTab.tsx
 │   │       ├── StringsTab.tsx
-│   │       └── SecurityTab.tsx
+│   │       ├── SecurityTab.tsx
+│   │       └── MitreTab.tsx    # MITRE ATT&CK technique display
 │   ├── hooks/
 │   │   ├── useAnalysis.ts      # File analysis state management
 │   │   ├── useTheme.ts         # Theme persistence
-│   │   └── useFontSize.ts      # Font size persistence
+│   │   ├── useFontSize.ts      # Font size persistence
+│   │   └── useTeacherMode.ts   # Teacher Mode context + focus/blur helpers
 │   └── lib/
 │       ├── db.ts               # SQLite access via plugin-sql
 │       ├── risk.ts             # Risk score calculation
 │       ├── tauri-bridge.ts     # Typed wrappers around invoke()
 │       └── utils.ts            # Shared helpers
+├── debian/                     # Debian/Kali packaging
+│   ├── control
+│   ├── changelog
+│   ├── rules
+│   ├── copyright
+│   ├── install
+│   ├── anya.1                  # Man page
+│   └── README.Debian
 ├── tests/                      # Integration tests (anya-security-core)
 │   ├── config_tests.rs
 │   ├── json_output_tests.rs
@@ -168,12 +187,14 @@ PE analysis via [`goblin`](https://github.com/m4b/goblin).
 The desktop app uses Tauri v2. Rust logic is exposed to the frontend as Tauri commands:
 
 ```
-Frontend (TypeScript)            Rust (Tauri commands)
-───────────────────────          ──────────────────────────────────────
-invoke("analyse_file", path) →   #[tauri::command] analyse_file()
-                                   → anya_security_core::analyse_file()
-                                   → anya_security_core::to_json_output()
-                                 ←  AnalysisResult (JSON)
+Frontend (TypeScript)                   Rust (Tauri commands)
+──────────────────────────────────      ────────────────────────────────────────────
+invoke("analyze_file", { path })    →   analyse_file() → anya_security_core::analyse_file()
+invoke("export_json", { … })        →   export_json()  → std::fs::write()
+invoke("get_settings")              →   get_settings() → AppSettings
+invoke("save_settings", { … })      →   save_settings() (telemetry always false)
+invoke("get_triggered_lessons", …)  →   get_triggered_lessons() → Lesson[]
+invoke("get_random_verse")          →   get_random_verse() → { text, reference }
 ```
 
 Network access is disabled by omitting all network permissions from `src-tauri/capabilities/default.json`. The OS will not grant network access to the process regardless of what the application code attempts.
@@ -207,7 +228,9 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 ```
 
-Settings keys in use: `theme` (`"dark"` | `"light"`), `font_size` (`"small"` | `"default"` | `"large"` | `"xl"`).
+Settings keys in use: `theme` (`"dark"` | `"light"`), `font_size` (`"small"` | `"default"` | `"large"` | `"xl"`), `bible_verses_enabled` (`"true"` | `"false"`).
+
+Teacher settings are stored in a separate `teacher_settings` table with keys: `enabled`, `auto_show_on_trigger`, `show_beginner`, `show_intermediate`, `show_advanced`.
 
 If the same file (same SHA-256) is analysed more than once, the existing row is updated in place rather than creating a duplicate entry.
 
@@ -226,7 +249,7 @@ Theme (dark/light) follows the same pattern — the class is applied to `<html>`
 ### CLI — single file
 
 ```
-anya-security-core --file malware.exe
+anya --file malware.exe
         ↓
 main.rs: parse args, load config
         ↓
@@ -247,7 +270,7 @@ main.rs: format text output  OR  to_json_output() → print JSON
 ### CLI — batch directory
 
 ```
-anya-security-core --directory /samples --recursive
+anya --directory /samples --recursive
         ↓
 lib::find_executable_files(dir, recursive)
   ├── WalkDir traversal
@@ -367,6 +390,6 @@ Benchmarked operations: hash calculation, entropy calculation, string extraction
 
 ---
 
-**Last updated:** 2026-03-13
-**Version:** 0.3.1
+**Last updated:** 2026-03-14
+**Version:** 0.3.2
 **Maintainer:** Daniel Iwugo — daniel@themalwarefiles.com

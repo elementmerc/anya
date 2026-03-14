@@ -222,7 +222,7 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
                             }}
                           >
                             {isSusp && <AlertTriangle size={12} style={{ color: "var(--risk-high)", flexShrink: 0 }} />}
-                            <span style={{ flex: 1, fontSize: "var(--font-size-sm)", fontFamily: "var(--font-mono)", color: isSusp ? "var(--risk-high)" : "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            <span className="selectable" style={{ flex: 1, fontSize: "var(--font-size-sm)", fontFamily: "var(--font-mono)", color: isSusp ? "var(--risk-high)" : "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               <Highlight text={fn} query={search} />
                             </span>
                             {category && (

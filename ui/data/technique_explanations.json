@@ -112,5 +112,77 @@
   },
   "T1548.002": {
     "simple": "Windows UAC (User Account Control) is the popup that asks 'Do you want to allow this program to make changes to your device?' Bypassing UAC means the malware gains administrator privileges without that popup ever appearing. You never get asked for permission — the malware just silently promotes itself to full admin."
+  },
+  "T1548": {
+    "simple": "Modern operating systems have controls designed to prevent programs from quietly gaining too many privileges. This is the general category for all the tricks attackers use to silently promote themselves from a regular user to an administrator without any permission popup appearing. Think of it as finding an unofficial side entrance into a secure area that bypasses the main security desk entirely."
+  },
+  "T1543": {
+    "simple": "Windows has many background programs called services that run automatically every time the computer starts — like the printer service, Windows Update, and antivirus. This technique installs malware as a fake official service using standard Windows commands. Once registered, it runs automatically with every reboot, often with high system privileges, blending in with dozens of legitimate services. Most users never look at the service list, so this can persist undetected for months — like a criminal who gets a job as the building's janitor so they have an official reason to be there every single morning."
+  },
+  "T1543.003": {
+    "simple": "Every time Windows starts, it automatically launches a list of approved background programs called services. Attackers install their malware as one of those approved services using the official Windows service manager commands. Once installed as a service, the malware runs automatically with every reboot with high system privileges, hidden among dozens of real services with names like 'Windows Update Helper' or 'Network Service Manager'. It's like adding yourself to the company payroll — officially authorized to show up every day."
+  },
+  "T1115": {
+    "simple": "Your clipboard is the invisible holding area for anything you copy with Ctrl+C — passwords, credit card numbers, crypto wallet addresses, personal messages. This technique secretly reads whatever is in your clipboard without you knowing. Every time you copy a password from your password manager or copy a Bitcoin address to paste into an exchange, the malware intercepts it. It's like someone reading over your shoulder every time you copy text, keeping their own secret copy of everything you've copied."
+  },
+  "T1055.002": {
+    "simple": "Instead of sneaking in through a DLL plugin file, this technique directly copies raw malicious code into another program's memory and forces it to execute. Imagine taking your own written instructions, folding them up, and physically inserting them into someone else's notebook — then tricking the teacher into reading from their notebook. The malicious code runs inside a trusted program's memory, making it look like that normal program did everything."
+  },
+  "T1055.011": {
+    "simple": "Windows programs that create visible windows (like your browser or Notepad) have a small reserved memory area attached to each window. This technique hides malicious code inside that spare memory space and then tricks a legitimate program into reading and executing it. It's like hiding a secret message inside the empty back cover of a library book — the librarian keeps it on the shelf, loans it out, and the next reader unknowingly passes on the hidden message."
+  },
+  "T1497.001": {
+    "simple": "Security sandboxes (fake analysis computers) often run on unusual virtual hardware with giveaway characteristics — unusual screen resolution, too much or too little RAM, a brand new hard drive with no real history, or a CPU that reports itself as virtual. This technique makes the malware do a hardware and system inspection before doing anything suspicious. If the results look like a test machine rather than a real person's computer, the malware stays completely silent. On a real computer, it attacks."
+  },
+  "T1027.007": {
+    "simple": "Antivirus software can scan a program and spot dangerous function calls like 'open this network connection' or 'steal this password'. This technique hides those dangerous calls from the scanner by not writing them directly in the code. Instead, the malware calculates where the functions are in memory at runtime — like a spy who memorizes their mission rather than writing it down. When the scanner looks at the program, it finds nothing suspicious. The real actions only happen when it's actually running."
+  },
+  "T1562.001": {
+    "simple": "Your computer's antivirus and security tools constantly watch for malware activity. This technique specifically attacks those security programs — killing their processes, deleting their files, or changing their settings to make them stop working or go blind. It's like a burglar who knows where every security camera is and cuts the power to each one before breaking in. Once the defenders are disabled, the malware can do whatever it wants without being detected or leaving traces."
+  },
+  "T1562.002": {
+    "simple": "Windows automatically keeps a detailed record of everything that happens — logins, programs launched, files changed, errors — called Event Logs. Security software and forensic investigators read these logs constantly to catch malware and investigate incidents. This technique turns off Windows event logging entirely or clears the existing logs, making it nearly impossible to figure out what happened during an attack. It's like shredding every security camera recording and visitor log from the day of a bank robbery."
+  },
+  "T1036.001": {
+    "simple": "Windows programs can have a digital signature — a verified seal that proves a trusted company like Microsoft or Adobe created the file. Security tools often trust signed programs and flag unsigned ones. This technique fakes a signature or copies an existing one to make malware appear signed and trustworthy. It's like laminating a photocopy of an ID card — a quick glance might fool someone who isn't looking closely, but the real verification system would catch it."
+  },
+  "T1070.001": {
+    "simple": "Windows Event Logs are like your computer's diary — they record every login attempt, every program that ran, every file that changed, and every error. Security teams and forensic investigators read this diary after an attack to figure out exactly what happened and when. This technique deletes all those diary entries after a breach to erase the footprints. It's like a thief who not only robbed the museum but also erased every security camera recording from that night before walking out the door."
+  },
+  "T1574.001": {
+    "simple": "When a program needs to load extra code, Windows searches a series of folders in a specific order looking for the right file. This technique places a malicious fake file with the right name in a folder that Windows checks before the real one. A legitimate, trusted program then accidentally loads and runs the fake file. It's like swapping a real prescription medicine bottle with a fake one that looks identical — the patient takes what they think is the real medication, not knowing it's been replaced."
+  },
+  "T1574.002": {
+    "simple": "Some software comes packaged with its own helper files stored right next to the main program. When that program runs, it automatically loads nearby files it expects to be there. This technique places a malicious fake helper file next to a legitimate program. When the real program launches, it picks up the attacker's fake file and runs it, unknowingly giving the malware all the trusted program's permissions. It's like a con artist who walks into a building right next to a real employee — security assumes they belong together."
+  },
+  "T1053.005": {
+    "simple": "Windows Task Scheduler is a built-in alarm clock for programs — it can automatically run any program at a specific time, on a specific day, or every time someone logs in. Malware creates a scheduled task to restart itself regularly, even if you manually kill it. You could notice the malware and stop it, but an hour later Task Scheduler silently starts it up again. It's like setting 50 recurring alarms on someone's phone that they don't know about — they can't stop the alarm by just turning it off once."
+  },
+  "T1134.001": {
+    "simple": "Every program running in Windows carries an invisible ID badge (access token) that determines what it's allowed to do. Administrator accounts have all-access badges. This technique steals a copy of an admin's badge and uses it to impersonate them — suddenly the malware can install software, change security settings, and access any file, all while Windows thinks a real administrator is making those requests. It's like finding a keycard that opens every door in a building and quietly making a copy of it."
+  },
+  "T1134.002": {
+    "simple": "After stealing an administrator's access token (their identity badge), this technique uses it to launch a brand new program that is born already authorized as that administrator. The new process inherits all the stolen privileges from birth. It's like using a stolen master key to not only enter a restricted area yourself, but to invite your entire team through the same door, each of them walking in with full authorized access."
+  },
+  "T1059.001": {
+    "simple": "PowerShell is a powerful command tool built directly into Windows — it can download files, change system settings, run code, and connect to the internet, all with just a few lines of script. Because Microsoft built it and digitally signed it, security tools trust PowerShell by default. Malware abuses this trust by running its harmful operations through PowerShell, hiding behind its respected reputation. It's like a criminal who commits crimes while wearing a police uniform — everyone assumes they're authorized to be there."
+  },
+  "T1059.003": {
+    "simple": "cmd.exe is the original Windows command prompt — the black text window for running commands. Because it's a core part of Windows itself, it's trusted and almost never blocked. Malware uses it to chain together commands that download files, change settings, create accounts, or delete evidence. Even if the malware itself would be caught, using the built-in command prompt makes the activity look like normal system administration. It's like committing a crime using the city's own official tools and vehicles."
+  },
+  "T1021.001": {
+    "simple": "Remote Desktop Protocol (RDP) lets you control a Windows computer from anywhere in the world as if you were sitting right in front of it — you see the screen, move the mouse, and type on the keyboard. Attackers who steal a user's login password can use RDP to take full interactive control of that computer and every other computer on the network they can reach. It's like using a stolen front door key to walk right in, sit at the victim's desk, and have complete access to everything they could access."
+  },
+  "T1071.001": {
+    "simple": "Firewalls block unusual network traffic but almost never block regular web browsing because that would break the internet for everyone. This technique hides the malware's spy communications — receiving commands from attackers, sending back stolen data — inside normal-looking HTTP or HTTPS web traffic. Firewalls see what looks like someone visiting a website, when really it's the malware calling home to its controller. It's like writing secret orders in invisible ink on what looks like an ordinary letter."
+  },
+  "T1071.004": {
+    "simple": "Every time your computer visits a website, it first does a DNS lookup — like checking a phone book to find the website's real address. Almost every network allows DNS traffic through without inspecting it carefully. This technique hides malware commands and stolen data encoded inside DNS lookup messages. The malware can receive instructions and send back stolen information without making any normal-looking network connection. It's like passing secret messages hidden inside the address written on the envelope — nobody checks the address, they just deliver the letter."
+  },
+  "T1003.001": {
+    "simple": "Windows keeps a copy of your login credentials in a special system process called LSASS — the part of Windows that handles who's logged in. This process holds password hashes and sometimes plaintext passwords in memory. This technique extracts that credential data directly from LSASS memory using special tools. With those stolen credentials, attackers can log into any other computer on the network as the real user, without ever needing to guess or crack the actual password. It's like finding the master password notebook kept in the security office."
+  },
+  "T1005": {
+    "simple": "Before stealing information, malware needs to find what's worth taking. This technique searches the local computer's file system for valuable files — documents with passwords, configuration files containing database credentials, spreadsheets with financial data, or anything else the attacker wants. It's like a burglar who methodically goes through every drawer and cabinet before deciding what to put in their bag. The search happens silently in the background while you're working, and you'd never know."
   }
 }

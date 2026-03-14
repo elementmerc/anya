@@ -3,7 +3,8 @@ import { useAnalysis } from "@/hooks/useAnalysis";
 import { useTheme } from "@/hooks/useTheme";
 import { useFontSize } from "@/hooks/useFontSize";
 import { TeacherModeContext, type TeacherModeContextValue, type TeacherFocusItem } from "@/hooks/useTeacherMode";
-import { loadTeacherSettings, saveTeacherSettings } from "@/lib/db";
+import { loadTeacherSettings, saveTeacherSettings, loadSettings, saveSettingsToDb } from "@/lib/db";
+import { BibleVerseBar } from "@/components/BibleVerseBar";
 import DropZone from "@/components/DropZone";
 import TopBar from "@/components/TopBar";
 import TabNav from "@/components/TabNav";
@@ -50,6 +51,24 @@ export default function App() {
   const { fontSize, setFontSize } = useFontSize();
   const [activeTab, setActiveTab] = useState<TabName>("overview");
   const [showSettings, setShowSettings] = useState(false);
+
+  // ── Bible Verses ──────────────────────────────────────────────────────────
+  const [bibleVersesEnabled, setBibleVersesEnabledState] = useState(false);
+
+  useEffect(() => {
+    loadSettings()
+      .then((s) => {
+        if (s.bible_verses_enabled !== undefined) {
+          setBibleVersesEnabledState(s.bible_verses_enabled);
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  const setBibleVersesEnabled = useCallback((v: boolean) => {
+    setBibleVersesEnabledState(v);
+    void saveSettingsToDb({ bible_verses_enabled: v });
+  }, []);
 
   // ── Teacher Mode ──────────────────────────────────────────────────────────
   // `enabled` is the single source of truth — sidebar is visible iff enabled.
@@ -190,12 +209,16 @@ export default function App() {
           />
         )}
 
+        {bibleVersesEnabled && <BibleVerseBar />}
+
         {showSettings && (
           <SettingsModal
             theme={theme}
             onToggleTheme={toggleTheme}
             fontSize={fontSize}
             onSetFontSize={setFontSize}
+            bibleVersesEnabled={bibleVersesEnabled}
+            onSetBibleVerses={setBibleVersesEnabled}
             onClose={() => setShowSettings(false)}
           />
         )}

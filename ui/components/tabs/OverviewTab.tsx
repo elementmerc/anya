@@ -248,6 +248,7 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate }: Prop
                       {key}
                     </td>
                     <td
+                      className="selectable"
                       style={{
                         padding: "6px 8px",
                         fontSize: "var(--font-size-sm)",
@@ -312,6 +313,7 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate }: Prop
                   {label}
                 </span>
                 <span
+                  className="selectable"
                   style={{
                     flex: 1,
                     fontSize: "var(--font-size-xs)",
@@ -354,7 +356,7 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate }: Prop
                           </button>
                         )}
                       </div>
-                      <p style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)", margin: 0, lineHeight: 1.5 }}>{f.explanation}</p>
+                      <p className="selectable" style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)", margin: 0, lineHeight: 1.5 }}>{f.explanation}</p>
                       {f.malware_families.length > 0 && (
                         <p style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)", margin: "6px 0 0", lineHeight: 1.4 }}>
                           Known families: {f.malware_families.join(", ")}

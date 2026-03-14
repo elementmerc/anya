@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Lock, Database, Sun, Moon, FolderOpen, GraduationCap } from "lucide-react";
+import { X, Lock, Database, Sun, Moon, FolderOpen, GraduationCap, BookOpen } from "lucide-react";
 import { getSettings } from "@/lib/tauri-bridge";
 import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
 import { saveSettingsToDb } from "@/lib/db";
@@ -18,6 +18,8 @@ interface SettingsModalProps {
   onToggleTheme: () => void;
   fontSize: FontSize;
   onSetFontSize: (size: FontSize) => void;
+  bibleVersesEnabled: boolean;
+  onSetBibleVerses: (v: boolean) => void;
   onClose: () => void;
 }
 
@@ -26,6 +28,8 @@ export default function SettingsModal({
   onToggleTheme,
   fontSize,
   onSetFontSize,
+  bibleVersesEnabled,
+  onSetBibleVerses,
   onClose,
 }: SettingsModalProps) {
   const { enabled: teacherEnabled, setEnabled: setTeacherEnabled } = useTeacherMode();
@@ -276,6 +280,52 @@ export default function SettingsModal({
                   </div>
                   <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
                     Show contextual lessons as you analyse files. Great for learning malware analysis.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 p-1.5 rounded" style={{ background: "var(--bg-elevated)" }}>
+                  <BookOpen size={13} style={{ color: "var(--text-muted)" }} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+                      Bible Verses
+                    </p>
+                    <button
+                      role="switch"
+                      aria-checked={bibleVersesEnabled}
+                      onClick={() => onSetBibleVerses(!bibleVersesEnabled)}
+                      style={{
+                        width: 36,
+                        height: 20,
+                        borderRadius: 999,
+                        border: "none",
+                        background: bibleVersesEnabled ? "rgb(99,102,241)" : "var(--bg-elevated)",
+                        position: "relative",
+                        cursor: "pointer",
+                        transition: "background 200ms ease-out",
+                        flexShrink: 0,
+                        outline: "1px solid var(--border)",
+                      }}
+                    >
+                      <span
+                        style={{
+                          position: "absolute",
+                          top: 3,
+                          left: bibleVersesEnabled ? 19 : 3,
+                          width: 14,
+                          height: 14,
+                          borderRadius: "50%",
+                          background: "white",
+                          transition: "left 200ms ease-out",
+                        }}
+                      />
+                    </button>
+                  </div>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
+                    Show a rotating NLT Bible verse in the status bar. Cycles every 10 minutes.
                   </p>
                 </div>
               </div>

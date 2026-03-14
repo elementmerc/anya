@@ -1,0 +1,30 @@
+anya for Debian
+---------------
+
+This package installs the Anya command-line tool (`anya`).
+
+The desktop GUI is not included in this package. Pre-built GUI packages
+(.AppImage, .deb with GUI bundled) are available from the upstream release
+page: https://github.com/elementmerc/anya/releases
+
+USAGE NOTES
+
+  anya --file suspicious.exe        # Analyse a single file
+  anya --directory ./samples        # Batch scan
+  anya --file malware.exe --json    # JSON output
+  anya verse                        # Print a random Bible verse
+
+Run `man anya` or `anya --help` for the full option reference.
+
+CONFIGURATION
+
+  anya --init-config
+
+Creates a default config at ~/.config/anya/config.toml.
+
+LICENCE
+
+  AGPL-3.0-or-later.
+  Commercial licensing: daniel@themalwarefiles.com
+
+ -- Daniel Iwugo <daniel@themalwarefiles.com>

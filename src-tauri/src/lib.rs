@@ -144,6 +144,15 @@ pub mod commands {
         Ok(())
     }
 
+    /// Return a random Bible verse (NLT) from the shared verse pool.
+    #[tauri::command]
+    pub async fn get_random_verse() -> serde_json::Value {
+        use anya_security_core::data::verses;
+        let idx = verses::verse_index();
+        let (text, reference) = verses::VERSES[idx];
+        serde_json::json!({ "text": text, "reference": reference })
+    }
+
     /// Given a serialised `AnalysisResult`, evaluate all lesson triggers and
     /// return the lessons that match.  The caller supplies an optional risk
     /// score (0–100) so that `RiskScoreAbove` triggers can be evaluated.
@@ -214,6 +223,7 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
             commands::get_triggered_lessons,
+            commands::get_random_verse,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Anya");

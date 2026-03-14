@@ -20,9 +20,10 @@
 use anya_security_core::{
     BatchSummary, OutputLevel, calculate_file_entropy, calculate_hashes, config, elf_parser,
     extract_strings_data, is_executable_file, output, pe_parser,
+    data::verses,
 };
 use anyhow::{Context, Result}; // For better error handling
-use clap::Parser; // For parsing command-line arguments
+use clap::{Parser, Subcommand}; // For parsing command-line arguments
 use colored::*; // For coloured terminal output
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs; // For file system operations
@@ -120,6 +121,15 @@ struct Args {
     /// Show contextual learning lessons after analysis (Teacher Mode for CLI)
     #[arg(long)]
     guided: bool,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Print a random Bible verse (NLT)
+    Verse,
 }
 
 /// Creates a styled progress bar for tracking long-running operations
@@ -216,6 +226,15 @@ fn write_output(content: &str, output_path: Option<&PathBuf>, append_mode: bool)
 fn main() -> Result<()> {
     // Parse command-line arguments
     let args = Args::parse();
+
+    // Handle subcommands that don't need a file/directory argument
+    if let Some(Commands::Verse) = args.command {
+        let idx = verses::verse_index();
+        let (text, reference) = verses::VERSES[idx];
+        println!("{}", text.white().bold());
+        println!("  — {}", reference.bright_cyan());
+        return Ok(());
+    }
 
     // Handle --init-config: create default config file and exit
     // **Rust Concept: Early Return**

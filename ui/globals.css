@@ -102,6 +102,16 @@
 /* ─── Base resets ─────────────────────────────────────────────────────────── */
 * {
   box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ─── Text selection — data fields only ──────────────────────────────────── */
+/* Opt-in: apply .selectable to any container whose text should be copyable.  */
+.selectable,
+.selectable * {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 html, body, #root {

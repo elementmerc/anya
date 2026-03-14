@@ -133,6 +133,65 @@ mod tests {
     }
 
     #[test]
+    fn test_mitre_techniques_load() {
+        // The static map must parse without panic and contain at least one entry.
+        let map = get_map();
+        assert!(!map.is_empty(), "mitre_data.json must contain at least one entry");
+    }
+
+    #[test]
+    fn test_technique_has_required_fields() {
+        // Every technique entry must have non-empty id, name, tactic.
+        for techniques in get_map().values() {
+            for t in techniques {
+                assert!(!t.technique_id.is_empty(), "technique_id must not be empty");
+                assert!(!t.technique_name.is_empty(), "technique_name must not be empty");
+                assert!(!t.tactic.is_empty(), "tactic must not be empty");
+                assert!(
+                    !t.source_indicator.is_empty(),
+                    "source_indicator must not be empty"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_t1055_present() {
+        // T1055 (Process Injection) must appear somewhere in the mapping.
+        let has_t1055 = get_map()
+            .values()
+            .flat_map(|v| v.iter())
+            .any(|t| t.technique_id == "T1055");
+        assert!(has_t1055, "T1055 must appear in mitre_data.json");
+    }
+
+    #[test]
+    fn test_subtechnique_references_valid_parent() {
+        // For every technique entry that has a sub_technique_id set, the
+        // sub_technique_id must be a non-empty string of digits (e.g. "001"),
+        // and the parent technique_id must look like "T\d+" (e.g. "T1055").
+        for techniques in get_map().values() {
+            for t in techniques {
+                if let Some(sub) = &t.sub_technique_id {
+                    assert!(
+                        !sub.is_empty(),
+                        "sub_technique_id must not be empty when set"
+                    );
+                    assert!(
+                        sub.chars().all(|c| c.is_ascii_digit()),
+                        "sub_technique_id '{sub}' must contain only digits"
+                    );
+                    assert!(
+                        t.technique_id.starts_with('T'),
+                        "parent technique_id '{}' must start with 'T'",
+                        t.technique_id
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_map_techniques_from_imports_deduplicates() {
         let apis = &["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread"];
         let techs = map_techniques_from_imports(apis);

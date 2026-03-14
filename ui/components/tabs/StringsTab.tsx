@@ -136,6 +136,7 @@ function VirtualList({ items, expandedIdx, onExpand }: {
 
               {/* Value */}
               <span
+                className="selectable"
                 style={{
                   flex: 1,
                   fontSize: "var(--font-size-xs)",

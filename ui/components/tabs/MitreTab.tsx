@@ -82,6 +82,10 @@ function groupTechniques(mitre: MitreTechnique[]): DetectedGroup[] {
     const subId = m.sub_technique_id ? `${parentId}.${m.sub_technique_id}` : null;
     const catalogEntry = techniqueMap.get(parentId);
 
+    if (!catalogEntry) {
+      console.warn(`[MitreTab] Technique ID "${parentId}" detected but not found in mitre_attack.json — rendering fallback card.`);
+    }
+
     if (!byParent.has(parentId)) {
       byParent.set(parentId, {
         id: parentId,
@@ -390,6 +394,7 @@ function TechniqueModal({
                 What it does
               </p>
               <p
+                className="selectable"
                 style={{
                   margin: 0,
                   fontSize: "var(--font-size-xs)",

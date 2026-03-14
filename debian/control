@@ -1,0 +1,25 @@
+Source: anya
+Section: utils
+Priority: optional
+Maintainer: Daniel Iwugo <daniel@themalwarefiles.com>
+Build-Depends: debhelper-compat (= 13), cargo, rustc
+Standards-Version: 4.6.2
+Homepage: https://github.com/elementmerc/anya
+Vcs-Git: https://github.com/elementmerc/anya.git
+Vcs-Browser: https://github.com/elementmerc/anya
+Rules-Requires-Root: no
+
+Package: anya
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Fast static malware analysis tool
+ Anya performs static analysis on binary files (PE, ELF) to identify
+ suspicious characteristics without executing them. Analysis covers
+ cryptographic hashes, Shannon entropy, string extraction, PE and ELF
+ structure parsing, import table analysis with 40+ suspicious Windows
+ API signatures, MITRE ATT&CK technique mapping, and more.
+ .
+ Results are produced in under a second. No network access required.
+ .
+ This package installs the command-line interface. A desktop GUI is
+ available separately from the project's GitHub releases page.

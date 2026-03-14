@@ -155,6 +155,7 @@ export default function SectionsTab({ result }: Props) {
                     }}
                   >
                     <td
+                      className="selectable"
                       style={{
                         padding: "10px 12px",
                         fontSize: "var(--font-size-sm)",

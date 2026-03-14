@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:e2e": "wdio run e2e/wdio.conf.ts"
   },
   "dependencies": {
     "@fontsource/geist": "^5.0.3",
@@ -32,14 +35,25 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^22",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "@types/node": "^22",
     "@vitejs/plugin-react": "^4.3.4",
+    "@wdio/cli": "^9.0.7",
+    "@wdio/local-runner": "^9.0.7",
+    "@wdio/mocha-framework": "^9.0.6",
+    "@wdio/spec-reporter": "^9.0.7",
     "autoprefixer": "^10.4.20",
+    "jsdom": "^26.1.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.16",
+    "ts-node": "^10.9.2",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^3.2.4",
+    "webdriverio": "^9.0.7"
   }
 }

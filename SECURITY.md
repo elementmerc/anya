@@ -42,13 +42,13 @@ The following are **not** security issues in Anya:
 3. Fill in the details (see below for what to include)
 4. Submit the draft — only you and the maintainer can see it until it is published
 
-**Alternative — encrypted email:**
+**Alternative — Email:**
 
 Email daniel@themalwarefiles.com with subject line `[SECURITY] Anya — <brief description>`.
 
-PGP key: `[PLACEHOLDER — key will be published in a future update]`
+PGP key: `[Key will be published in a future update]`
 
-Do not post security issues publicly (GitHub Issues, social media, forums) until a fix
+For the love of everything on God's green earth, do not post security issues publicly (GitHub Issues, social media, forums) until a fix
 has been released and you have been notified.
 
 ## What to Include in a Report

@@ -206,4 +206,44 @@ mod tests {
             "Should have at least 20 explanations"
         );
     }
+
+    #[test]
+    fn test_explanations_load() {
+        // explanations_data.json must parse without panic and be non-empty.
+        let map = get_map();
+        assert!(!map.is_empty(), "explanations_data.json must contain at least one entry");
+    }
+
+    #[test]
+    fn test_t1055_has_simple_explanation() {
+        // At least one explanation must reference T1055 (or T1055.xxx) via
+        // its mitre_technique_id field.  This validates that process injection
+        // — the most common finding — has analyst-facing context.
+        let has_t1055 = get_map()
+            .values()
+            .any(|f| {
+                f.mitre_technique_id
+                    .as_deref()
+                    .map_or(false, |id| id.starts_with("T1055"))
+            });
+        assert!(
+            has_t1055,
+            "At least one explanation must reference a T1055 technique"
+        );
+    }
+
+    #[test]
+    fn test_no_empty_explanations() {
+        // Every entry must have non-empty explanation and why_suspicious fields.
+        for (key, finding) in get_map() {
+            assert!(
+                !finding.explanation.is_empty(),
+                "Explanation for key '{key}' must not be empty"
+            );
+            assert!(
+                !finding.why_suspicious.is_empty(),
+                "why_suspicious for key '{key}' must not be empty"
+            );
+        }
+    }
 }

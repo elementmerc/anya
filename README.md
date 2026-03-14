@@ -1,254 +1,136 @@
-# Anya — Malware Analysis Tool
+<div align="center">
 
-Anya (meaning "eye" in Igbo) performs static analysis on binary files to identify suspicious characteristics without executing them. Built in Rust for memory safety and performance — important when parsing potentially hostile input.
+<!-- <img src="docs/assets/anya-logo.png" alt="Anya logo" width="96" height="96"> -->
 
-Anya ships in two forms: a command-line tool for scripting and automation, and a desktop GUI for interactive investigation.
+# Anya
 
-**Licence:** AGPL-3.0-or-later — see [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md) for proprietary use.
+**Fast static malware analysis**
 
----
+[![CI](https://github.com/elementmerc/anya/actions/workflows/ci.yml/badge.svg)](https://github.com/elementmerc/anya/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/elementmerc/anya)](https://github.com/elementmerc/anya/releases/latest)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE.TXT)
+[![crates.io](https://img.shields.io/crates/v/anya-security-core)](https://crates.io/crates/anya-security-core)
 
-## Capabilities
+<!-- <img src="docs/assets/demo.gif" alt="Anya GUI demo" width="720"> -->
 
-- Cryptographic hashing — MD5, SHA-1, SHA-256
-- Shannon entropy calculation — file-level and per section
-- ASCII string extraction with configurable minimum length
-- PE (Portable Executable) structure parsing
-  - Section analysis with per-section entropy and W+X detection
-  - Import table analysis with 40+ suspicious Windows API signatures
-  - Export table analysis
-  - Security mitigation detection — ASLR, DEP/NX
-- Batch directory scanning with progress tracking
-- JSON output for integration with automation pipelines
-- Configurable analysis via TOML config files
+</div>
 
 ---
 
-## Installation
+Anya analyses binary files without executing them. Drop a PE or ELF onto the GUI, or pipe files through the CLI. Get hashes, entropy, imports, sections, MITRE ATT&CK mappings, and a risk score. All in under a second, all locally.
 
-### Pre-built binaries
+**Anya** (AHN-yah) means "eye" in Igbo.
 
-Download the latest release from the [releases page](https://github.com/elementmerc/anya/releases). Builds are provided for:
+---
 
-- Linux x86_64
-- Windows x86_64
-- macOS x86_64 / ARM64
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash
+```
+
+Prompts for CLI, GUI, or both. No root required for CLI.
+
+### Platform grid
+
+| Platform | CLI | GUI |
+|---|---|---|
+| **Linux x86_64** | `.tar.gz` + `musl` | `.AppImage` / `.deb` |
+| **Linux arm64** | `.tar.gz` + `musl` | — |
+| **macOS (Intel + Apple Silicon)** | Universal binary | `.dmg` (universal) |
+| **Windows x86_64** | `.zip` | `.msi` |
+| **Docker** | `linux/amd64` + `linux/arm64` | — |
 
 ### Docker
 
 ```bash
-# Pull image
 docker pull elementmerc/anya:latest
 
-# Analyse a single file
 docker run --rm \
   -v "$(pwd)/samples:/samples:ro" \
-  -v "$(pwd)/output:/output" \
   elementmerc/anya:latest \
-  --file /samples/suspicious.exe --json --output /output/result.json
-
-# Batch scan a directory
-docker run --rm \
-  -v "$(pwd)/samples:/samples:ro" \
-  -v "$(pwd)/output:/output" \
-  elementmerc/anya:latest \
-  --directory /samples --recursive --json --output /output/batch.jsonl
-
-# Build locally
-make docker-build
+  --file /samples/malware.exe --json
 ```
 
-See [docker-compose.yml](docker-compose.yml) for a ready-to-use compose configuration.
-
-### From source — CLI
-
-Requires Rust 1.85 or later (edition 2024).
+### From source
 
 ```bash
-git clone https://github.com/elementmerc/anya
-cd anya
-cargo build --release
-# Binary: target/release/anya-security-core
-```
+# CLI
+cargo install anya-security-core --locked
 
-### From source — Desktop GUI
-
-Requires Rust 1.85+, Node.js 18+, and the [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your platform.
-
-```bash
-git clone https://github.com/elementmerc/anya
-cd anya
-npm install
-npm run tauri build
-# Installer: src-tauri/target/release/bundle/
-```
-
-To run the GUI in development mode:
-
-```bash
-npm run tauri dev
+# GUI (requires Node 20 + Tauri prerequisites)
+npm ci && npm run tauri build
 ```
 
 ---
 
-## Quick Start — CLI
-
-### Single file analysis
+## CLI usage
 
 ```bash
-# Basic analysis
-anya-security-core --file suspicious.exe
+# Analyse a file
+anya --file suspicious.exe
 
-# Verbose output
-anya-security-core --file suspicious.exe --verbose
+# JSON output
+anya --file suspicious.exe --json
 
-# Quiet mode (errors only)
-anya-security-core --file suspicious.exe --quiet
+# Batch scan
+anya --directory ./samples --recursive --json --output results.jsonl --append
+
+# Teacher Mode (guided lessons inline)
+anya --file suspicious.exe --guided
+
+# Random Bible verse
+anya verse
+
+# Init config
+anya --init-config
 ```
 
-### Batch processing
-
-```bash
-# Analyse directory
-anya-security-core --directory ./samples
-
-# Recursive
-anya-security-core --directory ./samples --recursive
-```
-
-### JSON output
-
-```bash
-# Print JSON to stdout
-anya-security-core --file malware.exe --json
-
-# Write to file
-anya-security-core --file malware.exe --json --output report.json
-
-# Append (batch JSONL)
-anya-security-core --file sample.exe --json --output batch.jsonl --append
-```
-
-See [JSON_SCHEMA.md](JSON_SCHEMA.md) for the full output schema.
-
-### Configuration
-
-```bash
-# Create default config
-anya-security-core --init-config
-
-# Use custom config
-anya-security-core --config ./custom.toml --file malware.exe
-```
-
-Config file locations:
-- Linux/macOS: `~/.config/anya/config.toml`
-- Windows: `%APPDATA%\anya\config.toml`
-
-```toml
-[analysis]
-min_string_length = 4
-entropy_threshold = 7.5
-show_progress = true
-
-[output]
-use_colours = true
-format = "text"
-verbosity = "normal"
-```
-
-CLI arguments always override config file settings.
+Full flag reference: `anya --help`
 
 ---
 
-## Quick Start — Desktop GUI
+## GUI
 
-Launch the Anya GUI, then drag and drop a file onto the drop zone. The GUI provides:
+Launch Anya, drag a file onto the drop zone. Seven tabs:
 
-- **Overview** — risk score, file metadata, hash display
-- **Sections** — PE section table with entropy bars and W+X highlighting
-- **Imports** — suspicious API list grouped by category
-- **Entropy** — full entropy chart with per-section breakdown
-- **Strings** — extracted ASCII strings
-- **Security** — ASLR, DEP, version information
-
-Analysis history is stored locally in a SQLite database. No data leaves your device. See [PRIVACY.md](PRIVACY.md).
-
-Settings (theme, font size, database path) are accessible via the gear icon.
-
----
-
-## Analysis Modules
-
-### Hash calculation
-
-Generates MD5, SHA-1, and SHA-256 hashes for file identification and comparison against known-bad hash databases.
-
-### String extraction
-
-Scans for printable ASCII strings that may reveal hardcoded IP addresses or domains, file paths, registry keys, command-line arguments, error messages, or obfuscated credentials.
-
-### Entropy analysis
-
-Calculates Shannon entropy to identify:
-
-- **High (> 7.5)** — encrypted or packed content
-- **Moderate (4.0–7.5)** — normal compiled code
-- **Low (< 4.0)** — plain text or simple data
-
-### PE analysis
-
-Header information (architecture, entry point, image base, compilation timestamp), section analysis (per-section entropy, W+X detection, unusual names), import/export table analysis, and security mitigation detection (ASLR, DEP/NX).
-
-**Suspicious API categories:**
-
-| Category | Examples |
+| Tab | What it shows |
 |---|---|
-| Code injection | `CreateRemoteThread`, `WriteProcessMemory` |
-| Persistence | `RegSetValueEx`, `CreateService` |
-| Anti-analysis | `IsDebuggerPresent`, `CheckRemoteDebuggerPresent` |
-| Network | `InternetOpen`, `URLDownloadToFile` |
-| Cryptography | `CryptEncrypt`, `CryptDecrypt` |
-| Keylogging | `GetAsyncKeyState`, `SetWindowsHookEx` |
-| Privilege escalation | `AdjustTokenPrivileges` |
+| Overview | Risk score, file metadata, SHA-256 |
+| Entropy | Full entropy chart + per-section breakdown |
+| Imports | Suspicious API table grouped by category |
+| Sections | W+X detection, per-section entropy, characteristics |
+| Strings | Extracted ASCII strings |
+| Security | ASLR, DEP, version info, signed status |
+| MITRE | Mapped ATT&CK techniques with tactic tagging |
+
+**Teacher Mode** (toggle in Settings → Learning) surfaces contextual lessons as you navigate findings. **Bible Verses** (same section) shows a rotating NLT verse in the status bar.
+
+Analysis history is stored in a local SQLite database. Nothing leaves your device.
 
 ---
 
-## Interpreting Results
+## Why Anya?
 
-Anya provides indicators, not verdicts. Consider the full context:
-
-**Highly suspicious combinations:**
-- High section entropy + disabled ASLR/DEP + code injection APIs
-- Anti-debugging APIs + obfuscated strings + unusual section names
-
-**May be legitimate:**
-- UPX sections on commercial software
-- Debug APIs in development builds
-- Registry access in installers
-
-A low score means Anya found no indicators it was looking for — not that the file is safe. See [SECURITY.md](SECURITY.md) for the tool's explicit scope and limitations.
+| | Anya | VirusTotal | Ghidra | CAPA |
+|---|---|---|---|---|
+| Offline | ✓ | ✗ | ✓ | ✓ |
+| No cloud upload | ✓ | ✗ | ✓ | ✓ |
+| Desktop GUI | ✓ | Browser | ✓ | ✗ |
+| < 1 s analysis | ✓ | Network-bound | ✗ | Seconds |
+| MITRE mapping | ✓ | Partial | ✗ | ✓ |
+| Beginner-friendly | ✓ | — | ✗ | — |
 
 ---
 
-## Safety
+## Docs
 
-Static analysis is safer than dynamic analysis but not without risk:
-
-- Parse vulnerabilities could theoretically be triggered by malformed input — Anya uses well-tested libraries (goblin), but no parser is bulletproof.
-- Always work in isolated environments — VMs or air-gapped machines.
-- Do not analyse on production systems.
-
----
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Run `cargo fmt` and `cargo clippy` — both must pass clean
-4. Submit a pull request
-
-By submitting a pull request you agree your contribution may be dual-licensed under AGPL-3.0 and future commercial licences. See [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md).
+- [Architecture](ARCHITECTURE.md)
+- [JSON output schema](JSON_SCHEMA.md)
+- [CHANGELOG](CHANGELOG.md)
+- [Security scope & limitations](SECURITY.md)
+- [Privacy policy](PRIVACY.md)
+- [Commercial licensing](COMMERCIAL_LICENSE.md)
 
 ---
 
@@ -256,8 +138,4 @@ By submitting a pull request you agree your contribution may be dual-licensed un
 
 AGPL-3.0-or-later. See [LICENSE.TXT](LICENSE.TXT).
 
-For commercial licensing: daniel@themalwarefiles.com
-
----
-
-**Anya** (pronounced AHN-yah) means "eye" in Igbo, a language spoken in southeastern Nigeria.
+Commercial licensing: daniel@themalwarefiles.com

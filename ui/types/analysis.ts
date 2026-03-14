@@ -290,6 +290,7 @@ export interface AppSettings {
   font_size?: "small" | "default" | "large" | "xl";
   /** Always false — hard-coded off, never settable */
   telemetry_enabled: false;
+  bible_verses_enabled?: boolean;
 }
 
 export interface StoredAnalysis {

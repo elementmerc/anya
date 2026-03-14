@@ -58,7 +58,7 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
       <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)", minWidth: 100, flexShrink: 0, paddingTop: 1 }}>{label}</span>
-      <span style={{ fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", wordBreak: "break-all" }}>{value}</span>
+      <span className="selectable" style={{ fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", wordBreak: "break-all" }}>{value}</span>
     </div>
   );
 }

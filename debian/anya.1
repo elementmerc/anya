@@ -1,0 +1,106 @@
+.TH ANYA 1 "March 2026" "anya 0.3.2" "User Commands"
+.SH NAME
+anya \- fast static malware analysis tool
+.SH SYNOPSIS
+.B anya
+[\fIOPTIONS\fR]
+.br
+.B anya verse
+.SH DESCRIPTION
+.B anya
+performs static analysis on binary files (PE, ELF) to identify suspicious
+characteristics without executing them.
+It calculates cryptographic hashes, Shannon entropy, extracts strings, parses
+PE and ELF structures, maps findings to MITRE ATT&CK techniques, and produces
+a risk score.
+.PP
+All analysis is performed locally. No network access is required or initiated.
+.SH SUBCOMMANDS
+.TP
+.B verse
+Print a random Bible verse (NLT) and exit.
+.SH OPTIONS
+.TP
+\fB\-f\fR, \fB\-\-file\fR \fIFILE\fR
+Analyse a single file.
+.TP
+\fB\-d\fR, \fB\-\-directory\fR \fIDIR\fR
+Analyse all recognised executables in a directory (batch mode).
+.TP
+\fB\-r\fR, \fB\-\-recursive\fR
+Recursively descend into subdirectories (requires \fB\-\-directory\fR).
+.TP
+\fB\-j\fR, \fB\-\-json\fR
+Output analysis as JSON instead of formatted text.
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIFILE\fR
+Write output to \fIFILE\fR instead of stdout.
+.TP
+\fB\-a\fR, \fB\-\-append\fR
+Append to output file instead of overwriting (requires \fB\-\-output\fR).
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Show additional detail in text output.
+.TP
+\fB\-q\fR, \fB\-\-quiet\fR
+Suppress all output except warnings and errors.
+.TP
+\fB\-\-no\-color\fR
+Disable coloured terminal output.
+.TP
+\fB\-s\fR, \fB\-\-min\-string\-length\fR \fILENGTH\fR
+Override the minimum string length for extraction (default: 4).
+.TP
+\fB\-\-guided\fR
+Show contextual malware-analysis lessons after each file (Teacher Mode).
+.TP
+\fB\-\-init\-config\fR
+Write a default config file to the user config directory and exit.
+.TP
+\fB\-c\fR, \fB\-\-config\fR \fIFILE\fR
+Use a custom config file instead of the default.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version.
+.SH CONFIGURATION
+Default config location:
+.TP
+Linux/macOS:
+\fI~/.config/anya/config.toml\fR
+.TP
+Windows:
+\fI%APPDATA%\\anya\\config.toml\fR
+.PP
+Create the default config with \fBanya \-\-init\-config\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Analysis error, file not found, or unsupported format.
+.SH EXAMPLES
+.TP
+Analyse a single PE file:
+.B anya \-\-file suspicious.exe
+.TP
+Output JSON to a file:
+.B anya \-\-file malware.dll \-\-json \-\-output report.json
+.TP
+Batch scan recursively:
+.B anya \-\-directory ./samples \-\-recursive \-\-json \-\-output batch.jsonl \-\-append
+.TP
+Print a verse:
+.B anya verse
+.SH SEE ALSO
+Full documentation: \fIhttps://github.com/elementmerc/anya\fR
+.br
+JSON output schema: \fIhttps://github.com/elementmerc/anya/blob/master/JSON_SCHEMA.md\fR
+.SH AUTHOR
+Daniel Iwugo <daniel@themalwarefiles.com>
+.SH COPYRIGHT
+Copyright \(co 2026 Daniel Iwugo.
+Licence AGPL\-3.0\-or\-later.

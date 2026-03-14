@@ -2,11 +2,22 @@
 
 All notable changes to Anya will be documented in this file.
 
-## [0.3.2] - 2026-03-13
+## [0.3.2] - 2026-03-14
 
 ### Added
+- **`anya verse`** CLI subcommand — prints a random NLT Bible verse from a 30-verse hardcoded pool; time-seeded, no `rand` dependency
+- **Bible Verses** GUI setting — toggle in Settings → Learning; shows a 36 px status bar at the bottom of the window cycling a new verse every 10 minutes
+- **ELF binary analysis** — sections, imports, security features (PIE, NX stack, RELRO, stripped detection), packer indicators
+- **PE extended analysis** — imphash, PE checksum validation, Rich header parsing with product lookup, TLS callback detection, overlay detection
+- **Compiler detection** — identifies MSVC, GCC/MinGW, Rust, Go, .NET, Delphi, PyInstaller from PE metadata and byte patterns
+- **Packer detection** — UPX, ASPack, Themida, VMProtect, MPRESS via string signatures and section names; entropy heuristics for unknown packers
+- **Anti-analysis API detection** — VM detection, debugger detection, and timing-check APIs flagged from import table
+- **MITRE ATT&CK tab** — dedicated tab in the GUI mapping findings to ATT&CK techniques with tactic grouping and cross-tab navigation
+- **Teacher Mode** — contextual lesson sidebar in the GUI; CLI equivalent via `--guided` flag; persisted to `teacher_settings` table
+- **Debian/Kali packaging** — `debian/` directory with full dpkg build support; `man anya` man page; `.github/workflows/package.yml` builds `.deb` and `.rpm` on release tags
+- **One-line install script** — `install.sh` at project root; platform detection (Linux, macOS, Windows/WSL); choice of CLI/GUI/Both; falls back to `cargo install` if no pre-built binary; idempotent
 - Desktop GUI (`anya-gui`) — Tauri v2 app with React/TypeScript frontend
-  - Drag-and-drop file analysis with tab-based results (Overview, Sections, Imports, Entropy, Strings, Security)
+  - Drag-and-drop file analysis with tab-based results (Overview, Sections, Imports, Entropy, Strings, Security, MITRE)
   - Risk scoring system (0–100) with colour-coded severity
   - Local SQLite history via `@tauri-apps/plugin-sql` — no data leaves the device
   - Dark/light theme toggle with persistence
@@ -24,8 +35,9 @@ All notable changes to Anya will be documented in this file.
   - `TERMS_OF_SERVICE_STUB.md` — pre-release stub; AGPL-3.0 as operative licence until formal terms are published
 
 ### Changed
-- README rewritten to reflect current state: two products (CLI + GUI), three install paths, no roadmap hints
-- ARCHITECTURE.md updated: workspace structure, Tauri IPC layer, actual SQLite schema, removed future-state sections
+- README rewritten: minimalist style, one-liner install, platform grid, comparison table, correct binary name (`anya`)
+- ARCHITECTURE.md updated: workspace structure, Tauri IPC table, settings keys, binary name corrections
+- CLI binary renamed from `anya-security-core` to `anya` in all documentation
 
 ## [0.3.1] - 2026-02-22
 ### Added

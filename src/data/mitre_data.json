@@ -142,5 +142,56 @@
   ],
   "urldownloadtofilea": [
     {"technique_id": "T1105", "sub_technique_id": null, "technique_name": "Ingress Tool Transfer", "tactic": "Command and Control", "confidence": "High"}
+  ],
+  "ntmapviewofsection": [
+    {"technique_id": "T1055", "sub_technique_id": null, "technique_name": "Process Injection", "tactic": "Defense Evasion", "confidence": "Medium"}
+  ],
+  "zwsetinformationthread": [
+    {"technique_id": "T1622", "sub_technique_id": null, "technique_name": "Debugger Evasion", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "ntsetinformationthread": [
+    {"technique_id": "T1622", "sub_technique_id": null, "technique_name": "Debugger Evasion", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "winhttpopen": [
+    {"technique_id": "T1071", "sub_technique_id": "001", "technique_name": "Web Protocols", "tactic": "Command and Control", "confidence": "High"}
+  ],
+  "openprocess": [
+    {"technique_id": "T1055", "sub_technique_id": null, "technique_name": "Process Injection", "tactic": "Defense Evasion", "confidence": "Medium"}
+  ],
+  "openprocesstoken": [
+    {"technique_id": "T1134", "sub_technique_id": "001", "technique_name": "Token Impersonation/Theft", "tactic": "Privilege Escalation", "confidence": "High"}
+  ],
+  "outputdebugstring": [
+    {"technique_id": "T1622", "sub_technique_id": null, "technique_name": "Debugger Evasion", "tactic": "Defense Evasion", "confidence": "Low"}
+  ],
+  "outputdebugstringa": [
+    {"technique_id": "T1622", "sub_technique_id": null, "technique_name": "Debugger Evasion", "tactic": "Defense Evasion", "confidence": "Low"}
+  ],
+  "outputdebugstringw": [
+    {"technique_id": "T1622", "sub_technique_id": null, "technique_name": "Debugger Evasion", "tactic": "Defense Evasion", "confidence": "Low"}
+  ],
+  "debugbreak": [
+    {"technique_id": "T1622", "sub_technique_id": null, "technique_name": "Debugger Evasion", "tactic": "Defense Evasion", "confidence": "Medium"}
+  ],
+  "createtoolhelp32snapshot": [
+    {"technique_id": "T1057", "sub_technique_id": null, "technique_name": "Process Discovery", "tactic": "Discovery", "confidence": "Medium"}
+  ],
+  "socket": [
+    {"technique_id": "T1071", "sub_technique_id": null, "technique_name": "Application Layer Protocol", "tactic": "Command and Control", "confidence": "Low"}
+  ],
+  "connect": [
+    {"technique_id": "T1071", "sub_technique_id": "001", "technique_name": "Web Protocols", "tactic": "Command and Control", "confidence": "Low"}
+  ],
+  "cryptacquirecontext": [
+    {"technique_id": "T1486", "sub_technique_id": null, "technique_name": "Data Encrypted for Impact", "tactic": "Impact", "confidence": "Medium"}
+  ],
+  "deletefile": [
+    {"technique_id": "T1070", "sub_technique_id": null, "technique_name": "Indicator Removal", "tactic": "Defense Evasion", "confidence": "Medium"}
+  ],
+  "movefile": [
+    {"technique_id": "T1070", "sub_technique_id": null, "technique_name": "Indicator Removal", "tactic": "Defense Evasion", "confidence": "Low"}
+  ],
+  "copyfile": [
+    {"technique_id": "T1005", "sub_technique_id": null, "technique_name": "Data from Local System", "tactic": "Collection", "confidence": "Low"}
   ]
 }

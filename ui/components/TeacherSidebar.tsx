@@ -155,7 +155,7 @@ function MitreFocusContent({ item }: { item: Extract<TeacherFocusItem, { type: "
           <p style={{ margin: "0 0 5px", fontSize: "var(--font-size-xs)", fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
             What it does
           </p>
-          <p style={{ margin: 0, fontSize: "var(--font-size-xs)", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+          <p className="selectable" style={{ margin: 0, fontSize: "var(--font-size-xs)", color: "var(--text-secondary)", lineHeight: 1.6 }}>
             {techDescription}
           </p>
         </div>
@@ -223,46 +223,44 @@ function MitreFocusContent({ item }: { item: Extract<TeacherFocusItem, { type: "
         </div>
       )}
 
-      {/* Divider + Simple explanation */}
-      {simpleExplanation && (
-        <>
-          <div
+      {/* Divider + Simple explanation — always shown; falls back when no entry exists */}
+      <>
+        <div
+          style={{
+            margin: "14px 0 10px",
+            paddingTop: 14,
+            borderTop: "1px solid var(--border-subtle)",
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+          }}
+        >
+          <GraduationCap size={11} style={{ color: "var(--text-muted)" }} />
+          <span
             style={{
-              margin: "14px 0 10px",
-              paddingTop: 14,
-              borderTop: "1px solid var(--border-subtle)",
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
+              fontSize: 10,
+              color: "var(--text-muted)",
+              fontWeight: 600,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
             }}
           >
-            <GraduationCap size={11} style={{ color: "var(--text-muted)" }} />
-            <span
-              style={{
-                fontSize: 10,
-                color: "var(--text-muted)",
-                fontWeight: 600,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-              }}
-            >
-              Simple explanation
-            </span>
-          </div>
-          <div
-            style={{
-              background: "rgba(99,102,241,0.06)",
-              border: "1px solid rgba(99,102,241,0.2)",
-              borderRadius: "var(--radius)",
-              padding: "12px 14px",
-            }}
-          >
-            <p style={{ margin: 0, fontSize: "var(--font-size-xs)", color: "var(--text-primary)", lineHeight: 1.7 }}>
-              {simpleExplanation}
-            </p>
-          </div>
-        </>
-      )}
+            Simple explanation
+          </span>
+        </div>
+        <div
+          style={{
+            background: "rgba(99,102,241,0.06)",
+            border: "1px solid rgba(99,102,241,0.2)",
+            borderRadius: "var(--radius)",
+            padding: "12px 14px",
+          }}
+        >
+          <p className="selectable" style={{ margin: 0, fontSize: "var(--font-size-xs)", color: simpleExplanation ? "var(--text-primary)" : "var(--text-muted)", lineHeight: 1.7, fontStyle: simpleExplanation ? "normal" : "italic" }}>
+            {simpleExplanation ?? "No simplified explanation available for this technique yet."}
+          </p>
+        </div>
+      </>
     </div>
   );
 }

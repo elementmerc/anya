@@ -85,6 +85,15 @@
       ]
     },
     {
+      "id": "T1543",
+      "name": "Create or Modify System Process",
+      "tactic": "Persistence",
+      "description": "Adversaries may create or modify system-level processes to repeatedly execute malicious payloads as part of persistence. When operating systems boot up, they can start processes that perform background system functions. On Windows and Linux, these system processes are referred to as services. Adversaries may install a new service or modify an existing service to execute at startup in order to persist on a system.",
+      "subtechniques": [
+        { "id": "T1543.003", "name": "Windows Service", "description": "Adversaries may create or modify Windows services to repeatedly execute malicious payloads as part of persistence. When Windows boots up, it starts programs or applications called services that perform background system functions. Adversaries may install a new service or modify an existing service by using system utilities to interact with services, by directly modifying the Registry, or by using custom tools to interact with the Windows API." }
+      ]
+    },
+    {
       "id": "T1547",
       "name": "Boot or Logon Autostart Execution",
       "tactic": "Persistence",
@@ -134,6 +143,13 @@
       "subtechniques": [
         { "id": "T1548.002", "name": "Bypass User Account Control", "description": "Adversaries may bypass UAC mechanisms to elevate process privileges on system. Windows User Account Control (UAC) allows a program to elevate its privileges to perform a task under administrator-level permissions." }
       ]
+    },
+    {
+      "id": "T1115",
+      "name": "Clipboard Data",
+      "tactic": "Collection",
+      "description": "Adversaries may collect data stored in the clipboard from users copying information within or between applications. For example, on Windows adversaries can access clipboard data by using clip.exe or Get-Clipboard. Additionally, adversaries may monitor then replace items copied to the clipboard to conduct Adversary-in-the-Middle attacks, such as replacing copied cryptocurrency wallet addresses with the attacker's own wallet address.",
+      "subtechniques": []
     },
     {
       "id": "T1056",
