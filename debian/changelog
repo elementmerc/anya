@@ -1,3 +1,10 @@
+anya (1.0.0-1) stable; urgency=medium
+
+  * Release v1.0.0.
+  * First stable release.
+
+ -- Daniel Iwugo <daniel@themalwarefiles.com>  Sat, 14 Mar 2026 00:00:00 +0000
+
 anya (0.3.2-1) unstable; urgency=medium
 
   * New upstream release 0.3.2.

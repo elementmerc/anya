@@ -2,6 +2,46 @@
 
 All notable changes to Anya will be documented in this file.
 
+## [1.0.0] - 2026-03-14
+
+### Analysis engine
+- PE static analysis with 40+ suspicious API detections across 7 categories
+- ELF support with GOT/PLT inspection and capability detection
+- MITRE ATT&CK mapping on all detections with local JSON lookup
+- Confidence scoring (low/medium/high/critical) on all findings
+- Packer detection: UPX, ASPack, Themida, VMProtect, MPRESS
+- Compiler/language detection: MSVC, GCC/MinGW, Delphi, .NET, Go, Rust, PyInstaller
+- Entropy analysis with per-section breakdown, overlay detection, Rich header parsing
+- TLS callback detection, import-by-ordinal detection
+- Section permissions with W+X flagging
+- Imphash calculation and PE checksum validation
+
+### GUI (Tauri v2 + React)
+- Drag-and-drop binary analysis with tab-based results
+- Seven tabs: Overview, Entropy, Imports, Sections, Strings, Security, MITRE
+- Interactive MITRE ATT&CK tab with technique cards grouped by tactic
+- Teacher Mode — contextual lesson sidebar for learning while analysing
+- Bible verse status bar (optional, toggled in Settings)
+- Splash screen with animated logo
+- Dark/light theme toggle with persistence
+- JSON export and click-to-copy hashes
+- Local SQLite history — no data leaves the device
+
+### CLI
+- Single-file and batch directory analysis (`--file`, `--directory --recursive`)
+- JSON and plain-text output with `--output` and `--append` support
+- `verse` subcommand — random NLT Bible verse
+- `--guided` flag — inline Teacher Mode lessons
+- TOML configuration via `--init-config` / `--config`
+
+### Distribution
+- One-liner install script (`curl | bash`) for Linux, macOS, Windows/WSL
+- GitHub Actions CI/CD — test, lint, audit, build, release
+- Debian packaging (`debian/` directory, man page)
+- Tauri bundles: `.AppImage`, `.deb` (Linux), `.dmg` (macOS), `.msi` (Windows)
+- Docker support with multi-stage build (distroless runtime, <50 MB image)
+- `docker-compose.yml` with single-file and batch-scan service definitions
+
 ## [0.3.2] - 2026-03-14
 
 ### Added
