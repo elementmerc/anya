@@ -68,6 +68,7 @@ export default function SettingsModal({
 
       {/* Panel */}
       <div
+        data-testid="settings-panel"
         className="relative w-[520px] max-w-[95vw] rounded-xl shadow-2xl overflow-hidden"
         style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}
       >
@@ -250,6 +251,7 @@ export default function SettingsModal({
                     <button
                       role="switch"
                       aria-checked={teacherEnabled}
+                      data-testid="teacher-mode-toggle"
                       onClick={() => setTeacherEnabled(!teacherEnabled)}
                       style={{
                         width: 36,

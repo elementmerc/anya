@@ -382,6 +382,7 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate }: Prop
                   return (
                     <button
                       key={`${id}-${t.source_indicator}`}
+                      data-testid="mitre-badge"
                       onClick={() => onMitreNavigate?.(id)}
                       title={`${t.technique_name} (${t.tactic}) — via ${t.source_indicator} · Click to view in MITRE tab`}
                       style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: "var(--font-size-xs)", padding: "3px 8px", borderRadius: 5, background: "rgba(99,102,241,0.1)", color: "rgb(129,140,248)", border: "1px solid rgba(99,102,241,0.25)", fontFamily: "var(--font-mono)", fontWeight: 600, transition: "background 150ms ease-out", cursor: onMitreNavigate ? "pointer" : "default" }}

@@ -232,6 +232,7 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
                             )}
                             {isSusp && mitreTech && (
                               <button
+                                data-testid="mitre-badge"
                                 title={`MITRE ATT&CK ${mitreTech.id} — click to view in MITRE tab`}
                                 onClick={(e) => {
                                   e.stopPropagation();

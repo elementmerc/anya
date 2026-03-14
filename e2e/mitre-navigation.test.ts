@@ -15,30 +15,33 @@ describe("MITRE ATT&CK tab", () => {
     await browser.pause(1000);
   });
 
+  it("app loads and shows the drop zone", async () => {
+    const dropZone = await $('[role="region"][aria-label="Drop zone"]');
+    await expect(dropZone).toBeDisplayed();
+  });
+
   it("MITRE tab button is present in the tab bar", async () => {
-    // Tab buttons contain the text "MITRE ATT&CK" or similar
-    const tabs = await $$('[role="tab"], button');
-    const mitreTab = await Promise.all(
-      tabs.map(async (el) => ({ el, text: await el.getText() }))
-    ).then((items) => items.find(({ text }) => /mitre/i.test(text)));
-    expect(mitreTab).toBeDefined();
+    const tabs = await $$('[role="tab"]');
+    const texts = await Promise.all(tabs.map((el) => el.getText()));
+    const hasMitre = texts.some((t) => /mitre/i.test(t));
+    expect(hasMitre).toBe(true);
   });
 
   it("clicking the MITRE tab navigates to the MITRE view", async () => {
-    const tabs = await $$('[role="tab"], button');
-    const mitreTabItem = await Promise.all(
+    const tabs = await $$('[role="tab"]');
+    const withText = await Promise.all(
       tabs.map(async (el) => ({ el, text: await el.getText() }))
-    ).then((items) => items.find(({ text }) => /mitre/i.test(text)));
+    );
+    const mitreTab = withText.find(({ text }) => /mitre/i.test(text));
 
-    if (mitreTabItem) {
-      await mitreTabItem.el.click();
+    if (mitreTab) {
+      await mitreTab.el.click();
       await browser.pause(300);
     }
 
     const body = await $("body");
     const text = await body.getText();
-    // Either shows "No MITRE ATT&CK techniques detected" (no file loaded)
-    // or shows technique cards when a file has been analysed
+    // Either shows empty-state or technique cards (T#### pattern)
     const hasEmptyState = /No MITRE ATT&CK techniques detected/i.test(text);
     const hasTechniqueContent = /T\d{4}/i.test(text);
     expect(hasEmptyState || hasTechniqueContent).toBe(true);
@@ -50,8 +53,9 @@ describe("MITRE ATT&CK tab", () => {
     if (/No MITRE ATT&CK techniques detected/i.test(text)) {
       expect(text).toMatch(/No MITRE ATT&CK techniques detected/i);
     } else {
-      // A file is already loaded — skip this assertion
-      console.log("Skipping empty-state check: file already loaded");
+      // A file is already loaded — the MITRE tab may have technique cards
+      const cards = await $$('[data-testid="technique-card"]');
+      expect(cards.length).toBeGreaterThan(0);
     }
   });
 
@@ -63,25 +67,51 @@ describe("MITRE ATT&CK tab", () => {
       return;
     }
 
-    // Drop zone accepts file paths via keyboard or drag; for automation we
-    // send the path through the app's CLI-compatible IPC if available, or
-    // use a workaround with the file input element.
-    const dropZone = await $('[data-testid="drop-zone"]');
-    if (await dropZone.isExisting()) {
-      // Simulate a file drop by injecting a DataTransfer via JS
-      await browser.execute((filePath: string) => {
-        const el = document.querySelector('[data-testid="drop-zone"]');
-        if (!el) return;
-        const dt = new DataTransfer();
-        const file = new File([""], filePath.split("/").pop() ?? "test.exe");
-        dt.items.add(file);
-        el.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true }));
-      }, FIXTURE_PE);
-      await browser.pause(3000);
+    // Navigate to MITRE tab
+    const tabs = await $$('[role="tab"]');
+    const withText = await Promise.all(
+      tabs.map(async (el) => ({ el, text: await el.getText() }))
+    );
+    const mitreTab = withText.find(({ text }) => /mitre/i.test(text));
+    if (mitreTab) await mitreTab.el.click();
+
+    await browser.pause(500);
+
+    const cards = await $$('[data-testid="technique-card"]');
+    expect(cards.length).toBeGreaterThan(0);
+  });
+
+  it("MITRE badges on overview tab navigate to MITRE tab when clicked", async function () {
+    if (!FIXTURE_PE) {
+      console.log("Skipping: set E2E_FIXTURE_PE to a PE path to run this test");
+      return;
     }
 
-    const body = await $("body");
-    const text = await body.getText();
-    expect(text).toMatch(/T\d{4}/);
+    // Go to Overview tab
+    const tabs = await $$('[role="tab"]');
+    const withText = await Promise.all(
+      tabs.map(async (el) => ({ el, text: await el.getText() }))
+    );
+    const overviewTab = withText.find(({ text }) => /overview/i.test(text));
+    if (overviewTab) await overviewTab.el.click();
+    await browser.pause(300);
+
+    const badges = await $$('[data-testid="mitre-badge"]');
+    if (badges.length === 0) {
+      console.log("Skipping: no MITRE badges on overview (no MITRE hits in fixture)");
+      return;
+    }
+
+    const badgeText = await badges[0].getText();
+    await badges[0].click();
+    await browser.pause(400);
+
+    // Should now be on MITRE tab — look for a technique card
+    const card = await $('[data-testid="technique-card"]');
+    await expect(card).toBeDisplayed();
+
+    // The badge text (e.g. "T1055") should appear somewhere in the card
+    const cardText = await card.getText();
+    expect(cardText).toContain(badgeText.split(".")[0]);
   });
 });

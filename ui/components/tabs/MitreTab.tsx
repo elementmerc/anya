@@ -175,6 +175,7 @@ function TechniqueCard({
   return (
     <div
       ref={ref}
+      data-testid="technique-card"
       onClick={onClick}
       style={{
         background: "var(--bg-surface)",

@@ -19,11 +19,13 @@ function GhostButton({
   onClick,
   disabled,
   title,
+  "data-testid": dataTestId,
   children,
 }: {
   onClick?: () => void;
   disabled?: boolean;
   title?: string;
+  "data-testid"?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -31,6 +33,7 @@ function GhostButton({
       onClick={onClick}
       disabled={disabled}
       title={title}
+      data-testid={dataTestId}
       style={{
         height: 32,
         padding: "0 10px",
@@ -183,7 +186,7 @@ export default function TopBar({
           <span className="hidden sm:inline">{exporting ? "Exporting…" : "Export"}</span>
         </GhostButton>
 
-        <GhostButton onClick={onSettings} title="Settings">
+        <GhostButton onClick={onSettings} title="Settings" data-testid="settings-button">
           <Settings size={15} />
         </GhostButton>
 

@@ -13,7 +13,7 @@ describe("Teacher Mode sidebar", () => {
   });
 
   async function openSettings() {
-    const btn = await $('[aria-label="Open settings"]');
+    const btn = await $('[data-testid="settings-button"]');
     await btn.click();
     const modal = await $('[role="dialog"][aria-label="Settings"]');
     await modal.waitForDisplayed({ timeout: 3000 });
@@ -25,78 +25,88 @@ describe("Teacher Mode sidebar", () => {
     await closeBtn.click();
   }
 
+  async function getTeacherToggle() {
+    return $('[data-testid="teacher-mode-toggle"]');
+  }
+
   async function enableTeacherMode() {
     await openSettings();
-    const switches = await $$('[role="switch"]');
-    // Teacher Mode is the first switch in the Learning section
-    const teacherSwitch = switches[0];
-    const isOn = (await teacherSwitch.getAttribute("aria-checked")) === "true";
-    if (!isOn) {
-      await teacherSwitch.click();
-    }
+    const toggle = await getTeacherToggle();
+    const isOn = (await toggle.getAttribute("aria-checked")) === "true";
+    if (!isOn) await toggle.click();
     await closeSettings();
+    await browser.pause(350); // allow sidebar transition
   }
 
   async function disableTeacherMode() {
     await openSettings();
-    const switches = await $$('[role="switch"]');
-    const teacherSwitch = switches[0];
-    const isOn = (await teacherSwitch.getAttribute("aria-checked")) === "true";
-    if (isOn) {
-      await teacherSwitch.click();
-    }
+    const toggle = await getTeacherToggle();
+    const isOn = (await toggle.getAttribute("aria-checked")) === "true";
+    if (isOn) await toggle.click();
     await closeSettings();
+    await browser.pause(350);
   }
 
-  it("Teacher Mode toggle changes aria-checked in Settings modal", async () => {
+  it("Settings modal opens when the settings button is clicked", async () => {
+    const panel = await (await openSettings()).$('[data-testid="settings-panel"]');
+    await expect(panel).toBeDisplayed();
+    await closeSettings();
+  });
+
+  it("Teacher Mode toggle changes aria-checked", async () => {
     await openSettings();
-    const switches = await $$('[role="switch"]');
-    const teacherSwitch = switches[0];
-    const before = await teacherSwitch.getAttribute("aria-checked");
-    await teacherSwitch.click();
-    const after = await teacherSwitch.getAttribute("aria-checked");
+    const toggle = await getTeacherToggle();
+    const before = await toggle.getAttribute("aria-checked");
+    await toggle.click();
+    const after = await toggle.getAttribute("aria-checked");
     expect(after).not.toBe(before);
-    // Restore
-    await teacherSwitch.click();
+    // Restore original state
+    await toggle.click();
     await closeSettings();
   });
 
   it("sidebar panel becomes visible when Teacher Mode is enabled", async () => {
     await enableTeacherMode();
-    await browser.pause(400); // allow transition
-    // The sidebar has a heading with text "Teacher Mode"
-    const headings = await $$("span");
-    const teacherHeading = await Promise.all(
-      headings.map(async (el) => ({ el, text: await el.getText() }))
-    ).then((items) => items.find(({ text }) => text === "Teacher Mode"));
-    expect(teacherHeading).toBeDefined();
+    const sidebar = await $('[data-testid="teacher-sidebar"]');
+    await expect(sidebar).toBeDisplayed();
+    // The sidebar's inner content should be wider than 0 (transition complete)
+    const width = await browser.execute(
+      (el: Element) => (el as HTMLElement).getBoundingClientRect().width,
+      sidebar
+    );
+    expect(width).toBeGreaterThan(0);
   });
 
-  it("sidebar shows empty-state prompt when no item is focused", async () => {
-    // Ensure Teacher Mode is on
+  it("sidebar shows the empty-state prompt when no item is focused", async () => {
     await enableTeacherMode();
-    const body = await $("body");
-    const text = await body.getText();
+    const prompt = await $('[data-testid="sidebar-default-prompt"]');
+    await expect(prompt).toBeDisplayed();
+    const text = await prompt.getText();
     expect(text).toContain("Click or hover any flagged item");
   });
 
-  it("X button on sidebar disables Teacher Mode", async () => {
+  it("X button on the sidebar disables Teacher Mode", async () => {
     await enableTeacherMode();
-    await browser.pause(400);
     const disableBtn = await $('[title="Disable Teacher Mode"]');
     await disableBtn.waitForDisplayed({ timeout: 3000 });
     await disableBtn.click();
-    await browser.pause(400);
-    // After clicking X, verify teacher mode is off by checking Settings
-    await openSettings();
-    const switches = await $$('[role="switch"]');
-    const isOn = (await switches[0].getAttribute("aria-checked")) === "true";
-    expect(isOn).toBe(false);
-    await closeSettings();
+    await browser.pause(350);
+
+    // Sidebar width collapses to 0
+    const sidebar = await $('[data-testid="teacher-sidebar"]');
+    const width = await browser.execute(
+      (el: Element) => (el as HTMLElement).getBoundingClientRect().width,
+      sidebar
+    );
+    expect(width).toBe(0);
   });
 
   after(async () => {
-    // Leave Teacher Mode off
-    await disableTeacherMode();
+    // Leave Teacher Mode off to avoid polluting other tests
+    try {
+      await disableTeacherMode();
+    } catch {
+      // ignore if settings can't be opened (e.g. modal already closed)
+    }
   });
 });

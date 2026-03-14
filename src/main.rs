@@ -18,7 +18,7 @@
 
 // Import necessary libraries
 use anya_security_core::{
-    BatchSummary, OutputLevel, calculate_file_entropy, calculate_hashes, config, data::verses,
+    BatchSummary, OutputLevel, calculate_file_entropy, calculate_hashes, config,
     elf_parser, extract_strings_data, is_executable_file, output, pe_parser,
 };
 use anyhow::{Context, Result}; // For better error handling
@@ -228,6 +228,7 @@ fn main() -> Result<()> {
 
     // Handle subcommands that don't need a file/directory argument
     if let Some(Commands::Verse) = args.command {
+        use anya_security_core::data::verses;
         let idx = verses::verse_index();
         let (text, reference) = verses::VERSES[idx];
         println!("{}", text.white().bold());

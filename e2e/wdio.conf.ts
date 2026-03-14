@@ -21,7 +21,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Resolved path to the built application binary.
 const APPLICATION_PATH = path.resolve(
   __dirname,
-  "../src-tauri/target/debug/anya"
+  "../src-tauri/target/debug/anya-gui"
 );
 
 let tauriDriver: ChildProcess;
@@ -31,6 +31,7 @@ export const config: WebdriverIO.Config = {
   runner: "local",
   specs: ["./e2e/**/*.test.ts"],
   maxInstances: 1,
+  bail: 0,
 
   // ── Capabilities ────────────────────────────────────────────────────────────
   capabilities: [

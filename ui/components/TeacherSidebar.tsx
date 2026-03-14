@@ -48,6 +48,7 @@ function getTechniqueDescription(techniqueId: string): string | null {
 function EmptyState() {
   return (
     <div
+      data-testid="sidebar-default-prompt"
       style={{
         flex: 1,
         display: "flex",
@@ -96,6 +97,7 @@ function MitreFocusContent({ item }: { item: Extract<TeacherFocusItem, { type: "
       {/* Technique ID + external link */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
         <span
+          data-testid="sidebar-technique-id"
           style={{
             fontSize: "var(--font-size-xs)",
             fontFamily: "var(--font-mono)",
@@ -324,6 +326,7 @@ export default function TeacherSidebar() {
 
   return (
     <div
+      data-testid="teacher-sidebar"
       style={{
         // Push layout: flex child that smoothly transitions between 0 and 280px.
         // `overflow: hidden` clips content during the transition so nothing leaks
