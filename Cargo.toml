@@ -4,8 +4,9 @@ resolver = "2"
 
 [package]
 name = "anya-security-core"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2024"
+rust-version = "1.85"
 authors = ["Daniel Iwugo <daniel@themalwarefiles.com>"]
 license = "AGPL-3.0-or-later"
 description = "Fast, comprehensive malware analysis platform built in Rust"

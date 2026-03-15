@@ -1,3 +1,14 @@
+anya (1.0.2-1) stable; urgency=medium
+
+  * Release v1.0.2.
+  * Added custom uninstaller wizard.
+  * Added native installer branding (NSIS, DMG, Linux).
+  * Added MSRV enforcement (Rust 1.85+).
+  * Added smoke tests across CI/CD workflows.
+  * Bug fixes and minor improvements.
+
+ -- Daniel Iwugo <daniel@themalwarefiles.com>  Sat, 15 Mar 2026 00:00:00 +0000
+
 anya (1.0.1-1) stable; urgency=medium
 
   * Release v1.0.1.

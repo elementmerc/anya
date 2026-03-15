@@ -2,6 +2,19 @@
 
 All notable changes to Anya will be documented in this file.
 
+## [1.0.2] - 2026-03-15
+
+### Added
+- **Custom uninstaller** — 4-step wizard via `--uninstall` flag with data removal options
+- **DLL and function explanations** in the Imports tab (40 DLLs, 112 APIs)
+- **Draggable Teacher Mode sidebar** — resizable up to 50% of window width
+- **Native installer branding** for Windows (NSIS header/sidebar), macOS (DMG background), and Linux
+- **Smoke tests** across all CI/CD workflows
+- **MSRV enforcement** — `rust-version = "1.85"` in Cargo.toml, version check in install.sh
+
+### Fixed
+- Bug fixes and minor improvements
+
 ## [1.0.1] - 2026-03-14
 
 ### Added

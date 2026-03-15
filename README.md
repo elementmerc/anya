@@ -11,7 +11,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE.TXT)
 [![crates.io](https://img.shields.io/crates/v/anya-security-core)](https://crates.io/crates/anya-security-core)
 
-<!-- <img src="docs/assets/demo.gif" alt="Anya GUI demo" width="720"> -->
+<img src="docs/demo.gif" alt="Anya GUI demo" width="720">
 
 </div>
 
@@ -55,7 +55,7 @@ docker run --rm \
 ### From source
 
 ```bash
-# CLI
+# CLI (requires Rust 1.85+)
 cargo install anya-security-core --locked
 
 # GUI (requires Node 22 + Tauri prerequisites)

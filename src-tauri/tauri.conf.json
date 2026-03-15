@@ -1,6 +1,6 @@
 {
   "productName": "Anya",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "identifier": "com.anya.app",
   "build": {
     "frontendDist": "../dist",
@@ -73,7 +73,11 @@
     },
     "linux": {
       "deb": {
-        "depends": [],
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libayatana-appindicator3-1"
+        ],
         "section": "utils",
         "priority": "optional"
       },

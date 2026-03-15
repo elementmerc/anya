@@ -12,6 +12,7 @@ Rules-Requires-Root: no
 Package: anya
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
+Suggests: libwebkit2gtk-4.1-0, libgtk-3-0
 Description: Fast static malware analysis tool
  Anya performs static analysis on binary files (PE, ELF) to identify
  suspicious characteristics without executing them. Analysis covers

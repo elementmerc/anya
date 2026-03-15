@@ -401,5 +401,5 @@ Benchmarked operations: hash calculation, entropy calculation, string extraction
 ---
 
 **Last updated:** 2026-03-15
-**Version:** 1.0.1
+**Version:** 1.0.2
 **Maintainer:** Daniel Iwugo — daniel@themalwarefiles.com
