@@ -71,11 +71,14 @@ export const config: WebdriverIO.Config = {
   path: "/",
 
   // ── TypeScript support ──────────────────────────────────────────────────────
+  // Use tsx for ESM-compatible TypeScript compilation (ts-node has ESM issues
+  // with "type": "module" in package.json).
   autoCompileOpts: {
     autoCompile: true,
     tsNodeOpts: {
       transpileOnly: true,
       project: path.resolve(__dirname, "../tsconfig.json"),
+      esm: true,
     },
   },
 };

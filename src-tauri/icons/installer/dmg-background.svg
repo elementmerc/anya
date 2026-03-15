@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="800" viewBox="0 0 1320 800">
+  <!-- Background -->
+  <rect width="1320" height="800" fill="#0d0d0f"/>
+
+  <!-- Subtle diagonal grid -->
+  <defs>
+    <pattern id="grid" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0L0 0 0 40" fill="none" stroke="#e8e5dc" stroke-width="0.5" opacity="0.055"/>
+    </pattern>
+  </defs>
+  <rect width="1320" height="800" fill="url(#grid)"/>
+
+  <!-- Coral top rule — full width, 3px -->
+  <line x1="0" y1="0" x2="1320" y2="0" stroke="#C8573A" stroke-width="6"/>
+
+  <!-- Large watermark "A" mark — centred, very low opacity -->
+  <g transform="translate(360, 150) scale(2.0)" opacity="0.045">
+    <line x1="50" y1="185" x2="100" y2="30" stroke="#e8e5dc" stroke-width="16" stroke-linecap="round"/>
+    <line x1="150" y1="185" x2="100" y2="30" stroke="#e8e5dc" stroke-width="16" stroke-linecap="round"/>
+    <line x1="67" y1="115" x2="133" y2="115" stroke="#C8573A" stroke-width="13" stroke-linecap="round"/>
+  </g>
+
+  <!-- ANYA wordmark — top left -->
+  <text
+    x="52"
+    y="70"
+    font-family="system-ui, -apple-system, sans-serif"
+    font-size="32"
+    font-weight="700"
+    fill="#e8e5dc"
+    letter-spacing="-1"
+    opacity="0.9"
+  >ANYA</text>
+
+  <!-- Version — below wordmark top left -->
+  <text
+    x="54"
+    y="94"
+    font-family="system-ui, -apple-system, sans-serif"
+    font-size="16"
+    fill="#2a2a2a"
+    letter-spacing="1"
+  >v1.0.1</text>
+
+  <!-- Coral rule under wordmark -->
+  <line x1="52" y1="106" x2="220" y2="106" stroke="#C8573A" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- Drop zone label — left column (app goes here at appPosition x:180 y:170) -->
+  <!-- Intentionally no text here — leave clean for the Finder .app icon -->
+
+  <!-- Divider between left (app) and right (Applications) columns -->
+  <line x1="660" y1="120" x2="660" y2="680" stroke="#e8e5dc" stroke-width="1" opacity="0.04"/>
+
+  <!-- Arrow hint between the two icon zones — centred on divider -->
+  <text
+    x="660"
+    y="420"
+    font-family="system-ui, -apple-system, sans-serif"
+    font-size="48"
+    fill="#e8e5dc"
+    text-anchor="middle"
+    opacity="0.06"
+  >→</text>
+
+
+</svg>

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="164" height="314" viewBox="0 0 164 314">
+  <!-- Background -->
+  <rect width="164" height="314" fill="#0d0d0f"/>
+
+  <!-- Subtle diagonal grid -->
+  <defs>
+    <pattern id="grid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0L0 0 0 20" fill="none" stroke="#e8e5dc" stroke-width="0.35" opacity="0.07"/>
+    </pattern>
+  </defs>
+  <rect width="164" height="314" fill="url(#grid)"/>
+
+  <!-- Coral top rule -->
+  <line x1="0" y1="0" x2="164" y2="0" stroke="#C8573A" stroke-width="2.5"/>
+
+  <!-- Anya "A" mark — centred horizontally, upper third vertically -->
+  <!-- Mark sits at roughly y=95 centre, scale to ~80px tall -->
+  <g transform="translate(32, 55) scale(0.5)">
+    <line x1="50" y1="185" x2="100" y2="30" stroke="#e8e5dc" stroke-width="16" stroke-linecap="round"/>
+    <line x1="150" y1="185" x2="100" y2="30" stroke="#e8e5dc" stroke-width="16" stroke-linecap="round"/>
+    <line x1="67" y1="115" x2="133" y2="115" stroke="#C8573A" stroke-width="13" stroke-linecap="round"/>
+  </g>
+
+  <!-- ANYA wordmark below mark -->
+  <text
+    x="82"
+    y="168"
+    font-family="system-ui, -apple-system, sans-serif"
+    font-size="16"
+    font-weight="700"
+    fill="#e8e5dc"
+    text-anchor="middle"
+    letter-spacing="3"
+  >ANYA</text>
+
+  <!-- Version -->
+  <text
+    x="82"
+    y="184"
+    font-family="system-ui, -apple-system, sans-serif"
+    font-size="8"
+    fill="#2a2a2a"
+    text-anchor="middle"
+    letter-spacing="1"
+  >v1.0.1</text>
+
+  <!-- Coral rule below wordmark -->
+  <line x1="44" y1="194" x2="120" y2="194" stroke="#C8573A" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+
+
+</svg>

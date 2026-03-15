@@ -15,8 +15,6 @@ export function Installer({ onComplete }: InstallerProps) {
   const [teacherMode, setTeacherMode] = useState(false);
   const [progPct, setProgPct] = useState(0);
   const [progMsg, setProgMsg] = useState("Starting\u2026");
-  const [addDesktop, setAddDesktop] = useState(true);
-  const [openNow, setOpenNow] = useState(true);
 
   useEffect(() => {
     invoke<string>("get_default_install_path")
@@ -80,14 +78,7 @@ export function Installer({ onComplete }: InstallerProps) {
   }
 
   function handleLaunch() {
-    // "Add to desktop" is a no-op — Tauri's installer handles shortcuts.
-    // Wire to a shell command in a future iteration if needed.
-    void addDesktop;
-    if (openNow) {
-      onComplete({ darkTheme, teacherMode, installPath });
-    } else {
-      onComplete({ darkTheme, teacherMode, installPath });
-    }
+    onComplete({ darkTheme, teacherMode, installPath });
   }
 
   return (
@@ -224,18 +215,7 @@ export function Installer({ onComplete }: InstallerProps) {
               </svg>
             </div>
             <h3 className="done-title" style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 600 }}>Anya is ready</h3>
-            <p className="done-sub" style={{ margin: "0 0 20px", fontSize: 12 }}>Fast, offline malware analysis.</p>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", maxWidth: 280, marginBottom: 20 }}>
-              <label className="done-opt" onClick={() => setAddDesktop(!addDesktop)}>
-                <input type="checkbox" className="done-opt-check" checked={addDesktop} readOnly />
-                <span className="done-opt-text" style={{ fontSize: 12 }}>Add to desktop</span>
-              </label>
-              <label className="done-opt" onClick={() => setOpenNow(!openNow)}>
-                <input type="checkbox" className="done-opt-check" checked={openNow} readOnly />
-                <span className="done-opt-text" style={{ fontSize: 12 }}>Open Anya now</span>
-              </label>
-            </div>
+            <p className="done-sub" style={{ margin: "0 0 24px", fontSize: 12 }}>Fast, offline malware analysis.</p>
 
             <button
               onClick={handleLaunch}
