@@ -49,7 +49,11 @@ anya/
 │   │   ├── TopBar.tsx          # Header with file info and controls
 │   │   ├── BibleVerseBar.tsx   # 36 px status bar — rotating NLT verse (10-min cycle)
 │   │   ├── SettingsModal.tsx   # Settings panel (theme, font size, DB path, Teacher Mode, Bible Verses)
-│   │   ├── TeacherSidebar.tsx  # Contextual lesson sidebar (Teacher Mode)
+│   │   ├── TeacherSidebar.tsx  # Contextual lesson sidebar (Teacher Mode, draggable width)
+│   │   ├── SplashScreen.tsx    # Animated splash overlay (theme-aware)
+│   │   ├── Installer.tsx       # 5-step first-run setup wizard
+│   │   ├── Installer.css       # Installer + uninstaller theme-aware styles
+│   │   ├── Uninstaller.tsx     # 4-step uninstall cleanup wizard
 │   │   └── tabs/
 │   │       ├── OverviewTab.tsx
 │   │       ├── SectionsTab.tsx
@@ -63,9 +67,15 @@ anya/
 │   │   ├── useTheme.ts         # Theme persistence
 │   │   ├── useFontSize.ts      # Font size persistence
 │   │   └── useTeacherMode.ts   # Teacher Mode context + focus/blur helpers
+│   ├── data/
+│   │   ├── mitre_attack.json           # MITRE ATT&CK techniques
+│   │   ├── technique_explanations.json # Simple explanations for Teacher Mode
+│   │   ├── dll_explanations.json       # One-line DLL descriptions (40 entries)
+│   │   └── function_explanations.json  # Suspicious API explanations (112 entries)
 │   └── lib/
 │       ├── db.ts               # SQLite access via plugin-sql
 │       ├── risk.ts             # Risk score calculation
+│       ├── apiDescriptions.ts  # API description lookup (imports from function_explanations.json)
 │       ├── tauri-bridge.ts     # Typed wrappers around invoke()
 │       └── utils.ts            # Shared helpers
 ├── debian/                     # Debian/Kali packaging
@@ -390,6 +400,6 @@ Benchmarked operations: hash calculation, entropy calculation, string extraction
 
 ---
 
-**Last updated:** 2026-03-14
+**Last updated:** 2026-03-15
 **Version:** 1.0.1
 **Maintainer:** Daniel Iwugo — daniel@themalwarefiles.com

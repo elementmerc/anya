@@ -2,6 +2,7 @@ import React, { Suspense, useState, lazy, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { SplashScreen } from "@/components/SplashScreen";
 import { Installer } from "@/components/Installer";
+import { Uninstaller } from "@/components/Uninstaller";
 import { useAnalysis } from "@/hooks/useAnalysis";
 import { useTheme } from "@/hooks/useTheme";
 import { useFontSize } from "@/hooks/useFontSize";
@@ -55,14 +56,22 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabName>("overview");
   const [showSettings, setShowSettings] = useState(false);
 
-  // ── First-run detection ─────────────────────────────────────────────────────
+  // ── Launch mode + first-run detection ────────────────────────────────────────
+  const [launchMode, setLaunchMode] = useState<"normal" | "uninstall" | null>(null);
   const [firstRun, setFirstRun] = useState<boolean | null>(null);
 
   useEffect(() => {
+    invoke<string>("get_launch_mode")
+      .then((mode) => setLaunchMode(mode as "normal" | "uninstall"))
+      .catch(() => setLaunchMode("normal"));
+  }, []);
+
+  useEffect(() => {
+    if (launchMode !== "normal") return;
     invoke<boolean>("is_first_run")
       .then(setFirstRun)
       .catch(() => setFirstRun(false));
-  }, []);
+  }, [launchMode]);
 
   const handleInstallerComplete = useCallback(
     (prefs: { darkTheme: boolean; teacherMode: boolean; installPath: string }) => {
@@ -182,7 +191,9 @@ export default function App() {
     ? result.file_info.path.split(/[\\/]/).pop() ?? ""
     : "";
 
-  // First-run check: show nothing briefly while checking, then installer or app
+  // Launch mode / first-run gates
+  if (launchMode === null) return null;
+  if (launchMode === "uninstall") return <Uninstaller />;
   if (firstRun === null) return null;
   if (firstRun) return <Installer onComplete={handleInstallerComplete} />;
 

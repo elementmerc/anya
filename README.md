@@ -58,7 +58,7 @@ docker run --rm \
 # CLI
 cargo install anya-security-core --locked
 
-# GUI (requires Node 20 + Tauri prerequisites)
+# GUI (requires Node 22 + Tauri prerequisites)
 npm ci && npm run tauri build
 ```
 
@@ -98,7 +98,7 @@ Launch Anya, drag a file onto the drop zone. Seven tabs:
 |---|---|
 | Overview | Risk score, file metadata, SHA-256 |
 | Entropy | Full entropy chart + per-section breakdown |
-| Imports | Suspicious API table grouped by category |
+| Imports | DLL tree with expandable function lists and inline explanations |
 | Sections | W+X detection, per-section entropy, characteristics |
 | Strings | Extracted ASCII strings |
 | Security | ASLR, DEP, version info, signed status |
@@ -131,6 +131,16 @@ Analysis history is stored in a local SQLite database. Nothing leaves your devic
 - [Security scope & limitations](SECURITY.md)
 - [Privacy policy](PRIVACY.md)
 - [Commercial licensing](COMMERCIAL_LICENSE.md)
+
+---
+
+## Uninstalling
+
+- **Windows**: Use Add/Remove Programs — the uninstaller launches automatically.
+- **Linux**: `sudo apt remove anya` — the uninstaller runs during removal.
+- **macOS**: Drag Anya.app to the Trash, then optionally run:
+  `~/Applications/Anya.app/Contents/MacOS/anya-gui --uninstall`
+  to remove your analysis database and preferences.
 
 ---
 

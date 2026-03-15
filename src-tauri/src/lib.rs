@@ -81,6 +81,24 @@ pub fn compute_risk_score(result: &anya_security_core::output::AnalysisResult) -
     score.clamp(0, 100)
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+fn calculate_dir_size(path: &std::path::Path) -> std::io::Result<u64> {
+    let mut size = 0;
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let metadata = entry.metadata()?;
+            if metadata.is_file() {
+                size += metadata.len();
+            } else if metadata.is_dir() {
+                size += calculate_dir_size(&entry.path()).unwrap_or(0);
+            }
+        }
+    }
+    Ok(size)
+}
+
 // ─── Commands (separate module to avoid __cmd__ macro namespace collision) ────
 
 pub mod commands {
@@ -296,6 +314,57 @@ pub mod commands {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| "~/.local/share/anya".to_string())
     }
+
+    // ── Uninstaller commands ──────────────────────────────────────────────────
+
+    /// Check whether the app was launched with `--uninstall` or `-u`.
+    #[tauri::command]
+    pub fn get_launch_mode() -> String {
+        let args: Vec<String> = std::env::args().collect();
+        if args.iter().any(|a| a == "--uninstall" || a == "-u") {
+            "uninstall".to_string()
+        } else {
+            "normal".to_string()
+        }
+    }
+
+    /// Return info about user data directories and their sizes.
+    #[tauri::command]
+    pub async fn get_uninstall_info(app: tauri::AppHandle) -> serde_json::Value {
+        let config_dir = app.path().app_config_dir().unwrap_or_default();
+        let data_dir = app.path().app_data_dir().unwrap_or_default();
+        let db_size = super::calculate_dir_size(&data_dir).unwrap_or(0);
+
+        serde_json::json!({
+            "config_dir": config_dir.to_string_lossy(),
+            "data_dir": data_dir.to_string_lossy(),
+            "db_size_mb": db_size / 1_048_576,
+        })
+    }
+
+    /// Remove user data directories based on user selection.
+    /// The app binary itself is removed by the OS installer (msi/deb/dmg).
+    #[tauri::command]
+    pub async fn perform_uninstall(
+        app: tauri::AppHandle,
+        remove_database: bool,
+        remove_config: bool,
+    ) -> Result<(), String> {
+        let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+        let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+
+        if remove_database && data_dir.exists() {
+            std::fs::remove_dir_all(&data_dir)
+                .map_err(|e| format!("Failed to remove database: {e}"))?;
+        }
+
+        if remove_config && config_dir.exists() {
+            std::fs::remove_dir_all(&config_dir)
+                .map_err(|e| format!("Failed to remove config: {e}"))?;
+        }
+
+        Ok(())
+    }
 }
 
 // ─── App entry point ─────────────────────────────────────────────────────────
@@ -323,6 +392,9 @@ pub fn run() {
             commands::is_first_run,
             commands::complete_setup,
             commands::get_default_install_path,
+            commands::get_launch_mode,
+            commands::get_uninstall_info,
+            commands::perform_uninstall,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Anya");

@@ -172,3 +172,47 @@
 .dot.active { transform: scale(1.5); }
 .installer.light .dot:not(.done):not(.active) { background: rgba(0,0,0,0.15); }
 .installer.dark  .dot:not(.done):not(.active) { background: rgba(255,255,255,0.15); }
+
+/* ── Uninstaller additions ───────────────────────────────────── */
+
+/* Danger panel variant */
+.installer .inst-panel.danger {
+  border-color: rgba(226, 75, 74, 0.35);
+  background: rgba(226, 75, 74, 0.05);
+}
+
+/* Red progress fill for uninstaller */
+.prog-fill-red {
+  height: 100%; background: #E24B4A; border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+/* Disabled checkbox row */
+.check-row.disabled {
+  opacity: 0.45; cursor: default; pointer-events: none;
+}
+
+/* Warning box */
+.warn-box {
+  border-radius: 7px; padding: 10px 12px;
+  display: flex; align-items: flex-start; gap: 8px; margin-top: 10px;
+}
+.installer.dark .warn-box {
+  background: rgba(226, 75, 74, 0.08);
+  border: 0.5px solid rgba(226, 75, 74, 0.25);
+}
+.installer.light .warn-box {
+  background: rgba(226, 75, 74, 0.06);
+  border: 0.5px solid rgba(226, 75, 74, 0.2);
+}
+.warn-icon { color: #E24B4A; font-size: 13px; flex-shrink: 0; }
+.warn-text { font-size: 11px; color: #E24B4A; line-height: 1.5; }
+
+/* Done X icon */
+.done-icon-removed {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 6px;
+}
+.installer.dark .done-icon-removed { background: rgba(255,255,255,0.06); }
+.installer.light .done-icon-removed { background: rgba(0,0,0,0.06); }
