@@ -294,8 +294,12 @@ check_linux_gui_deps() {
   done
   if [ -n "$missing" ]; then
     warn "Missing GUI libraries:$missing"
-    # Detect package manager and give appropriate advice
-    if command -v apt-get >/dev/null 2>&1; then
+    # Check if WebKitGTK 4.1 is even available on this system
+    if command -v apt-cache >/dev/null 2>&1 && ! apt-cache show libwebkit2gtk-4.1-0 >/dev/null 2>&1; then
+      warn "Your system does not have WebKitGTK 4.1 available (requires Ubuntu 22.04+ / Debian 12+)."
+      info "Use the AppImage instead — it bundles all dependencies."
+      info "Download from: https://github.com/elementmerc/anya/releases"
+    elif command -v apt-get >/dev/null 2>&1; then
       info "Install with: sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0"
     elif command -v dnf >/dev/null 2>&1; then
       info "Install with: sudo dnf install webkit2gtk4.1 gtk3"
@@ -353,8 +357,20 @@ install_gui() {
       ;;
 
     linux)
-      # Prefer .deb on Debian/Ubuntu; fall back to AppImage
+      # Prefer .deb on Debian/Ubuntu 22.04+; fall back to AppImage for older systems.
+      # Tauri v2 requires WebKitGTK 4.1, which is only in Ubuntu 22.04+ / Debian 12+.
+      # Older distros (REMnux, older Kali/Parrot) only have 4.0 — the .deb won't work.
+      local _use_deb=false
       if command -v dpkg >/dev/null 2>&1; then
+        if command -v apt-cache >/dev/null 2>&1 && apt-cache show libwebkit2gtk-4.1-0 >/dev/null 2>&1; then
+          _use_deb=true
+        else
+          warn "libwebkit2gtk-4.1 not available in your repos (needs Ubuntu 22.04+ / Debian 12+)"
+          info "Using AppImage instead — it bundles all dependencies."
+        fi
+      fi
+
+      if [ "$_use_deb" = "true" ]; then
         ASSET="anya_${VERSION#v}_amd64.deb"
         DOWNLOAD_URL="https://github.com/elementmerc/anya/releases/download/${VERSION}/${ASSET}"
         TMP_DIR="$(mktemp -d)"

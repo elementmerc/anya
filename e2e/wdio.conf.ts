@@ -29,7 +29,7 @@ let tauriDriver: ChildProcess;
 export const config: WebdriverIO.Config = {
   // ── Runner ──────────────────────────────────────────────────────────────────
   runner: "local",
-  specs: ["./e2e/**/*.test.ts"],
+  specs: ["./**/*.test.ts"],
   maxInstances: 1,
   bail: 0,
 

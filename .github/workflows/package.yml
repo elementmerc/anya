@@ -1,8 +1,7 @@
 name: Package
 
 # Validates that standalone .deb and .rpm packaging works correctly.
-# Does NOT upload to the release — Tauri's bundler already produces
-# .deb and .rpm artifacts in the release workflow.
+# Does NOT upload to the release — Tauri's bundler handles that.
 
 on:
   push:
@@ -16,9 +15,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # ── Debian / Kali package ─────────────────────────────────────────────────
-  deb:
-    name: Validate .deb (amd64)
+  package:
+    name: Validate .deb + .rpm
     runs-on: ubuntu-22.04
 
     steps:
@@ -40,8 +38,13 @@ jobs:
       - name: Install packaging tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y debhelper devscripts dpkg-dev lintian
+          sudo apt-get install -y debhelper devscripts dpkg-dev lintian rpm
 
+      # ── Build the release binary once ──────────────────────────────────────
+      - name: Build release binary
+        run: cargo build --release --locked -p anya-security-core
+
+      # ── Debian package ─────────────────────────────────────────────────────
       - name: Stamp version into debian/changelog
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
@@ -63,33 +66,7 @@ jobs:
           anya --help
           anya --file tests/fixtures/simple.exe --json --no-color | head -5
 
-  # ── RPM (Fedora / RHEL) ───────────────────────────────────────────────────
-  rpm:
-    name: Validate .rpm (x86_64)
-    runs-on: ubuntu-22.04
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Install RPM build tools
-        run: sudo apt-get update && sudo apt-get install -y rpm
-
-      - name: Build release binary
-        run: cargo build --release --locked -p anya-security-core
-
+      # ── RPM package ────────────────────────────────────────────────────────
       - name: Build .rpm
         run: |
           VERSION="${GITHUB_REF_NAME#v}"

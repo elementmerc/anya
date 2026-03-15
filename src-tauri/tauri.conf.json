@@ -82,7 +82,7 @@
         "priority": "optional"
       },
       "appimage": {
-        "bundleMediaFramework": false
+        "bundleMediaFramework": true
       }
     },
     "category": "Utility"

@@ -16,9 +16,9 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # ── Rust: lint + test + coverage (single job) ──────────────────────────────
+  # ── Rust: audit + lint + test + smoke + coverage ───────────────────────────
   rust:
-    name: Rust (lint + test + coverage)
+    name: Rust (audit + lint + test + coverage)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +27,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+
+      - name: Security audit
+        uses: actions-rust-lang/audit@v1
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -49,7 +52,6 @@ jobs:
 
       - name: Smoke test binary
         run: |
-          cargo build -p anya-security-core
           ./target/debug/anya --version
           ./target/debug/anya --help
           ./target/debug/anya --file tests/fixtures/simple.exe --json --no-color | jq .file_format
@@ -67,15 +69,6 @@ jobs:
         with:
           files: coverage/cobertura.xml
           fail_ci_if_error: false
-
-  # ── Rust: security audit ───────────────────────────────────────────────────
-  security-audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/audit@v1
-        name: Audit Rust dependencies
 
   # ── Frontend: tsc + build + Vitest (single job) ────────────────────────────
   frontend:
