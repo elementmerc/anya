@@ -17,8 +17,8 @@ structure parsing, import table analysis, MITRE ATT&CK technique
 mapping, and more.
 
 %install
-mkdir -p %{buildroot}%{_bindir}
-install -m 755 %{_topdir}/../anya %{buildroot}%{_bindir}/anya
+mkdir -p %{buildroot}/usr/bin
+install -m 755 %{_topdir}/../target/release/anya %{buildroot}/usr/bin/anya
 
 %files
-%{_bindir}/anya
+/usr/bin/anya

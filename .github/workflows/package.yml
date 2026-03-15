@@ -89,19 +89,26 @@ jobs:
       - name: Install RPM build tools
         run: sudo apt-get update && sudo apt-get install -y rpm
 
-      - name: Install cargo-rpm
-        run: cargo install cargo-rpm --locked
-
       - name: Build release binary
         run: cargo build --release --locked -p anya-security-core
 
       - name: Build .rpm
-        run: cargo rpm build
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+
+          # Generate spec from template
+          sed "s/@@VERSION@@/${VERSION}/" .rpm/anya-security-core.spec > rpmbuild/SPECS/anya.spec
+
+          rpmbuild -bb \
+            --define "_topdir $(pwd)/rpmbuild" \
+            --define "_bindir /usr/bin" \
+            rpmbuild/SPECS/anya.spec
 
       - name: Collect artifacts
         run: |
           mkdir dist
-          find target/release/rpmbuild/RPMS -name "*.rpm" -exec mv {} dist/ \;
+          find rpmbuild/RPMS -name "*.rpm" -exec mv {} dist/ \;
 
       - name: Upload .rpm to release
         uses: softprops/action-gh-release@v2
