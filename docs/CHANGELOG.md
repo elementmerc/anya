@@ -8,11 +8,25 @@ All notable changes to Anya will be documented in this file.
 - **Custom uninstaller** — 4-step wizard via `--uninstall` flag with data removal options
 - **DLL and function explanations** in the Imports tab (40 DLLs, 112 APIs)
 - **Draggable Teacher Mode sidebar** — resizable up to 50% of window width
-- **Native installer branding** for Windows (NSIS header/sidebar), macOS (DMG background), and Linux
-- **Smoke tests** across all CI/CD workflows
-- **MSRV enforcement** — `rust-version = "1.85"` in Cargo.toml, version check in install.sh
+- **Native installer branding** — NSIS header/sidebar (Windows), DMG background (macOS), deb/appimage config (Linux)
+- **Installer hardening** — dependency checks, disk space check, FUSE check, macOS Gatekeeper hint, WSL detection, post-install binary verification
+- **Tauri bundler config** — publisher, copyright, homepage metadata; `.deb` runtime deps (`libwebkit2gtk-4.1-0`, `libgtk-3-0`)
+- **Smoke tests** across CI, release, and package workflows
+- **MSRV enforcement** — `rust-version = "1.85"` in Cargo.toml, Rust version check in install.sh
+- **RPM packaging** — spec file with direct `rpmbuild` (replaced `cargo-rpm`)
+- **`debian/postrm`** — post-remove script for uninstall cleanup
+- **Integration tests** expanded to 105 cases (edge cases, determinism, flag combinations)
+
+### Changed
+- **CI consolidated** from 7 jobs to 4 (rust, frontend, e2e, security-audit)
+- **Icon colour** updated from amber (#EF9F27) to coral (#D85A30) across splash screen and branding
+- **Docs consolidated** into `docs/` folder to reduce root clutter on GitHub
+- **Package workflow** changed to validate-only (Tauri bundler handles release uploads)
 
 ### Fixed
+- **`.deb` missing runtime dependencies** — GUI failed to start on Kali, REMnux, Parrot, and other analyst distros
+- **Debian compat conflict** — removed `debian/compat` (compat level set via `debhelper-compat` in Build-Depends)
+- **Yanked dependencies** — updated `wasm-bindgen` and `js-sys` to non-yanked versions
 - Bug fixes and minor improvements
 
 ## [1.0.1] - 2026-03-14

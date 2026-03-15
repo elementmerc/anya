@@ -1,10 +1,13 @@
 anya (1.0.2-1) stable; urgency=medium
 
   * Release v1.0.2.
-  * Added custom uninstaller wizard.
+  * Added custom uninstaller wizard (--uninstall flag).
+  * Added DLL and function explanations in Imports tab.
   * Added native installer branding (NSIS, DMG, Linux).
+  * Added installer hardening (dependency checks, FUSE, Gatekeeper hints).
   * Added MSRV enforcement (Rust 1.85+).
-  * Added smoke tests across CI/CD workflows.
+  * Fixed .deb missing runtime dependencies (libwebkit2gtk-4.1-0).
+  * CI consolidated from 7 jobs to 4.
   * Bug fixes and minor improvements.
 
  -- Daniel Iwugo <daniel@themalwarefiles.com>  Sat, 15 Mar 2026 00:00:00 +0000
