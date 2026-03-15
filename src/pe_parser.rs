@@ -1312,7 +1312,7 @@ fn validate_checksum(data: &[u8], pe: &PE) -> output::ChecksumInfo {
         i += 2;
     }
     // Handle odd-length file
-    if !len.is_multiple_of(2) && i < len {
+    if len % 2 != 0 && i < len {
         let word = data[i] as u32;
         sum = sum.wrapping_add(word);
         sum = (sum & 0xFFFF) + (sum >> 16);
