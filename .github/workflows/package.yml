@@ -58,6 +58,13 @@ jobs:
           mkdir dist
           mv ../anya_*.deb dist/
 
+      - name: Smoke test .deb
+        run: |
+          sudo dpkg -i dist/*.deb
+          anya --version
+          anya --help
+          anya --file tests/fixtures/simple.exe --json --no-color | head -5
+
       - name: Upload .deb to release
         uses: softprops/action-gh-release@v2
         with:
@@ -109,6 +116,11 @@ jobs:
         run: |
           mkdir dist
           find rpmbuild/RPMS -name "*.rpm" -exec mv {} dist/ \;
+
+      - name: Smoke test .rpm
+        run: |
+          rpm -qlp dist/*.rpm | grep -q '/usr/bin/anya'
+          rpm -qip dist/*.rpm | grep -q 'Version'
 
       - name: Upload .rpm to release
         uses: softprops/action-gh-release@v2

@@ -47,6 +47,13 @@ jobs:
       - name: Run tests
         run: cargo test -p anya-security-core --verbose
 
+      - name: Smoke test binary
+        run: |
+          cargo build -p anya-security-core
+          ./target/debug/anya --version
+          ./target/debug/anya --help
+          ./target/debug/anya --file tests/fixtures/simple.exe --json --no-color | jq .file_format
+
       - name: Install cargo-tarpaulin
         run: |
           curl -fsSL https://github.com/xd009642/tarpaulin/releases/latest/download/cargo-tarpaulin-x86_64-unknown-linux-musl.tar.gz \

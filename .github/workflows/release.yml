@@ -134,6 +134,11 @@ jobs:
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
 
+      - name: Smoke test Docker image
+        run: |
+          docker run --rm ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }} --version
+          docker run --rm ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }} --help
+
   # ── Publish CLI crate to crates.io ───────────────────────────────────────────
   # Requires CARGO_REGISTRY_TOKEN secret to be set in repo settings
   # Run `cargo publish --dry-run` locally first to verify
