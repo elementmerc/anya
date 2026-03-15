@@ -125,12 +125,12 @@ Analysis history is stored in a local SQLite database. Nothing leaves your devic
 
 ## Docs
 
-- [Architecture](ARCHITECTURE.md)
-- [JSON output schema](JSON_SCHEMA.md)
-- [CHANGELOG](CHANGELOG.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [JSON output schema](docs/JSON_SCHEMA.md)
+- [CHANGELOG](docs/CHANGELOG.md)
 - [Security scope & limitations](SECURITY.md)
-- [Privacy policy](PRIVACY.md)
-- [Commercial licensing](COMMERCIAL_LICENSE.md)
+- [Privacy policy](docs/PRIVACY.md)
+- [Commercial licensing](docs/COMMERCIAL_LICENSE.md)
 
 ---
 

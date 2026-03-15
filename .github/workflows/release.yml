@@ -91,7 +91,7 @@ jobs:
             docker run --rm -v /path/to/samples:/samples ${{ secrets.DOCKER_HUB_USER }}/anya:${{ github.ref_name }} /samples/file.exe
             ```
 
-            See [CHANGELOG](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md) for full details.
+            See [CHANGELOG](https://github.com/${{ github.repository }}/blob/master/docs/CHANGELOG.md) for full details.
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}
