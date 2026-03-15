@@ -84,14 +84,17 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-rpm-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Install RPM build tools
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
       - name: Install cargo-rpm
         run: cargo install cargo-rpm --locked
 
       - name: Build release binary
-        run: cargo build --release --locked
+        run: cargo build --release --locked -p anya-security-core
 
       - name: Build .rpm
-        run: cargo rpm build
+        run: cargo rpm build -p anya-security-core
 
       - name: Collect artifacts
         run: |
