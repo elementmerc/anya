@@ -10,6 +10,8 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 vi.mock("../../ui/lib/tauri-bridge", () => ({
   getSettings: vi.fn().mockResolvedValue({ db_path: "/tmp/anya.db", theme: "dark" }),
+  getThresholds: vi.fn().mockResolvedValue({ suspicious_entropy: 5.0, packed_entropy: 7.0, suspicious_score: 40, malicious_score: 70 }),
+  saveThresholds: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../ui/lib/db", () => ({
