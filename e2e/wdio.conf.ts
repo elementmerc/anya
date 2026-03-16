@@ -54,14 +54,18 @@ export const config: WebdriverIO.Config = {
   reporters: ["spec"],
 
   // ── Tauri driver lifecycle ─────────────────────────────────────────────────
-  beforeSession: () => {
-    // Start tauri-driver before the WebdriverIO session so it can spawn the app.
+  // onPrepare runs once before all workers — start tauri-driver here so only
+  // one instance binds to port 4444.
+  onPrepare: () => {
     tauriDriver = spawn("tauri-driver", [], {
       stdio: [null, process.stdout, process.stderr],
     });
+
+    // Give tauri-driver time to bind to port 4444 before workers connect
+    return new Promise<void>((resolve) => setTimeout(resolve, 2000));
   },
 
-  afterSession: () => {
+  onComplete: () => {
     tauriDriver?.kill();
   },
 

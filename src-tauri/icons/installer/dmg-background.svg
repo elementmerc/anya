@@ -40,7 +40,7 @@
     font-size="16"
     fill="#2a2a2a"
     letter-spacing="1"
-  >v1.0.2</text>
+  >v1.0.1</text>
 
   <!-- Coral rule under wordmark -->
   <line x1="52" y1="106" x2="220" y2="106" stroke="#C8573A" stroke-width="2" stroke-linecap="round" opacity="0.7"/>

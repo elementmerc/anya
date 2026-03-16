@@ -20,7 +20,7 @@
   <!-- Wordmark — right-aligned -->
   <text
     x="143"
-    y="27"
+    y="31"
     font-family="system-ui, -apple-system, sans-serif"
     font-size="18"
     font-weight="700"
@@ -30,17 +30,7 @@
   >ANYA</text>
 
   <!-- Coral rule under wordmark -->
-  <line x1="72" y1="35" x2="143" y2="35" stroke="#C8573A" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="72" y1="40" x2="143" y2="40" stroke="#C8573A" stroke-width="1.5" stroke-linecap="round"/>
 
-  <!-- Tagline -->
-  <text
-    x="143"
-    y="47"
-    font-family="system-ui, -apple-system, sans-serif"
-    font-size="6.5"
-    fill="#e8e5dc"
-    text-anchor="end"
-    letter-spacing="1.8"
-    opacity="0.35"
-  >MALWARE ANALYSIS</text>
+
 </svg>

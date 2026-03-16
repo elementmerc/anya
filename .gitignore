@@ -88,3 +88,5 @@ debian/anya.substvars
 # (covered by scripts/ above, but listed explicitly as a safety net)
 scripts/test_assets/
 prompts.txt
+
+anya_env/
