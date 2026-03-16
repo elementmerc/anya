@@ -20,11 +20,13 @@
 
 use crate::OutputLevel;
 use crate::output;
-use anyhow::Result;
+use aho_corasick::AhoCorasick;
+use anyhow::{Context, Result};
 use colored::*;
 use goblin::pe::PE;
 use indicatif::{ProgressBar, ProgressStyle};
 use md5::{Digest, Md5};
+use std::collections::HashSet;
 
 /// Tier 1 — genuinely suspicious APIs with very limited legitimate use.
 /// These are strongly associated with malicious behaviour (process injection, hiding,
@@ -149,7 +151,9 @@ pub fn analyse_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
         None
     };
 
-    let pe = PE::parse(data)?;
+    let pe = PE::parse(data).context(
+        "This file has a PE signature but the header appears corrupt or truncated. It may have been modified or damaged.",
+    )?;
 
     if let Some(pb) = pb {
         pb.finish_and_clear();
@@ -181,8 +185,9 @@ pub fn analyse_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
     let tls = detect_tls_callbacks(data, &pe);
     let checksum = validate_checksum(data, &pe);
     let overlay = detect_overlay(data, &pe);
-    let compiler = detect_compiler(&pe, data, &rich_header);
-    let packers = detect_packer(&pe, data);
+    let sigs = scan_signatures(data);
+    let compiler = detect_compiler(&pe, &sigs, &rich_header);
+    let packers = detect_packer(&pe, data, &sigs);
     let anti_analysis = detect_anti_analysis(&pe);
     let authenticode = check_authenticode(data, &pe);
     let version_info = extract_version_info(&pe, data);
@@ -230,7 +235,9 @@ pub fn analyse_pe(data: &[u8], output_level: OutputLevel) -> Result<()> {
 ///
 /// Returns structured PEAnalysis data or an error
 pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
-    let pe = PE::parse(data)?;
+    let pe = PE::parse(data).context(
+        "This file has a PE signature but the header appears corrupt or truncated. It may have been modified or damaged.",
+    )?;
 
     // Architecture
     let architecture = if pe.is_64 {
@@ -296,6 +303,7 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
                 is_suspicious: entropy > 7.5,
                 is_wx: writable && executable,
                 name_anomaly: None, // Populated below after section collection
+                confidence: None,
             }
         })
         .collect();
@@ -308,7 +316,22 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
             suspicious_apis.push(output::SuspiciousAPI {
                 name: name.to_string(),
                 category: categorize_api(name).to_string(),
+                confidence: None, // assigned below
             });
+        }
+    }
+
+    // Assign confidence to each suspicious API based on combination rules
+    {
+        let all_names: Vec<String> = suspicious_apis.iter().map(|a| a.name.clone()).collect();
+        let all_cats: Vec<String> = suspicious_apis.iter().map(|a| a.category.clone()).collect();
+        let name_refs: Vec<&str> = all_names.iter().map(|s| s.as_str()).collect();
+        for (i, api) in suspicious_apis.iter_mut().enumerate() {
+            api.confidence = Some(crate::confidence::assign_api_confidence(
+                &all_names[i],
+                &name_refs,
+                &all_cats[i],
+            ));
         }
     }
 
@@ -366,16 +389,17 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
     let tls = detect_tls_callbacks(data, &pe);
     let ordinal_imports = collect_ordinal_imports(&pe);
 
-    // Phase 2 heuristics
-    let compiler = Some(detect_compiler(&pe, data, &rich_header));
-    let packers = detect_packer(&pe, data);
+    // Phase 2 heuristics — single Aho-Corasick pass for all byte signatures
+    let sigs = scan_signatures(data);
+    let compiler = Some(detect_compiler(&pe, &sigs, &rich_header));
+    let packers = detect_packer(&pe, data, &sigs);
     let anti_analysis = detect_anti_analysis(&pe);
 
     // Trust signals
     let authenticode = Some(check_authenticode(data, &pe));
     let version_info = extract_version_info(&pe, data);
 
-    // New v1.0.2 features
+    // New v1.1.0 features
     let debug_artifacts = Some(extract_debug_artifacts(data, &pe, &version_info));
     let weak_crypto = detect_weak_crypto(data);
     let compiler_deps = compiler
@@ -1319,6 +1343,7 @@ fn validate_checksum(data: &[u8], pe: &PE) -> output::ChecksumInfo {
             computed: 0,
             valid: false,
             stored_nonzero: false,
+            confidence: None,
         };
     }
 
@@ -1360,6 +1385,7 @@ fn validate_checksum(data: &[u8], pe: &PE) -> output::ChecksumInfo {
         computed,
         valid: stored == computed,
         stored_nonzero: true,
+        confidence: None,
     }
 }
 
@@ -1423,6 +1449,7 @@ fn detect_overlay(data: &[u8], pe: &PE) -> Option<output::OverlayInfo> {
         high_entropy: entropy > 6.8,
         overlay_mime_type: overlay_mime,
         overlay_characterisation: overlay_char,
+        confidence: None,
     })
 }
 
@@ -1606,15 +1633,55 @@ fn detect_tls_callbacks(data: &[u8], pe: &PE) -> Option<output::TlsInfo> {
 
 // ─── Phase 2: Heuristic detection ────────────────────────────────────────────
 
-/// Scan a byte slice for a sub-slice needle.
-fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack.windows(needle.len()).any(|w| w == needle)
+// Scan a byte slice for a sub-slice needle.
+// ── Aho-Corasick single-pass signature scanner ──────────────────────────────
+// Instead of ~11 separate full-file scans, we scan once with all patterns.
+
+// Pattern indices — keep in sync with SIGNATURE_PATTERNS below.
+const SIG_UPX0: usize = 0;
+const SIG_UPX1: usize = 1;
+const SIG_UPX_BANG: usize = 2;
+const SIG_ASPACK: usize = 3;
+const SIG_THEMIDA: usize = 4;
+const SIG_VMPROTECT: usize = 5;
+const SIG_GO_BUILDID: usize = 6;
+const SIG_RUST_UNWIND: usize = 7;
+const SIG_RUST_UNWIND2: usize = 8;
+const SIG_MEIPASS2: usize = 9;
+const SIG_PYINSTALLER: usize = 10;
+const SIG_EMBARCADERO: usize = 11;
+const SIG_BORLAND: usize = 12;
+const SIG_GCC: usize = 13;
+
+const SIGNATURE_PATTERNS: &[&[u8]] = &[
+    b"UPX0",                // 0
+    b"UPX1",                // 1
+    b"UPX!",                // 2
+    b"ASPack",              // 3
+    b"Themida",             // 4
+    b"VMProtect",           // 5
+    b"go.buildid",          // 6
+    b"__rust_begin_unwind", // 7
+    b"rust_begin_unwind",   // 8
+    b"_MEIPASS2",           // 9
+    b"PyInstaller",         // 10
+    b"Embarcadero",         // 11
+    b"Borland",             // 12
+    b"GCC: (",              // 13
+];
+
+/// Scan file data once and return the set of matched pattern indices.
+fn scan_signatures(data: &[u8]) -> HashSet<usize> {
+    let ac = AhoCorasick::new(SIGNATURE_PATTERNS).expect("valid patterns");
+    ac.find_overlapping_iter(data)
+        .map(|m| m.pattern().as_usize())
+        .collect()
 }
 
 /// Detect the compiler or language used to build the PE.
 fn detect_compiler(
     pe: &PE,
-    data: &[u8],
+    sigs: &HashSet<usize>,
     rich: &Option<output::RichHeaderInfo>,
 ) -> output::CompilerInfo {
     // 1. .NET: CLR data directory (index 14) non-zero AND mscoree.dll in imports
@@ -1635,7 +1702,7 @@ fn detect_compiler(
     }
 
     // 2. Go
-    if bytes_contain(data, b"go.buildid")
+    if sigs.contains(&SIG_GO_BUILDID)
         || pe
             .sections
             .iter()
@@ -1648,7 +1715,7 @@ fn detect_compiler(
     }
 
     // 3. Rust
-    if bytes_contain(data, b"__rust_begin_unwind") || bytes_contain(data, b"rust_begin_unwind") {
+    if sigs.contains(&SIG_RUST_UNWIND) || sigs.contains(&SIG_RUST_UNWIND2) {
         return output::CompilerInfo {
             name: "Rust".to_string(),
             confidence: "High".to_string(),
@@ -1656,7 +1723,7 @@ fn detect_compiler(
     }
 
     // 4. PyInstaller
-    if bytes_contain(data, b"_MEIPASS2") || bytes_contain(data, b"PyInstaller") {
+    if sigs.contains(&SIG_MEIPASS2) || sigs.contains(&SIG_PYINSTALLER) {
         return output::CompilerInfo {
             name: "PyInstaller (Python)".to_string(),
             confidence: "High".to_string(),
@@ -1668,7 +1735,7 @@ fn detect_compiler(
         .libraries
         .iter()
         .any(|lib| lib.to_lowercase().starts_with("rtl") && lib.to_lowercase().ends_with(".bpl"));
-    if has_delphi_lib || bytes_contain(data, b"Embarcadero") || bytes_contain(data, b"Borland") {
+    if has_delphi_lib || sigs.contains(&SIG_EMBARCADERO) || sigs.contains(&SIG_BORLAND) {
         return output::CompilerInfo {
             name: "Delphi".to_string(),
             confidence: "Medium".to_string(),
@@ -1707,7 +1774,7 @@ fn detect_compiler(
         let l = lib.to_lowercase();
         l.starts_with("libgcc") || l.starts_with("libstdc++") || l.starts_with("libwinpthread")
     });
-    if has_gcc_lib || bytes_contain(data, b"GCC: (") {
+    if has_gcc_lib || sigs.contains(&SIG_GCC) {
         return output::CompilerInfo {
             name: "GCC/MinGW".to_string(),
             confidence: "Medium".to_string(),
@@ -1722,7 +1789,7 @@ fn detect_compiler(
 }
 
 /// Detect packers and protectors via string signatures, section names, and entropy heuristics.
-fn detect_packer(pe: &PE, data: &[u8]) -> Vec<output::PackerFinding> {
+fn detect_packer(pe: &PE, data: &[u8], sigs: &HashSet<usize>) -> Vec<output::PackerFinding> {
     let mut findings = Vec::new();
 
     // Section name helper
@@ -1737,9 +1804,9 @@ fn detect_packer(pe: &PE, data: &[u8]) -> Vec<output::PackerFinding> {
         .collect();
 
     // String / section-name signature checks
-    if bytes_contain(data, b"UPX0")
-        || bytes_contain(data, b"UPX1")
-        || bytes_contain(data, b"UPX!")
+    if sigs.contains(&SIG_UPX0)
+        || sigs.contains(&SIG_UPX1)
+        || sigs.contains(&SIG_UPX_BANG)
         || section_names.iter().any(|n| n == "upx0" || n == "upx1")
     {
         findings.push(output::PackerFinding {
@@ -1749,11 +1816,11 @@ fn detect_packer(pe: &PE, data: &[u8]) -> Vec<output::PackerFinding> {
         });
     }
 
-    if bytes_contain(data, b"ASPack") || section_names.iter().any(|n| n == ".aspack") {
+    if sigs.contains(&SIG_ASPACK) || section_names.iter().any(|n| n == ".aspack") {
         findings.push(output::PackerFinding {
             name: "ASPack".to_string(),
             confidence: "High".to_string(),
-            detection_method: if bytes_contain(data, b"ASPack") {
+            detection_method: if sigs.contains(&SIG_ASPACK) {
                 "String".to_string()
             } else {
                 "SectionName".to_string()
@@ -1761,32 +1828,28 @@ fn detect_packer(pe: &PE, data: &[u8]) -> Vec<output::PackerFinding> {
         });
     }
 
-    if bytes_contain(data, b"Themida") || section_names.iter().any(|n| n == ".themida") {
+    if sigs.contains(&SIG_THEMIDA) || section_names.iter().any(|n| n == ".themida") {
         findings.push(output::PackerFinding {
             name: "Themida".to_string(),
             confidence: "High".to_string(),
-            detection_method: if bytes_contain(data, b"Themida") {
+            detection_method: if sigs.contains(&SIG_THEMIDA) {
                 "String".to_string()
             } else {
                 "SectionName".to_string()
             },
         });
-        // TODO: advanced packer detection — integrate YARA rules for Themida/WinLicense
     }
 
-    if bytes_contain(data, b"VMProtect")
-        || section_names.iter().any(|n| n == ".vmp0" || n == ".vmp1")
-    {
+    if sigs.contains(&SIG_VMPROTECT) || section_names.iter().any(|n| n == ".vmp0" || n == ".vmp1") {
         findings.push(output::PackerFinding {
             name: "VMProtect".to_string(),
             confidence: "High".to_string(),
-            detection_method: if bytes_contain(data, b"VMProtect") {
+            detection_method: if sigs.contains(&SIG_VMPROTECT) {
                 "String".to_string()
             } else {
                 "SectionName".to_string()
             },
         });
-        // TODO: advanced packer detection — integrate YARA rules for VMProtect
     }
 
     if section_names
@@ -2308,7 +2371,7 @@ fn calculate_entropy(data: &[u8]) -> f64 {
     entropy
 }
 
-// ─── New v1.0.2 analysis functions ───────────────────────────────────────────
+// ─── New v1.1.0 analysis functions ───────────────────────────────────────────
 
 /// Classify a section name as "Normal", "Elevated", or "Suspicious"
 fn classify_section_name(name: &str, entropy: f64) -> String {
@@ -2397,7 +2460,7 @@ fn extract_debug_artifacts(
     }
 }
 
-/// Detect weak cryptography constants in binary data
+/// Detect weak cryptography constants in binary data (single pass)
 fn detect_weak_crypto(data: &[u8]) -> Vec<output::WeakCryptoIndicator> {
     let mut indicators = Vec::new();
 
@@ -2406,26 +2469,38 @@ fn detect_weak_crypto(data: &[u8]) -> Vec<output::WeakCryptoIndicator> {
         0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32,
         0x10,
     ];
-    if let Some(pos) = data.windows(16).position(|w| w == md5_init) {
-        indicators.push(output::WeakCryptoIndicator {
-            name: "MD5 init constants".to_string(),
-            evidence: "MD5 initialisation vector found — may implement custom MD5 hashing"
-                .to_string(),
-            offset: Some(format!("0x{:06X}", pos)),
-        });
-    }
 
     // AES S-box first 16 bytes
     let aes_sbox: [u8; 16] = [
         0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab,
         0x76,
     ];
-    if let Some(pos) = data.windows(16).position(|w| w == aes_sbox) {
-        indicators.push(output::WeakCryptoIndicator {
-            name: "AES S-box constants".to_string(),
-            evidence: "AES substitution box found — custom AES implementation".to_string(),
-            offset: Some(format!("0x{:06X}", pos)),
-        });
+
+    let mut found_md5 = false;
+    let mut found_aes = false;
+
+    // Single pass checking both patterns per window position
+    for (pos, window) in data.windows(16).enumerate() {
+        if !found_md5 && window == md5_init {
+            indicators.push(output::WeakCryptoIndicator {
+                name: "MD5 init constants".to_string(),
+                evidence: "MD5 initialisation vector found — may implement custom MD5 hashing"
+                    .to_string(),
+                offset: Some(format!("0x{:06X}", pos)),
+            });
+            found_md5 = true;
+        }
+        if !found_aes && window == aes_sbox {
+            indicators.push(output::WeakCryptoIndicator {
+                name: "AES S-box constants".to_string(),
+                evidence: "AES substitution box found — custom AES implementation".to_string(),
+                offset: Some(format!("0x{:06X}", pos)),
+            });
+            found_aes = true;
+        }
+        if found_md5 && found_aes {
+            break;
+        }
     }
 
     indicators

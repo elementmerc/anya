@@ -7,7 +7,7 @@
 use crate::OutputLevel;
 use crate::output;
 use crate::pe_parser::is_suspicious_api;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use colored::*;
 use goblin::elf::Elf;
 
@@ -188,6 +188,7 @@ fn analyse_elf_imports(elf: &Elf) -> output::ElfImportAnalysis {
                 suspicious_functions.push(output::SuspiciousAPI {
                     name: name.to_string(),
                     category: "Suspicious Linux Function".to_string(),
+                    confidence: None,
                 });
             }
         }
@@ -239,7 +240,9 @@ fn detect_elf_packers(elf: &Elf, data: &[u8]) -> Vec<output::PackerFinding> {
 
 /// Parse an ELF binary and return structured analysis data.
 pub fn analyse_elf_data(data: &[u8]) -> Result<output::ELFAnalysis> {
-    let elf = Elf::parse(data)?;
+    let elf = Elf::parse(data).context(
+        "This file has an ELF signature but the header appears corrupt or truncated. It may have been modified or damaged.",
+    )?;
 
     let architecture = elf_machine_to_str(elf.header.e_machine).to_string();
     let is_64bit = elf.is_64;

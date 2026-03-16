@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Search } from "lucide-react";
-import type { AnalysisResult, StringType } from "@/types/analysis";
+import type { AnalysisResult } from "@/types/analysis";
+type StringType = "url" | "ip" | "path" | "registry" | "suspicious" | "default";
 
 interface Props {
   result: AnalysisResult;
@@ -42,9 +43,6 @@ const CATEGORY_STYLE: Record<string, { bg: string; color: string; label: string 
   Crypto:   { bg: "rgba(168,85,247,0.12)", color: "#a855f7", label: "Crypto" },
   Plain:    { bg: "transparent", color: "transparent", label: "" },
 };
-
-const ALL_TYPES: StringType[] = ["url", "ip", "path", "registry", "suspicious"];
-const EXTRA_CATEGORIES = ["Base64", "Crypto", "Command"] as const;
 
 const ROW_HEIGHT = 32;
 
@@ -188,14 +186,13 @@ function VirtualList({ items, expandedIdx, onExpand }: {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function StringsTab({ result }: Props) {
   const [search, setSearch] = useState("");
-  const [activeTypes, setActiveTypes] = useState<Set<StringType>>(new Set());
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [minLength, setMinLength] = useState(4);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   const rawStrings: string[] = result.strings?.samples ?? [];
 
   const backendClassified = result.strings?.classified;
-  const [extraFilter, setExtraFilter] = useState<Set<string>>(new Set());
 
   const classified = useMemo<StringRow[]>(() => {
     // If backend provides classified strings, use those
@@ -220,25 +217,26 @@ export default function StringsTab({ result }: Props) {
     }));
   }, [rawStrings, backendClassified]);
 
+  const iocCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const row of classified) {
+      const cat = row.category ?? "Plain";
+      if (cat !== "Plain" && cat !== "default") {
+        counts[cat] = (counts[cat] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }, [classified]);
+
   const filtered = useMemo<StringRow[]>(() => {
     const lSearch = search.toLowerCase();
     return classified.filter((row) => {
       if (row.value.length < minLength) return false;
-      if (activeTypes.size > 0 && !activeTypes.has(row.type)) return false;
-      // Extra category filter (Base64, Crypto, Command)
-      if (extraFilter.size > 0 && (!row.category || !extraFilter.has(row.category))) return false;
+      if (activeCategory && (row.category ?? "Plain") !== activeCategory) return false;
       if (lSearch && !row.value.toLowerCase().includes(lSearch)) return false;
       return true;
     });
-  }, [classified, search, minLength, activeTypes, extraFilter]);
-
-  function toggleType(t: StringType) {
-    setActiveTypes((prev) => {
-      const next = new Set(prev);
-      next.has(t) ? next.delete(t) : next.add(t);
-      return next;
-    });
-  }
+  }, [classified, search, minLength, activeCategory]);
 
   return (
     <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -291,74 +289,36 @@ export default function StringsTab({ result }: Props) {
             </label>
           </div>
 
-          {/* Type filter pills */}
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <button
-              onClick={() => setActiveTypes(new Set())}
-              style={{
-                height: 26,
-                padding: "0 10px",
-                fontSize: "var(--font-size-xs)",
-                fontWeight: 500,
-                borderRadius: 999,
-                border: "1px solid var(--border)",
-                background: activeTypes.size === 0 ? "var(--bg-elevated)" : "transparent",
-                color: activeTypes.size === 0 ? "var(--text-primary)" : "var(--text-muted)",
-                cursor: "pointer",
-                transition: "all 150ms ease-out",
-              }}
-            >
-              All
-            </button>
-            {ALL_TYPES.map((t) => {
-              const ts = TYPE_STYLE[t];
-              const active = activeTypes.has(t);
-              return (
-                <button
-                  key={t}
-                  onClick={() => toggleType(t)}
-                  style={{
-                    height: 26,
-                    padding: "0 10px",
-                    fontSize: "var(--font-size-xs)",
-                    fontWeight: 500,
-                    borderRadius: 999,
-                    border: `1px solid ${active ? ts.color + "66" : "var(--border)"}`,
-                    background: active ? ts.bg : "transparent",
-                    color: active ? ts.color : "var(--text-muted)",
-                    cursor: "pointer",
-                    transition: "all 150ms ease-out",
-                  }}
-                >
-                  {ts.label}
-                </button>
-              );
-            })}
-            {backendClassified && backendClassified.length > 0 && EXTRA_CATEGORIES.map((cat) => {
-              const cs = CATEGORY_STYLE[cat] ?? CATEGORY_STYLE.Plain;
-              const active = extraFilter.has(cat);
+          {/* IOC filter blocks */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+            {(["URL", "IP", "Path", "Registry", "Suspicious", "Base64", "Crypto", "Command"] as const).map((cat) => {
+              const count = iocCounts[cat] ?? 0;
+              const isActive = activeCategory === cat;
               return (
                 <button
                   key={cat}
-                  onClick={() => setExtraFilter((prev) => {
-                    const next = new Set(prev);
-                    next.has(cat) ? next.delete(cat) : next.add(cat);
-                    return next;
-                  })}
+                  onClick={() => setActiveCategory(isActive ? null : cat)}
                   style={{
-                    height: 26,
-                    padding: "0 10px",
-                    fontSize: "var(--font-size-xs)",
-                    fontWeight: 500,
-                    borderRadius: 999,
-                    border: `1px solid ${active ? cs.color + "66" : "var(--border)"}`,
-                    background: active ? cs.bg : "transparent",
-                    color: active ? cs.color : "var(--text-muted)",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "8px 4px",
+                    borderRadius: "var(--radius)",
+                    border: `1px solid ${isActive ? "var(--accent)" : count > 0 ? "var(--border)" : "var(--border-subtle)"}`,
+                    background: isActive ? "var(--bg-elevated)" : count > 0 ? "var(--bg-surface)" : "transparent",
+                    color: isActive ? "var(--text-primary)" : count > 0 ? "var(--text-secondary)" : "var(--text-muted)",
                     cursor: "pointer",
                     transition: "all 150ms ease-out",
+                    opacity: count === 0 && !isActive ? 0.5 : 1,
                   }}
                 >
-                  {cs.label}
+                  <span style={{ fontSize: "var(--font-size-lg)", fontWeight: 700, fontFamily: "var(--font-mono)" }}>
+                    {count}
+                  </span>
+                  <span style={{ fontSize: "var(--font-size-xs)", marginTop: 2 }}>
+                    {cat}
+                  </span>
                 </button>
               );
             })}
@@ -385,7 +345,7 @@ export default function StringsTab({ result }: Props) {
       {/* Virtual list fills remaining space */}
       {filtered.length === 0 ? (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <p style={{ color: "var(--text-muted)", fontSize: "var(--font-size-base)" }}>No strings match the current filter.</p>
+          <p style={{ color: "var(--text-muted)", fontSize: "var(--font-size-base)" }}>{activeCategory ? `No ${activeCategory} strings found` : "No strings match the current filter."}</p>
         </div>
       ) : (
         <VirtualList items={filtered} expandedIdx={expandedIdx} onExpand={setExpandedIdx} />
@@ -402,7 +362,7 @@ export default function StringsTab({ result }: Props) {
           background: "var(--bg-surface)",
         }}
       >
-        Showing {filtered.length} of {rawStrings.length} strings
+        Showing {filtered.length} of {classified.length} strings
       </div>
     </div>
   );

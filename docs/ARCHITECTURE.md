@@ -25,12 +25,18 @@ anya/
 │   ├── output.rs               # JSON-serialisable data structures
 │   ├── pe_parser.rs            # PE analysis logic
 │   ├── elf_parser.rs           # ELF analysis logic
+│   ├── ioc.rs                  # IOC regex detection (IPv4, URL, domain, etc.)
+│   ├── hash_check.rs           # Hash list lookup subcommand
+│   ├── yara.rs                 # YARA combine + from-strings subcommands
+│   ├── case.rs                 # Case management (YAML persistence)
+│   ├── confidence.rs           # Confidence scoring logic
 │   └── data/
 │       ├── mod.rs              # Data submodule exports
 │       ├── explanations.rs     # Human-readable finding descriptions
 │       ├── lessons.rs          # Teacher Mode lesson definitions + trigger logic
 │       ├── mitre_mappings.rs   # API → MITRE ATT&CK technique mappings
-│       └── verses.rs           # 30 NLT Bible verses (shared CLI + GUI pool)
+│       ├── verses.rs           # 30 NLT Bible verses (shared CLI + GUI pool)
+│       └── explanations_data.json # Explanation entries for --explain flag
 ├── src-tauri/                  # anya-gui (Tauri package)
 │   ├── src/
 │   │   ├── main.rs             # Tauri application entry point
@@ -160,6 +166,12 @@ enabled = false
 additional = []
 ignore = []
 custom_list = []
+
+[thresholds]
+suspicious_entropy = 5.0   # 4.0–7.5
+packed_entropy = 7.0       # 6.0–8.0
+suspicious_score = 40      # 20–65
+malicious_score = 70       # 50–95
 ```
 
 ### output.rs
@@ -205,6 +217,8 @@ invoke("get_settings")              →   get_settings() → AppSettings
 invoke("save_settings", { … })      →   save_settings() (telemetry always false)
 invoke("get_triggered_lessons", …)  →   get_triggered_lessons() → Lesson[]
 invoke("get_random_verse")          →   get_random_verse() → { text, reference }
+invoke("get_thresholds")            →   get_thresholds() → ThresholdConfig
+invoke("save_thresholds", { … })    →   save_thresholds() → validates + writes anya.toml
 ```
 
 Network access is disabled by omitting all network permissions from `src-tauri/capabilities/default.json`. The OS will not grant network access to the process regardless of what the application code attempts.
@@ -400,6 +414,6 @@ Benchmarked operations: hash calculation, entropy calculation, string extraction
 
 ---
 
-**Last updated:** 2026-03-15
-**Version:** 1.0.2
+**Last updated:** 2026-03-16
+**Version:** 1.1.0
 **Maintainer:** Daniel Iwugo — daniel@themalwarefiles.com

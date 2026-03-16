@@ -379,3 +379,11 @@ export interface TriggeredLesson {
 }
 
 export type StringType = "url" | "ip" | "path" | "registry" | "suspicious" | "default";
+
+/** User-configurable analysis thresholds (persisted to anya.toml) */
+export interface ThresholdConfig {
+  suspicious_entropy: number;  // 4.0–7.5
+  packed_entropy: number;      // 6.0–8.0
+  suspicious_score: number;    // 20–65
+  malicious_score: number;     // 50–95
+}

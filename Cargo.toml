@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "anya-security-core"
-version = "1.0.2"
+version = "1.1.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Daniel Iwugo <daniel@themalwarefiles.com>"]
@@ -35,6 +35,9 @@ buildflags = ["--release", "--locked"]
 anya = { path = "/usr/bin/anya" }
 
 [dependencies]
+# For multi-pattern byte scanning (packer/compiler detection in one pass)
+aho-corasick = "1"
+
 # For command-line argument parsing
 clap = { version = "4.5", features = ["derive"] }
 
@@ -68,11 +71,23 @@ infer = "0.16"
 # For TLSH fuzzy hashing
 tlsh2 = "1.1"
 
+# For parallel hash computation
+rayon = "1.10"
+
+# For IOC pattern matching in extracted strings
+regex = "1"
+
 # For directory traversal
 walkdir = "2.5"
 
 # For TOML configuration files
 toml = "0.8"
+
+# For YAML serialization (case management)
+serde_yaml = "0.9"
+
+# For ISO timestamps (case management)
+chrono = { version = "0.4", features = ["serde"] }
 
 # For finding user's home directory
 dirs = "5.0"

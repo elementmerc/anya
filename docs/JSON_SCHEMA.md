@@ -26,12 +26,17 @@ anya --file malware.exe --json | jq '.hashes.sha256'
 
 ```json
 {
-  "file_info": { ... },      // File metadata
-  "hashes": { ... },         // MD5, SHA1, SHA256
-  "entropy": { ... },        // Shannon entropy analysis
-  "strings": { ... },        // Extracted strings
-  "file_format": "string",   // Detected format
-  "pe_analysis": { ... }     // PE-specific analysis (optional)
+  "file_info": { ... },           // File metadata + MIME type
+  "hashes": { ... },              // MD5, SHA1, SHA256, TLSH
+  "entropy": { ... },             // Shannon entropy + confidence
+  "strings": { ... },             // Extracted strings with classification
+  "file_format": "string",        // Detected format
+  "pe_analysis": { ... },         // PE-specific analysis (optional)
+  "elf_analysis": { ... },        // ELF-specific analysis (optional)
+  "file_type_mismatch": { ... },  // Extension vs magic bytes (optional)
+  "ioc_summary": { ... },         // IOC indicators found (optional)
+  "verdict_summary": "string",    // e.g. "MALICIOUS — 2 critical, 1 high"
+  "top_findings": [ ... ]         // Top N findings by confidence
 }
 ```
 

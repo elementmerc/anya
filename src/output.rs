@@ -94,6 +94,31 @@ pub struct AnalysisResult {
     /// Byte value histogram (256 entries, one per byte value 0x00–0xFF)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub byte_histogram: Option<Vec<u32>>,
+
+    /// File type mismatch between extension and detected magic bytes
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_type_mismatch: Option<FileTypeMismatch>,
+
+    /// IOC (Indicator of Compromise) extraction results
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ioc_summary: Option<IocSummary>,
+
+    /// Human-readable verdict summary (e.g. "MALICIOUS — 4 critical indicators, 2 high")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict_summary: Option<String>,
+
+    /// Top N findings by confidence (for summary display)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub top_findings: Vec<TopFinding>,
+}
+
+/// A single top finding for JSON output
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopFinding {
+    pub label: String,
+    pub confidence: ConfidenceLevel,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub technique_id: Option<String>,
 }
 
 /// File metadata
@@ -145,6 +170,10 @@ pub struct EntropyInfo {
 
     /// Is suspicious (> 7.5)
     pub is_suspicious: bool,
+
+    /// Confidence level for the entropy assessment
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<ConfidenceLevel>,
 }
 
 /// String extraction results
@@ -263,6 +292,10 @@ pub struct ChecksumInfo {
     pub valid: bool,
     /// False when stored == 0 (common in user-mode apps and malware)
     pub stored_nonzero: bool,
+
+    /// Confidence level for checksum finding
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<ConfidenceLevel>,
 }
 
 /// A single entry decoded from the Rich header
@@ -306,6 +339,10 @@ pub struct OverlayInfo {
     /// Human-readable overlay characterisation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overlay_characterisation: Option<String>,
+
+    /// Confidence level for overlay finding
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<ConfidenceLevel>,
 }
 
 /// Detected compiler or language runtime
@@ -425,6 +462,10 @@ pub struct SectionInfo {
     /// Section name anomaly assessment: "Normal", "Elevated", or "Suspicious"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name_anomaly: Option<String>,
+
+    /// Confidence that this section is suspicious
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<ConfidenceLevel>,
 }
 
 /// Import analysis
@@ -462,6 +503,10 @@ pub struct SuspiciousAPI {
 
     /// Category (e.g., "Code Injection", "Anti-Analysis")
     pub category: String,
+
+    /// Confidence level for this detection
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<ConfidenceLevel>,
 }
 
 /// Export analysis (for DLLs)
@@ -576,6 +621,90 @@ impl std::fmt::Display for ConfidenceLevel {
     }
 }
 
+/// Type of Indicator of Compromise found in an extracted string
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum IocType {
+    Ipv4,
+    Ipv6,
+    Url,
+    Domain,
+    Email,
+    RegistryKey,
+    WindowsPath,
+    LinuxPath,
+    Mutex,
+    Base64Blob,
+}
+
+impl std::fmt::Display for IocType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IocType::Ipv4 => write!(f, "ipv4"),
+            IocType::Ipv6 => write!(f, "ipv6"),
+            IocType::Url => write!(f, "url"),
+            IocType::Domain => write!(f, "domain"),
+            IocType::Email => write!(f, "email"),
+            IocType::RegistryKey => write!(f, "registry_key"),
+            IocType::WindowsPath => write!(f, "windows_path"),
+            IocType::LinuxPath => write!(f, "linux_path"),
+            IocType::Mutex => write!(f, "mutex"),
+            IocType::Base64Blob => write!(f, "base64_blob"),
+        }
+    }
+}
+
+/// A string extracted from the binary with optional IOC classification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedString {
+    pub value: String,
+    /// Byte offset where the string starts in the file
+    pub offset: usize,
+    /// IOC type if the string matches an IOC pattern
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ioc_type: Option<IocType>,
+}
+
+/// IOC extraction summary
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IocSummary {
+    /// Strings that matched IOC patterns
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ioc_strings: Vec<ExtractedString>,
+    /// Count of each IOC type found
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub ioc_counts: HashMap<String, usize>,
+}
+
+/// Severity of a file type mismatch between extension and detected format
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum MismatchSeverity {
+    Low,
+    Medium,
+    High,
+}
+
+impl std::fmt::Display for MismatchSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MismatchSeverity::Low => write!(f, "Low"),
+            MismatchSeverity::Medium => write!(f, "Medium"),
+            MismatchSeverity::High => write!(f, "High"),
+        }
+    }
+}
+
+/// A mismatch between the file's detected type (magic bytes) and its claimed extension
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileTypeMismatch {
+    /// Format detected from magic bytes (e.g. "PE/MZ executable")
+    pub detected_type: String,
+    /// File extension as claimed by the filename
+    pub claimed_extension: String,
+    /// Severity of the mismatch
+    pub severity: MismatchSeverity,
+}
+
 /// A MITRE ATT&CK technique mapped from a static indicator
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MitreTechnique {
@@ -656,7 +785,7 @@ pub struct SuspiciousLibcCall {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// New structs for v1.0.2 analysis features
+// New structs for v1.1.0 analysis features
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Debug artifacts extracted from PE debug directory and version info
@@ -728,6 +857,7 @@ mod tests {
                 value: 7.8,
                 category: "High entropy".to_string(),
                 is_suspicious: true,
+                confidence: None,
             },
             strings: StringsInfo {
                 min_length: 4,
@@ -751,6 +881,10 @@ mod tests {
             confidence_scores: HashMap::new(),
             plain_english_findings: vec![],
             byte_histogram: None,
+            file_type_mismatch: None,
+            ioc_summary: None,
+            verdict_summary: None,
+            top_findings: vec![],
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -799,6 +933,7 @@ mod tests {
             value: 6.5,
             category: "Moderate".to_string(),
             is_suspicious: false,
+            confidence: None,
         };
 
         let json = serde_json::to_string(&entropy).unwrap();
@@ -850,6 +985,7 @@ mod tests {
             is_suspicious: false,
             is_wx: false,
             name_anomaly: None,
+            confidence: None,
         };
 
         let json = serde_json::to_string_pretty(&section).unwrap();
@@ -863,6 +999,7 @@ mod tests {
         let api = SuspiciousAPI {
             name: "CreateRemoteThread".to_string(),
             category: "Code Injection".to_string(),
+            confidence: None,
         };
 
         let json = serde_json::to_string(&api).unwrap();
@@ -879,6 +1016,7 @@ mod tests {
             suspicious_apis: vec![SuspiciousAPI {
                 name: "VirtualAllocEx".to_string(),
                 category: "Code Injection".to_string(),
+                confidence: None,
             }],
             libraries: vec!["kernel32.dll".to_string(), "ntdll.dll".to_string()],
             imports_per_kb: None,
@@ -957,6 +1095,7 @@ mod tests {
                 value: 0.0,
                 category: "Low".to_string(),
                 is_suspicious: false,
+                confidence: None,
             },
             strings: StringsInfo {
                 min_length: 4,
@@ -980,6 +1119,10 @@ mod tests {
             confidence_scores: HashMap::new(),
             plain_english_findings: vec![],
             byte_histogram: None,
+            file_type_mismatch: None,
+            ioc_summary: None,
+            verdict_summary: None,
+            top_findings: vec![],
         };
 
         let json = serde_json::to_string(&result).unwrap();

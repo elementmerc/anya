@@ -8,13 +8,14 @@ import { useTheme } from "@/hooks/useTheme";
 import { useFontSize } from "@/hooks/useFontSize";
 import { TeacherModeContext, type TeacherModeContextValue, type TeacherFocusItem } from "@/hooks/useTeacherMode";
 import { loadTeacherSettings, saveTeacherSettings, loadSettings, saveSettingsToDb } from "@/lib/db";
+import { getThresholds } from "@/lib/tauri-bridge";
 import { BibleVerseBar } from "@/components/BibleVerseBar";
 import DropZone from "@/components/DropZone";
 import TopBar from "@/components/TopBar";
 import TabNav from "@/components/TabNav";
 import SettingsModal from "@/components/SettingsModal";
 import TeacherSidebar from "@/components/TeacherSidebar";
-import type { TabName, AnalysisResult } from "@/types/analysis";
+import type { TabName, AnalysisResult, ThresholdConfig } from "@/types/analysis";
 
 // Lazy-load tab components (code splitting)
 const OverviewTab  = lazy(() => import("@/components/tabs/OverviewTab"));
@@ -55,6 +56,16 @@ export default function App() {
   const { fontSize, setFontSize } = useFontSize();
   const [activeTab, setActiveTab] = useState<TabName>("overview");
   const [showSettings, setShowSettings] = useState(false);
+  const [thresholds, setThresholds] = useState<ThresholdConfig>({
+    suspicious_entropy: 5.0,
+    packed_entropy: 7.0,
+    suspicious_score: 40,
+    malicious_score: 70,
+  });
+
+  useEffect(() => {
+    getThresholds().then(setThresholds).catch(() => {});
+  }, []);
 
   // ── Launch mode + first-run detection ────────────────────────────────────────
   const [launchMode, setLaunchMode] = useState<"normal" | "uninstall" | null>(null);
@@ -244,14 +255,14 @@ export default function App() {
               <main style={{ flex: 1, overflow: "hidden", position: "relative" }}>
                 <Suspense fallback={<TabFallback />}>
                   {activeTab === "overview"  && <OverviewTab  result={result} riskScore={riskScore} onMitreNavigate={navigateToMitre} />}
-                  {activeTab === "entropy"   && <EntropyTab   result={result} />}
+                  {activeTab === "entropy"   && <EntropyTab   result={result} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
                   {activeTab === "imports"   && (
                     <ImportsTab
                       result={result}
                       onMitreNavigate={navigateToMitre}
                     />
                   )}
-                  {activeTab === "sections"  && <SectionsTab  result={result} />}
+                  {activeTab === "sections"  && <SectionsTab  result={result} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
                   {activeTab === "strings"   && <StringsTab   result={result} />}
                   {activeTab === "security"  && <SecurityTab  result={result} />}
                   {activeTab === "mitre"     && (
@@ -286,6 +297,7 @@ export default function App() {
             bibleVersesEnabled={bibleVersesEnabled}
             onSetBibleVerses={setBibleVersesEnabled}
             onClose={() => setShowSettings(false)}
+            onThresholdsChange={setThresholds}
           />
         )}
       </div>

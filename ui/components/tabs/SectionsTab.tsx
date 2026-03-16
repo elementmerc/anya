@@ -5,14 +5,16 @@ import type { AnalysisResult, SectionInfo } from "@/types/analysis";
 
 interface Props {
   result: AnalysisResult;
+  suspiciousEntropy?: number;
+  packedEntropy?: number;
 }
 
 type SortKey = "name" | "virtual_size" | "raw_size" | "entropy";
 type SortDir = "asc" | "desc" | null;
 
-function entropyColor(e: number): string {
-  if (e >= 7.0) return "var(--risk-critical)";
-  if (e >= 5.0) return "var(--risk-medium)";
+function entropyColor(e: number, suspicious = 5.0, packed = 7.0): string {
+  if (e >= packed) return "var(--risk-critical)";
+  if (e >= suspicious) return "var(--risk-medium)";
   return "var(--text-secondary)";
 }
 
@@ -41,7 +43,7 @@ function PermBadge({ label, color, bg }: { label: string; color: string; bg: str
   );
 }
 
-export default function SectionsTab({ result }: Props) {
+export default function SectionsTab({ result, suspiciousEntropy = 5.0, packedEntropy = 7.0 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>(null);
 
@@ -197,7 +199,7 @@ export default function SectionsTab({ result }: Props) {
                         padding: "10px 12px",
                         fontSize: "var(--font-size-sm)",
                         fontFamily: "var(--font-mono)",
-                        color: entropyColor(sec.entropy),
+                        color: entropyColor(sec.entropy, suspiciousEntropy, packedEntropy),
                         borderBottom: "1px solid var(--border-subtle)",
                         whiteSpace: "nowrap",
                       }}

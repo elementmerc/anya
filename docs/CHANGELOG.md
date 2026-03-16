@@ -2,6 +2,26 @@
 
 All notable changes to Anya will be documented in this file.
 
+## [1.1.0] - 2026-03-16
+
+### Added
+- **IOC detection** — strings tested against 10 IOC patterns (IPv4, IPv6, URL, domain, email, registry, paths, mutex, Base64)
+- **File type mismatch detection** — flags executables disguised as documents/images
+- **Confidence scoring** on all detections (Low/Medium/High/Critical) with critical API combo detection
+- **Verdict line** — `VERDICT: MALICIOUS — 4 critical, 2 high` as the first line of output
+- **`--explain` flag** — plain-English explanations of findings appended to output
+- **`--summary` flag** — batch mode summary table sorted by severity
+- **`--case <name>` flag** — save analysis results to a named investigation case (YAML index + JSON reports)
+- **`anya hash-check`** — check file/hash against a plaintext hash list (exit code 1 on match)
+- **`anya yara combine`** — merge `.yar` files with duplicate detection
+- **`anya yara from-strings`** — generate YARA rule skeleton from a string list
+- **`anya cases --list`** — list investigation cases
+
+### Changed
+- Analysis speed improved (Aho-Corasick multi-pattern scan, parallel hashing via rayon, merged entropy + histogram pass)
+- Error messages now include file paths and actionable suggestions
+- Bug fixes and improvements
+
 ## [1.0.2] - 2026-03-15
 
 ### Added

@@ -5,7 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
-import type { AnalyzeResponse, AppSettings, AnalysisResult, TriggeredLesson } from "@/types/analysis";
+import type { AnalyzeResponse, AppSettings, AnalysisResult, TriggeredLesson, ThresholdConfig } from "@/types/analysis";
 
 // ─── File analysis ─────────────────────────────────────────────────────────
 
@@ -33,6 +33,14 @@ export const getTriggeredLessons = (
   riskScore?: number
 ): Promise<TriggeredLesson[]> =>
   invoke("get_triggered_lessons", { result, riskScore: riskScore ?? null });
+
+// ─── Thresholds ────────────────────────────────────────────────────
+
+export const getThresholds = (): Promise<ThresholdConfig> =>
+  invoke("get_thresholds");
+
+export const saveThresholds = (thresholds: ThresholdConfig): Promise<void> =>
+  invoke("save_thresholds", { thresholds });
 
 // ─── File pickers ──────────────────────────────────────────────────────────
 

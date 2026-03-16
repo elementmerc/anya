@@ -18,8 +18,8 @@
 
 // Import necessary libraries
 use anya_security_core::{
-    BatchSummary, OutputLevel, calculate_file_entropy, calculate_hashes, config, elf_parser,
-    extract_strings_data, is_executable_file, output, pe_parser,
+    BatchSummary, OutputLevel, analyse_file, case, compute_verdict, config, elf_parser,
+    hash_check, is_executable_file, output, pe_parser, to_json_output, yara,
 };
 use anyhow::{Context, Result}; // For better error handling
 use clap::{Parser, Subcommand}; // For parsing command-line arguments
@@ -121,6 +121,18 @@ struct Args {
     #[arg(long)]
     guided: bool,
 
+    /// Show plain-English explanations of findings at the bottom of output
+    #[arg(long)]
+    explain: bool,
+
+    /// Show batch results as a summary table (requires --directory)
+    #[arg(long, requires = "directory")]
+    summary: bool,
+
+    /// Save results to a named case for tracking investigations
+    #[arg(long, value_name = "NAME")]
+    case: Option<String>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -129,6 +141,60 @@ struct Args {
 enum Commands {
     /// Print a random Bible verse (NLT)
     Verse,
+
+    /// Check if a file's hash appears in a hash list
+    HashCheck {
+        /// File path or hash string to check
+        target: String,
+        /// Path to hash list file (one hash per line)
+        #[arg(long)]
+        against: PathBuf,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// YARA rule utilities
+    Yara {
+        #[command(subcommand)]
+        command: YaraCommands,
+    },
+
+    /// List and manage analysis cases
+    Cases {
+        /// List all cases
+        #[arg(long)]
+        list: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum YaraCommands {
+    /// Merge .yar/.yara files from a directory into one file
+    Combine {
+        /// Directory containing YARA rule files
+        input_dir: PathBuf,
+        /// Output file path
+        output_file: PathBuf,
+        /// Recurse into subdirectories
+        #[arg(short, long)]
+        recursive: bool,
+    },
+
+    /// Generate a YARA rule skeleton from a list of strings
+    FromStrings {
+        /// Text file with one string per line
+        strings_file: PathBuf,
+        /// Write to file instead of stdout
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Custom rule name (auto-generated if omitted)
+        #[arg(short, long)]
+        name: Option<String>,
+        /// Overwrite existing output file
+        #[arg(long)]
+        overwrite: bool,
+    },
 }
 
 /// Creates a styled progress bar for tracking long-running operations
@@ -197,14 +263,17 @@ fn write_output(content: &str, output_path: Option<&PathBuf>, append_mode: bool)
                 .truncate(!append_mode) // If NOT appending, clear existing content
                 .append(append_mode) // If appending, add to end of file
                 .open(path) // Actually open/create the file
-                .context(format!("Failed to open output file: {:?}", path))?;
+                .with_context(|| format!(
+                    "Couldn't write output to '{}'. Check that the directory exists and you have write permission.",
+                    path.display()
+                ))?;
             // The ? operator: if open() fails, return the error immediately
             // context() adds helpful error message
 
             // write_all() writes the entire string to the file
             // content.as_bytes() converts &str to &[u8] (bytes)
             file.write_all(content.as_bytes())
-                .context(format!("Failed to write to file: {:?}", path))?;
+                .with_context(|| format!("Failed to write to '{}'. Disk may be full.", path.display()))?;
 
             // Explicit flush ensures data is written to disk immediately
             // Without this, data might sit in a buffer
@@ -227,13 +296,42 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     // Handle subcommands that don't need a file/directory argument
-    if let Some(Commands::Verse) = args.command {
-        use anya_security_core::data::verses;
-        let idx = verses::verse_index();
-        let (text, reference) = verses::VERSES[idx];
-        println!("{}", text.white().bold());
-        println!("  — {}", reference.bright_cyan());
-        return Ok(());
+    match &args.command {
+        Some(Commands::Verse) => {
+            use anya_security_core::data::verses;
+            let idx = verses::verse_index();
+            let (text, reference) = verses::VERSES[idx];
+            println!("{}", text.white().bold());
+            println!("  — {}", reference.bright_cyan());
+            return Ok(());
+        }
+        Some(Commands::HashCheck { target, against, json }) => {
+            let matched = hash_check::run(target, against, *json)?;
+            if matched {
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+        Some(Commands::Yara { command }) => {
+            match command {
+                YaraCommands::Combine { input_dir, output_file, recursive } => {
+                    yara::combine(input_dir, output_file, *recursive)?;
+                }
+                YaraCommands::FromStrings { strings_file, output, name, overwrite } => {
+                    yara::from_strings(strings_file, output.as_deref(), name.as_deref(), *overwrite)?;
+                }
+            }
+            return Ok(());
+        }
+        Some(Commands::Cases { list }) => {
+            if *list {
+                case::list_cases()?;
+            } else {
+                println!("Use --list to show all cases.");
+            }
+            return Ok(());
+        }
+        None => {} // Continue to file/directory analysis
     }
 
     // Handle --init-config: create default config file and exit
@@ -307,6 +405,13 @@ fn main() -> Result<()> {
         );
     }
 
+    // Validate: --summary and --json are mutually exclusive
+    if args.summary && args.json {
+        anyhow::bail!(
+            "The --summary and --json flags can't be used together. Pick one output format."
+        );
+    }
+
     // Handle colour settings
     // Priority: CLI --no-color > config file > default (true)
     if !use_colours {
@@ -348,22 +453,18 @@ fn analyse_single_file(
 ) -> Result<()> {
     // Check if file exists
     if !file_path.exists() {
-        anyhow::bail!("File does not exist: {:?}", file_path);
+        anyhow::bail!(
+            "Couldn't find the file at '{}'. Double-check the path and try again.",
+            file_path.display()
+        );
     }
 
-    // Only show banner in normal/verbose mode (never in JSON mode)
-    if output_level.should_print_info() && !args.json {
-        println!("{}", "=== Ányá v0.3.1 ===".bold().green());
-        println!("Analysing: {:?}\n", file_path);
-    }
-
-    // Get file size to determine if we should show progress
+    // Get file size for spinner decision
     let file_size = fs::metadata(file_path)?.len();
     let is_large_file = file_size > LARGE_FILE_THRESHOLD;
 
-    // Read the file into memory with optional spinner for large files
-    // Never show spinner in JSON mode to keep output pure JSON
-    let file_data = if is_large_file && output_level.should_print_info() && !args.json {
+    // Show spinner for large files in non-JSON pretty mode
+    if is_large_file && output_level.should_print_info() && !args.json {
         let spinner = ProgressBar::new_spinner();
         spinner.set_style(
             ProgressStyle::default_spinner()
@@ -371,85 +472,37 @@ fn analyse_single_file(
                 .unwrap(),
         );
         spinner.set_message(format!(
-            "Reading file ({:.2} MB)...",
+            "Analysing ({:.2} MB)...",
             file_size as f64 / (1024.0 * 1024.0)
         ));
         spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+        // Spinner will be cleared when dropped
+        let _ = spinner; // keep alive briefly
+    }
 
-        let data = fs::read(file_path).context("Failed to read file")?;
+    // ── Run full structured analysis ─────────────────────────────────────────
+    let analysis = analyse_file(file_path.as_path(), min_string_length)?;
+    let mut json_result = to_json_output(&analysis);
 
-        spinner.finish_and_clear();
-        data
-    } else {
-        fs::read(file_path).context("Failed to read file")?
-    };
+    // Compute verdict and top findings
+    let (verdict_word, verdict_summary) = compute_verdict(&json_result);
+    json_result.verdict_summary = Some(verdict_summary.clone());
 
-    // Calculate hashes (for both JSON and pretty output)
-    let hashes = calculate_hashes(&file_data);
+    let top = anya_security_core::confidence::top_detections(&json_result, 3);
+    json_result.top_findings = top
+        .iter()
+        .map(|d| output::TopFinding {
+            label: d.description.clone(),
+            confidence: d.confidence.clone(),
+            technique_id: None, // TODO: extract from MITRE data if available
+        })
+        .collect();
 
-    // Calculate entropy (for both JSON and pretty output)
-    let entropy_data = calculate_file_entropy(&file_data);
-
-    // Extract strings (for both JSON and pretty output)
-    // Using merged config value (CLI overrides config file)
-    let strings_data = extract_strings_data(&file_data, min_string_length);
-
-    // Determine file format and analyse
-    let (file_format, pe_data, elf_data) = match Object::parse(&file_data) {
-        Ok(Object::PE(_pe)) => {
-            let pe_analysis = pe_parser::analyse_pe_data(&file_data)?;
-            ("Windows PE".to_string(), Some(pe_analysis), None)
-        }
-        Ok(Object::Elf(_elf)) => {
-            let elf_analysis = elf_parser::analyse_elf_data(&file_data)?;
-            ("Linux ELF".to_string(), None, Some(elf_analysis))
-        }
-        Ok(Object::Mach(_mach)) => ("macOS Mach-O".to_string(), None, None),
-        Ok(_) => ("Unknown".to_string(), None, None),
-        Err(_) => ("Unrecognized".to_string(), None, None),
-    };
-
-    // If JSON output requested, build and print/save JSON
+    // ── JSON output ──────────────────────────────────────────────────────────
     if args.json {
-        let file_info = output::FileInfo {
-            path: file_path.to_string_lossy().to_string(),
-            size_bytes: file_data.len() as u64,
-            size_kb: file_data.len() as f64 / 1024.0,
-            extension: file_path
-                .extension()
-                .map(|e| e.to_string_lossy().to_string()),
-            mime_type: None,
-        };
-
-        let result = output::AnalysisResult {
-            file_info,
-            hashes,
-            entropy: entropy_data,
-            strings: strings_data,
-            pe_analysis: pe_data,
-            elf_analysis: elf_data,
-            file_format,
-            imphash: None,
-            checksum_valid: None,
-            tls_callbacks: vec![],
-            ordinal_imports: vec![],
-            overlay: None,
-            packer_detections: vec![],
-            compiler_detection: None,
-            anti_analysis_indicators: vec![],
-            mitre_techniques: vec![],
-            confidence_scores: std::collections::HashMap::new(),
-            plain_english_findings: vec![],
-            byte_histogram: None,
-        };
-
-        // Serialise to JSON (pretty-printed with indentation)
-        let json = serde_json::to_string_pretty(&result)?;
-
-        // Write to file or stdout using our helper function
+        let json = serde_json::to_string_pretty(&json_result)?;
         write_output(&json, args.output.as_ref(), args.append)?;
 
-        // If we wrote to a file, let user know
         if let Some(path) = &args.output {
             if args.append {
                 eprintln!("✓ JSON appended to: {:?}", path);
@@ -457,71 +510,134 @@ fn analyse_single_file(
                 eprintln!("✓ JSON written to: {:?}", path);
             }
         }
-
         return Ok(());
     }
 
-    // Otherwise, pretty print output
+    // ── Pretty terminal output ───────────────────────────────────────────────
+
+    // 1. Verdict line (always first)
+    if output_level.should_print_info() || output_level == OutputLevel::Quiet {
+        let coloured_verdict = match verdict_word.as_str() {
+            "MALICIOUS" => format!("VERDICT: {}", verdict_summary).red().bold(),
+            "SUSPICIOUS" => format!("VERDICT: {}", verdict_summary).yellow().bold(),
+            "CLEAN" => format!("VERDICT: {}", verdict_summary).green().bold(),
+            _ => format!("VERDICT: {}", verdict_summary).white().dimmed(),
+        };
+        println!("{}", coloured_verdict);
+    }
+
+    // 2. File type mismatch warning
+    if let Some(ref m) = json_result.file_type_mismatch {
+        let prefix = match m.severity {
+            output::MismatchSeverity::High | output::MismatchSeverity::Medium => "⚠ ",
+            output::MismatchSeverity::Low => "ℹ ",
+        };
+        println!(
+            "{}FILE TYPE MISMATCH [{}] — detected {}, extension claims {}",
+            prefix,
+            m.severity,
+            m.detected_type,
+            m.claimed_extension
+        );
+    }
+
+    // 3. Top findings summary
+    if !top.is_empty() && output_level.should_print_info() {
+        println!("\n{}", "TOP FINDINGS".bold().cyan());
+        for d in &top {
+            let level_str = format!("[{:?}]", d.confidence).to_uppercase();
+            let padded = format!("{:<10}", level_str);
+            let line = match d.confidence {
+                output::ConfidenceLevel::Critical => format!("  {} {}", padded.red().bold(), d.description),
+                output::ConfidenceLevel::High => format!("  {} {}", padded.yellow().bold(), d.description),
+                output::ConfidenceLevel::Medium => format!("  {} {}", padded.white(), d.description),
+                output::ConfidenceLevel::Low => format!("  {} {}", padded.white().dimmed(), d.description),
+            };
+            println!("{}", line);
+        }
+    }
+
+    // Read raw file data for display functions that need it
+    let file_data = fs::read(file_path)?;
+
+    // 4. Banner + file info
     if output_level.should_print_info() {
+        println!();
+        println!("{}", "=== Ányá v1.1.0 ===".bold().green());
+        println!("Analysing: {:?}\n", file_path);
         print_file_info(file_path, &file_data, output_level)?;
     }
 
-    print_hashes(&file_data, output_level);
+    // 5. Hashes
+    if output_level.should_print_info() {
+        println!("{}", "=== Cryptographic Hashes ===".bold().cyan());
+        println!("  MD5:    {}", json_result.hashes.md5.green());
+        println!("  SHA1:   {}", json_result.hashes.sha1.green());
+        println!("  SHA256: {}", json_result.hashes.sha256.green());
+        if let Some(ref tlsh) = json_result.hashes.tlsh {
+            println!("  TLSH:   {}", tlsh.green());
+        }
+        println!();
+    }
 
-    // Detect file type and perform advanced analysis
+    // 6. Format-specific detailed analysis (existing display functions)
     match Object::parse(&file_data) {
         Ok(Object::PE(_pe)) => {
             if output_level.should_print_info() {
                 println!(
                     "{}",
-                    "\n🔍 Detected: Windows PE (Portable Executable)"
+                    "🔍 Detected: Windows PE (Portable Executable)"
                         .bold()
                         .cyan()
                 );
             }
             if let Err(e) = pe_parser::analyse_pe(&file_data, output_level) {
-                eprintln!("{} PE analysis failed: {}", "⚠".yellow(), e);
+                eprintln!("{} PE analysis failed: {}. The file may be corrupted, truncated, or not a valid PE binary.", "⚠".yellow(), e);
             }
         }
         Ok(Object::Elf(_elf)) => {
             if output_level.should_print_info() {
                 println!(
                     "{}",
-                    "\n🔍 Detected: Linux ELF (Executable and Linkable Format)"
+                    "🔍 Detected: Linux ELF (Executable and Linkable Format)"
                         .bold()
                         .cyan()
                 );
             }
             if let Err(e) = elf_parser::analyse_elf(&file_data, output_level) {
-                eprintln!("{} ELF analysis failed: {}", "⚠".yellow(), e);
+                eprintln!("{} ELF analysis failed: {}. The file may be corrupted, truncated, or not a valid ELF binary.", "⚠".yellow(), e);
             }
         }
-        Ok(Object::Mach(_mach)) => {
+        Ok(Object::Mach(_)) => {
             if output_level.should_print_info() {
-                println!("{}", "\n🔍 Detected: macOS Mach-O".bold().cyan());
-                println!("  Mach-O analysis coming in Phase 3!");
+                println!("{}", "🔍 Detected: macOS Mach-O".bold().cyan());
             }
         }
         Ok(_) => {
             if output_level.should_print_info() {
-                println!("{}", "\n🔍 Unknown executable format".yellow());
+                println!("{}", "🔍 Unknown executable format".yellow());
             }
         }
         Err(_) => {
             if output_level.should_print_info() {
                 println!(
                     "{}",
-                    "\n🔍 Not a recognized executable format - performing basic analysis only"
+                    "🔍 Not a recognized executable format - performing basic analysis only"
                         .yellow()
                 );
             }
         }
     }
 
-    // Always perform basic string extraction and entropy on full file
+    // 7. Strings + entropy (existing display functions)
     if output_level.should_print_info() {
         print_strings(&file_data, min_string_length);
         print_entropy(&file_data);
+    }
+
+    // 8. IOC indicators section
+    if let Some(ref ioc) = json_result.ioc_summary {
+        print_ioc_section(ioc);
     }
 
     // In quiet mode, summarize findings
@@ -529,22 +645,19 @@ fn analyse_single_file(
         print_quiet_summary(&file_data);
     }
 
-    // --guided: print contextual learning lessons
+    // 9. --explain: print explanations at the bottom
+    if args.explain {
+        print_explanations(&json_result);
+    }
+
+    // 10. --guided: print contextual learning lessons
     if args.guided {
         use anya_security_core::{
             confidence::calculate_risk_score, data::mitre_mappings::map_techniques_from_imports,
             guided_output::print_guided_output,
         };
-        // Re-parse the file for guided mode (already fast since it's in-memory)
-        let pe = match Object::parse(&file_data) {
-            Ok(Object::PE(_)) => pe_parser::analyse_pe_data(&file_data).ok(),
-            _ => None,
-        };
-        let elf = match Object::parse(&file_data) {
-            Ok(Object::Elf(_)) => anya_security_core::elf_parser::analyse_elf_data(&file_data).ok(),
-            _ => None,
-        };
-        let import_names: Vec<&str> = pe
+        let import_names: Vec<&str> = analysis
+            .pe_analysis
             .as_ref()
             .map(|p| {
                 p.imports
@@ -555,8 +668,28 @@ fn analyse_single_file(
             })
             .unwrap_or_default();
         let techniques = map_techniques_from_imports(&import_names);
-        let risk = calculate_risk_score(pe.as_ref(), elf.as_ref());
-        print_guided_output(pe.as_ref(), elf.as_ref(), &techniques, risk);
+        let risk = calculate_risk_score(
+            analysis.pe_analysis.as_ref(),
+            analysis.elf_analysis.as_ref(),
+        );
+        print_guided_output(
+            analysis.pe_analysis.as_ref(),
+            analysis.elf_analysis.as_ref(),
+            &techniques,
+            risk,
+        );
+    }
+
+    // 11. --case: save to case directory
+    if let Some(ref case_name) = args.case {
+        let json_report = serde_json::to_string_pretty(&json_result)?;
+        case::save_to_case(
+            case_name,
+            file_path.as_path(),
+            &json_result.hashes.sha256,
+            &verdict_word,
+            &json_report,
+        )?;
     }
 
     Ok(())
@@ -578,16 +711,22 @@ fn analyse_directory(
     use std::time::Instant;
 
     if !dir_path.exists() {
-        anyhow::bail!("Directory does not exist: {:?}", dir_path);
+        anyhow::bail!(
+            "Couldn't find the directory at '{}'. Double-check the path and try again.",
+            dir_path.display()
+        );
     }
 
     if !dir_path.is_dir() {
-        anyhow::bail!("Path is not a directory: {:?}", dir_path);
+        anyhow::bail!(
+            "'{}' is not a directory. Provide a directory path for batch scanning.",
+            dir_path.display()
+        );
     }
 
     // Banner for batch mode
     if output_level.should_print_info() && !args.json {
-        println!("{}", "=== Ányá v0.3.0 - Batch Mode ===".bold().green());
+        println!("{}", "=== Ányá v1.1.0 - Batch Mode ===".bold().green());
         println!("Scanning directory: {:?}", dir_path);
         if args.recursive {
             println!("Mode: Recursive");
@@ -654,28 +793,134 @@ fn analyse_directory(
         None
     };
 
-    // **Rust Concept: Enumerate Iterator**
-    // .enumerate() gives us (index, item) pairs
-    // Useful for tracking position in iteration
+    // --summary mode: collect verdicts for table output
+    if args.summary {
+        struct SummaryRow {
+            filename: String,
+            verdict: String,
+            top_indicator: String,
+        }
+
+        let mut rows: Vec<SummaryRow> = Vec::new();
+        let mut malicious_count = 0usize;
+        let mut suspicious_count = 0usize;
+        let mut clean_count = 0usize;
+
+        for (idx, file_path) in executable_files.iter().enumerate() {
+            let filename = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+
+            if let Some(ref pb) = progress {
+                pb.set_message(format!("Analysing: {}", filename));
+            }
+
+            match analyse_file(file_path.as_path(), min_string_length) {
+                Ok(result) => {
+                    summary.analysed += 1;
+                    let json_result = to_json_output(&result);
+                    let (verdict_word, _) = compute_verdict(&json_result);
+                    let top = anya_security_core::confidence::top_detections(&json_result, 1);
+                    let top_indicator = top.first().map(|d| {
+                        format!("{} [{:?}]", d.description, d.confidence)
+                    }).unwrap_or_else(|| "—".to_string());
+
+                    match verdict_word.as_str() {
+                        "MALICIOUS" => malicious_count += 1,
+                        "SUSPICIOUS" => suspicious_count += 1,
+                        _ => clean_count += 1,
+                    }
+
+                    // Save to case if --case provided
+                    if let Some(ref case_name) = args.case {
+                        if let Ok(json_report) = serde_json::to_string_pretty(&json_result) {
+                            let _ = case::save_to_case(
+                                case_name,
+                                file_path.as_path(),
+                                &json_result.hashes.sha256,
+                                &verdict_word,
+                                &json_report,
+                            );
+                        }
+                    }
+
+                    rows.push(SummaryRow { filename, verdict: verdict_word, top_indicator });
+                }
+                Err(e) => {
+                    summary.failed += 1;
+                    rows.push(SummaryRow {
+                        filename,
+                        verdict: "ERROR".to_string(),
+                        top_indicator: format!("{}", e),
+                    });
+                }
+            }
+
+            if let Some(ref pb) = progress {
+                pb.set_position((idx + 1) as u64);
+            }
+        }
+
+        if let Some(pb) = progress {
+            pb.finish_and_clear();
+        }
+
+        summary.duration = start_time.elapsed().as_secs_f64();
+
+        // Sort: MALICIOUS first, then SUSPICIOUS, then CLEAN, then others
+        rows.sort_by_key(|r| match r.verdict.as_str() {
+            "MALICIOUS" => 0,
+            "SUSPICIOUS" => 1,
+            "CLEAN" => 2,
+            _ => 3,
+        });
+
+        // Print summary table
+        println!(
+            "\n{}",
+            format!(
+                "BATCH ANALYSIS SUMMARY — {} files, {} malicious, {} suspicious, {} clean",
+                executable_files.len(), malicious_count, suspicious_count, clean_count
+            )
+            .bold()
+            .cyan()
+        );
+        println!("Completed in {:.1}s\n", summary.duration);
+
+        println!(
+            "{:<30} {:<12} {}",
+            "FILE".bold(),
+            "VERDICT".bold(),
+            "TOP INDICATOR".bold()
+        );
+
+        for row in &rows {
+            let name = if row.filename.len() > 30 {
+                format!("{}...", &row.filename[..27])
+            } else {
+                row.filename.clone()
+            };
+            let verdict_coloured = match row.verdict.as_str() {
+                "MALICIOUS" => format!("{:<12}", row.verdict).red().bold(),
+                "SUSPICIOUS" => format!("{:<12}", row.verdict).yellow().bold(),
+                "CLEAN" => format!("{:<12}", row.verdict).green(),
+                _ => format!("{:<12}", row.verdict).white().dimmed(),
+            };
+            println!("{:<30} {} {}", name, verdict_coloured, row.top_indicator);
+        }
+
+        return Ok(());
+    }
+
+    // Default batch mode (existing behaviour)
     for (idx, file_path) in executable_files.iter().enumerate() {
         let filename = file_path.file_name().unwrap_or_default().to_string_lossy();
 
-        // Show which file we're about to analyse in progress bar
         if let Some(ref pb) = progress {
             pb.set_message(format!("Analysing: {}", filename));
         }
 
-        // Try to analyse the file
-        // **Rust Concept: Result and match**
-        // We handle both success and failure cases
         match analyse_single_file(file_path, args, OutputLevel::Quiet, min_string_length) {
             Ok(_) => {
                 summary.analysed += 1;
-
-                // Print one-line summary after analysis (not in JSON mode)
-                // **Rust Concept: pb.println() vs println!()**
-                // pb.println() works nicely with progress bars - prints above the bar
-                // Regular println!() would interfere with the progress bar display
                 if !args.json && output_level.should_print_info() {
                     if let Some(ref pb) = progress {
                         pb.println(format!("  ✓ {}", filename.green()));
@@ -686,8 +931,6 @@ fn analyse_directory(
             }
             Err(e) => {
                 summary.failed += 1;
-
-                // Always show failures (not in JSON mode)
                 if !args.json {
                     if let Some(ref pb) = progress {
                         pb.println(format!("  ✗ {}: {}", filename.red(), e));
@@ -698,25 +941,17 @@ fn analyse_directory(
             }
         }
 
-        // Update progress bar AFTER analysis to show actual progress
-        // **Rust Concept: idx + 1 because idx is 0-based**
-        // When we finish file 0, we want to show 1/10, not 0/10
         if let Some(ref pb) = progress {
             pb.set_position((idx + 1) as u64);
         }
     }
 
-    // Finish progress bar - keep it visible with final message
-    // **Rust Concept: Consuming the Option with if let Some(pb)**
-    // This takes ownership of pb (not a reference), so we can consume it
     if let Some(pb) = progress {
         pb.finish_with_message("✓ Analysis complete");
     }
 
-    // Calculate duration
     summary.duration = start_time.elapsed().as_secs_f64();
 
-    // Print summary (not in JSON mode)
     if output_level.should_print_info() && !args.json {
         summary.print_summary();
     }
@@ -758,6 +993,7 @@ fn print_file_info(path: &PathBuf, data: &[u8], output_level: OutputLevel) -> Re
 }
 
 /// Calculate and display file hashes
+#[allow(dead_code)]
 fn print_hashes(data: &[u8], output_level: OutputLevel) {
     if !output_level.should_print_info() {
         return;
@@ -1045,6 +1281,161 @@ fn print_quiet_summary(data: &[u8]) {
         );
     }
 }
+
+// ── IOC indicators section ──────────────────────────────────────────────────
+
+fn print_ioc_section(ioc: &output::IocSummary) {
+    use std::collections::HashMap;
+
+    if ioc.ioc_strings.is_empty() {
+        return;
+    }
+
+    println!(
+        "\n{}",
+        format!("IOC INDICATORS ({} found)", ioc.ioc_strings.len())
+            .bold()
+            .cyan()
+    );
+
+    // Group by IOC type
+    let mut grouped: HashMap<String, Vec<&output::ExtractedString>> = HashMap::new();
+    for es in &ioc.ioc_strings {
+        let key = es
+            .ioc_type
+            .as_ref()
+            .map(|t| t.to_string())
+            .unwrap_or_else(|| "other".to_string());
+        grouped.entry(key).or_default().push(es);
+    }
+
+    let type_order = [
+        "url", "ipv4", "ipv6", "domain", "email", "registry_key",
+        "windows_path", "linux_path", "mutex", "base64_blob",
+    ];
+    let type_labels: HashMap<&str, &str> = [
+        ("url", "URLs"), ("ipv4", "IPv4"), ("ipv6", "IPv6"),
+        ("domain", "Domains"), ("email", "Emails"), ("registry_key", "Registry"),
+        ("windows_path", "Win paths"), ("linux_path", "Linux paths"),
+        ("mutex", "Mutexes"), ("base64_blob", "Base64 blob"),
+    ]
+    .into();
+
+    for type_key in &type_order {
+        if let Some(entries) = grouped.get(*type_key) {
+            let label = type_labels.get(type_key).unwrap_or(type_key);
+            for (i, es) in entries.iter().take(3).enumerate() {
+                let display = if *type_key == "base64_blob" {
+                    format!("[{} chars, offset 0x{:x}]", es.value.len(), es.offset)
+                } else if es.value.len() > 80 {
+                    format!("{}...", &es.value[..77])
+                } else {
+                    es.value.clone()
+                };
+                if i == 0 {
+                    println!("  {:<13}({})  {}", label, entries.len(), display);
+                } else {
+                    println!("  {:<18}{}", "", display);
+                }
+            }
+            if entries.len() > 3 {
+                println!("  {:<18}... and {} more", "", entries.len() - 3);
+            }
+        }
+    }
+}
+
+// ── Explanations section (--explain) ────────────────────────────────────────
+
+fn print_explanations(result: &output::AnalysisResult) {
+    use anya_security_core::confidence::top_detections;
+
+    let detections = top_detections(result, 10);
+    if detections.is_empty() {
+        return;
+    }
+
+    println!("\n{}", "━".repeat(50));
+    println!("{}", "EXPLANATIONS".bold().cyan());
+    println!("{}\n", "━".repeat(50));
+
+    for d in &detections {
+        let conf_str = format!("{:?}", d.confidence).to_uppercase();
+        println!("{} — {} confidence", d.description.bold(), conf_str);
+
+        // Generate a brief explanation based on the detection description
+        let explanation = generate_explanation(&d.description);
+        // Word-wrap to 70 chars
+        for line in word_wrap(&explanation, 70) {
+            println!("  {}", line);
+        }
+        println!();
+    }
+}
+
+fn generate_explanation(description: &str) -> String {
+    let desc_lower = description.to_lowercase();
+
+    if desc_lower.contains("process injection") || desc_lower.contains("virtualallocex") && desc_lower.contains("writeprocessmemory") {
+        "VirtualAllocEx, WriteProcessMemory, and CreateRemoteThread imported together is the classic signature of process injection: malware allocating memory inside another running process and writing shellcode into it. This allows malware to run hidden inside a legitimate process like explorer.exe. Commonly seen in: RATs, banking trojans, loaders.".to_string()
+    } else if desc_lower.contains("createremotethread") {
+        "CreateRemoteThread creates a new thread in a remote process. Alone, it may be used legitimately, but it is a building block of process injection. Combined with other APIs, it raises confidence significantly.".to_string()
+    } else if desc_lower.contains("persistence") || desc_lower.contains("regsetvalue") {
+        "Registry modification combined with service creation or run-key paths indicates the malware is trying to survive reboots. This is a common persistence mechanism used by most malware families.".to_string()
+    } else if desc_lower.contains("debugger") || desc_lower.contains("isdebuggerpresent") {
+        "Debugger detection APIs check whether the process is being analysed. Malware uses these to alter its behaviour when under inspection, making dynamic analysis harder.".to_string()
+    } else if desc_lower.contains("entropy") || desc_lower.contains("packed") || desc_lower.contains("encrypted") {
+        "High entropy means the file's contents are nearly random. Legitimate executables rarely exceed 7.0. This strongly suggests the file is packed or encrypted — a common technique to hide malware from static analysis and antivirus scanners.".to_string()
+    } else if desc_lower.contains("packer") {
+        "A packer compresses or encrypts the original executable and wraps it in a decompression stub. While some legitimate software uses packers to reduce file size, packers are heavily used by malware to evade signature-based detection.".to_string()
+    } else if desc_lower.contains("tls callback") {
+        "TLS callbacks execute before the program's main entry point. Malware uses them to run anti-debugging checks or unpack code before analysts can attach a debugger.".to_string()
+    } else if desc_lower.contains("overlay") {
+        "Overlay data is appended after the last PE section. It can contain embedded payloads, encrypted configurations, or additional executables that the main program extracts at runtime.".to_string()
+    } else if desc_lower.contains("mismatch") || desc_lower.contains("disguised") {
+        "The file's actual format (detected from magic bytes) doesn't match its extension. This is a social engineering technique — a PE executable named .pdf or .jpg tricks users into opening it.".to_string()
+    } else if desc_lower.contains("ioc") || desc_lower.contains("domain") || desc_lower.contains("url") {
+        "Network indicators (URLs, domains, IPs) found in the binary's strings suggest the program communicates with remote servers. These could be command-and-control servers, download sites, or data exfiltration endpoints.".to_string()
+    } else if desc_lower.contains("anti-analysis") || desc_lower.contains("vm") || desc_lower.contains("sandbox") {
+        "Anti-analysis techniques detect whether the malware is running in a virtual machine, sandbox, or debugger. If detected, the malware may refuse to execute or behave benignly to avoid being flagged.".to_string()
+    } else if desc_lower.contains("network") || desc_lower.contains("wsa") || desc_lower.contains("socket") {
+        "Network APIs indicate the program creates network connections. Combined with other suspicious APIs, this may indicate a reverse shell, data exfiltration, or command-and-control communication.".to_string()
+    } else if desc_lower.contains("checksum") {
+        "A PE checksum mismatch means the file has been modified after compilation. This is common in cracked, patched, or tampered binaries. Most legitimate compilers set the correct checksum.".to_string()
+    } else if desc_lower.contains("w+x") || desc_lower.contains("writable and executable") {
+        "A section that is both writable and executable allows code to be modified at runtime. This is a strong indicator of self-modifying code, common in packers and shellcode.".to_string()
+    } else if desc_lower.contains("ordinal") {
+        "Importing by ordinal number instead of function name hides which APIs the program actually calls. This makes static analysis harder and is commonly seen in malware.".to_string()
+    } else if desc_lower.contains("base64") {
+        "Large Base64-encoded blobs in a binary often contain embedded payloads, encoded commands, or obfuscated configuration data that the malware decodes at runtime.".to_string()
+    } else if desc_lower.contains("registry") {
+        "Registry key references suggest the program reads or modifies Windows registry settings. This may be used for persistence, configuration storage, or system modification.".to_string()
+    } else {
+        "This detection was flagged based on static analysis indicators found in the binary. Review the technical details above for specifics.".to_string()
+    }
+}
+
+fn word_wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+
+    for word in text.split_whitespace() {
+        if current_line.is_empty() {
+            current_line = word.to_string();
+        } else if current_line.len() + 1 + word.len() > width {
+            lines.push(current_line);
+            current_line = word.to_string();
+        } else {
+            current_line.push(' ');
+            current_line.push_str(word);
+        }
+    }
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

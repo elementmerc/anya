@@ -17,7 +17,7 @@
 
 ---
 
-Anya analyses binary files without executing them. Drop a PE or ELF onto the GUI, or pipe files through the CLI. Get hashes, entropy, imports, sections, MITRE ATT&CK mappings, and a risk score. All in under seconds, all locally.
+Anya analyses binary files without executing them. Drop a PE or ELF onto the GUI, or pipe files through the CLI. Get hashes, entropy, imports, sections, IOC indicators, MITRE ATT&CK mappings, a confidence-scored verdict, and a risk score. All in under seconds, all locally.
 
 **Anya** (AHN-yah) means "eye" in Igbo.
 
@@ -84,6 +84,27 @@ anya verse
 
 # Init config
 anya --init-config
+
+# Verdict + explanations
+anya --file suspicious.exe --explain
+
+# Batch summary table
+anya --directory ./samples --recursive --summary
+
+# Check hash against known-bad list
+anya hash-check suspicious.exe --against known-bad.txt
+
+# Generate YARA rule from strings
+anya yara from-strings strings.txt --output rule.yar
+
+# Combine YARA rules
+anya yara combine ./rules combined.yar --recursive
+
+# Save to investigation case
+anya --file suspicious.exe --case operation-nightfall
+
+# List cases
+anya cases --list
 ```
 
 Full flag reference: `anya --help`
@@ -100,7 +121,7 @@ Launch Anya, drag a file onto the drop zone. Seven tabs:
 | Entropy | Full entropy chart + per-section breakdown |
 | Imports | DLL tree with expandable function lists and inline explanations |
 | Sections | W+X detection, per-section entropy, characteristics |
-| Strings | Extracted ASCII strings |
+| Strings | Extracted strings with IOC classification and category filtering |
 | Security | ASLR, DEP, version info, signed status |
 | MITRE | Mapped ATT&CK techniques with tactic tagging |
 
@@ -120,6 +141,7 @@ Analysis history is stored in a local SQLite database. Nothing leaves your devic
 | < 1 s analysis | ✓ | Network-bound | ✗ | Seconds |
 | MITRE mapping | ✓ | Partial | ✗ | ✓ |
 | Beginner-friendly | ✓ | — | ✗ | — |
+| IOC extraction | ✓ | ✓ | ✗ | Partial |
 
 ---
 

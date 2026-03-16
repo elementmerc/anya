@@ -156,18 +156,6 @@ export default function SecurityTab({ result }: Props) {
                   </div>
                 </FeatureCard>
               )}
-              {pe.version_info && (
-                <FeatureCard title="Version Info" description="Embedded version resource from the PE file" status="na" fullWidth={versionInfoWide}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    {pe.version_info.file_description  && <InfoRow label="Description"   value={pe.version_info.file_description} />}
-                    {pe.version_info.product_name      && <InfoRow label="Product"       value={pe.version_info.product_name} />}
-                    {pe.version_info.company_name      && <InfoRow label="Company"       value={pe.version_info.company_name} />}
-                    {pe.version_info.file_version      && <InfoRow label="Version"       value={pe.version_info.file_version} />}
-                    {pe.version_info.original_filename && <InfoRow label="Original name" value={pe.version_info.original_filename} />}
-                    {pe.version_info.legal_copyright   && <InfoRow label="Copyright"     value={pe.version_info.legal_copyright} />}
-                  </div>
-                </FeatureCard>
-              )}
               {pe.debug_artifacts && (
                 <FeatureCard
                   title="Debug Artifacts"
@@ -196,6 +184,18 @@ export default function SecurityTab({ result }: Props) {
                         </div>
                       </div>
                     ))}
+                  </div>
+                </FeatureCard>
+              )}
+              {pe.version_info && (
+                <FeatureCard title="Version Info" description="Embedded version resource from the PE file" status="na" fullWidth={versionInfoWide}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {pe.version_info.file_description  && <InfoRow label="Description"   value={pe.version_info.file_description} />}
+                    {pe.version_info.product_name      && <InfoRow label="Product"       value={pe.version_info.product_name} />}
+                    {pe.version_info.company_name      && <InfoRow label="Company"       value={pe.version_info.company_name} />}
+                    {pe.version_info.file_version      && <InfoRow label="Version"       value={pe.version_info.file_version} />}
+                    {pe.version_info.original_filename && <InfoRow label="Original name" value={pe.version_info.original_filename} />}
+                    {pe.version_info.legal_copyright   && <InfoRow label="Copyright"     value={pe.version_info.legal_copyright} />}
                   </div>
                 </FeatureCard>
               )}

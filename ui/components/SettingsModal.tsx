@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { X, Lock, Database, Sun, Moon, FolderOpen, GraduationCap, BookOpen } from "lucide-react";
-import { getSettings } from "@/lib/tauri-bridge";
+import { getSettings, getThresholds, saveThresholds } from "@/lib/tauri-bridge";
 import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
 import { saveSettingsToDb } from "@/lib/db";
 import { useTeacherMode } from "@/hooks/useTeacherMode";
 import type { FontSize } from "@/hooks/useFontSize";
+import type { ThresholdConfig } from "@/types/analysis";
 
 const FONT_SIZE_OPTIONS: { value: FontSize; label: string; px: string }[] = [
   { value: "small",   label: "Small",       px: "13px" },
@@ -21,6 +22,7 @@ interface SettingsModalProps {
   bibleVersesEnabled: boolean;
   onSetBibleVerses: (v: boolean) => void;
   onClose: () => void;
+  onThresholdsChange?: (t: ThresholdConfig) => void;
 }
 
 export default function SettingsModal({
@@ -31,11 +33,51 @@ export default function SettingsModal({
   bibleVersesEnabled,
   onSetBibleVerses,
   onClose,
+  onThresholdsChange,
 }: SettingsModalProps) {
   const { enabled: teacherEnabled, setEnabled: setTeacherEnabled } = useTeacherMode();
   const [dbPath, setDbPath] = useState("");
   const [loading, setLoading] = useState(true);
   const [closing, setClosing] = useState(false);
+  const [localThresholds, setLocalThresholds] = useState<ThresholdConfig>({
+    suspicious_entropy: 5.0, packed_entropy: 7.0, suspicious_score: 40, malicious_score: 70,
+  });
+  const [thresholdWarning, setThresholdWarning] = useState<string | null>(null);
+  const [thresholdError, setThresholdError] = useState<string | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    getThresholds().then(setLocalThresholds).catch(() => {});
+  }, []);
+
+  const handleThresholdChange = useCallback((key: string, value: number) => {
+    setLocalThresholds((prev) => {
+      const next = { ...prev, [key]: value };
+
+      // Validate
+      if (next.suspicious_entropy >= next.packed_entropy) {
+        setThresholdWarning("Suspicious entropy must be less than packed entropy");
+        return next;
+      }
+      if (next.suspicious_score >= next.malicious_score) {
+        setThresholdWarning("Suspicious score must be less than malicious score");
+        return next;
+      }
+
+      setThresholdWarning(null);
+      setThresholdError(null);
+
+      // Debounced save
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        saveThresholds(next)
+          .then(() => onThresholdsChange?.(next))
+          .catch(() => setThresholdError("Failed to save thresholds"));
+      }, 150);
+
+      return next;
+    });
+  }, [onThresholdsChange]);
 
   function handleClose() {
     setClosing(true);
@@ -83,7 +125,7 @@ export default function SettingsModal({
         style={{
           background: "var(--bg-surface)",
           border: "1px solid var(--border)",
-          animation: closing ? "settings-panel-out 200ms ease forwards" : "settings-panel-in 250ms cubic-bezier(0.34,1.56,0.64,1) forwards",
+          animation: closing ? "settings-panel-out 140ms ease-in forwards" : "settings-panel-in 180ms ease-out forwards",
         }}
       >
         {/* Header */}
@@ -347,6 +389,36 @@ export default function SettingsModal({
               </div>
 
             </div>
+          </section>
+
+          {/* ── Analysis Thresholds ──────────────────────────────── */}
+          <section>
+            <h3
+              className="text-xs font-semibold uppercase tracking-wider mb-3"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Analysis Thresholds
+            </h3>
+            {[
+              { label: "Suspicious entropy", key: "suspicious_entropy", min: 4.0, max: 7.5, step: 0.1, format: (v: number) => v.toFixed(1) },
+              { label: "Packed entropy", key: "packed_entropy", min: 6.0, max: 8.0, step: 0.1, format: (v: number) => v.toFixed(1) },
+              { label: "Suspicious score", key: "suspicious_score", min: 20, max: 65, step: 1, format: (v: number) => String(v) },
+              { label: "Malicious score", key: "malicious_score", min: 50, max: 95, step: 1, format: (v: number) => String(v) },
+            ].map(({ label, key, min, max, step, format }) => (
+              <div key={key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0" }}>
+                <span style={{ fontSize: "var(--font-size-sm)", color: "var(--text-secondary)", minWidth: 140 }}>{label}</span>
+                <input type="range" min={min} max={max} step={step}
+                  value={localThresholds[key as keyof ThresholdConfig]}
+                  onChange={(e) => handleThresholdChange(key, Number(e.target.value))}
+                  style={{ flex: 1, accentColor: "var(--accent)" }}
+                />
+                <span style={{ fontSize: "var(--font-size-sm)", fontFamily: "var(--font-mono)", color: "var(--text-primary)", minWidth: 36, textAlign: "right" }}>
+                  {format(localThresholds[key as keyof ThresholdConfig] as number)}
+                </span>
+              </div>
+            ))}
+            {thresholdWarning && <p style={{ fontSize: "var(--font-size-xs)", color: "var(--risk-medium)", margin: "4px 0 0" }}>{thresholdWarning}</p>}
+            {thresholdError && <p style={{ fontSize: "var(--font-size-xs)", color: "var(--risk-high)", margin: "4px 0 0" }}>{thresholdError}</p>}
           </section>
 
           {/* ── Privacy (non-negotiable) ─────────────────────────── */}

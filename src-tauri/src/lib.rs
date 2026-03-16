@@ -269,6 +269,36 @@ pub mod commands {
         serde_json::to_value(&lessons).map_err(|e| format!("Serialize error: {e}"))
     }
 
+    // ── Threshold commands ──────────────────────────────────────────────────
+
+    /// Return the current analysis thresholds from config (defaults if unavailable).
+    #[tauri::command]
+    pub async fn get_thresholds() -> anya_security_core::config::ThresholdConfig {
+        anya_security_core::config::Config::load_or_default()
+            .map(|c| c.thresholds)
+            .unwrap_or_default()
+    }
+
+    /// Validate and persist new threshold values to the user's config file.
+    #[tauri::command]
+    pub async fn save_thresholds(
+        thresholds: anya_security_core::config::ThresholdConfig,
+    ) -> Result<(), String> {
+        thresholds.validate().map_err(|e| e)?;
+
+        let mut config = anya_security_core::config::Config::load_or_default()
+            .map_err(|e| format!("Failed to load config: {e}"))?;
+        config.thresholds = thresholds;
+
+        let path = anya_security_core::config::Config::default_path()
+            .ok_or_else(|| "Config state unavailable: could not determine config path".to_string())?;
+        config
+            .save_to_file(&path)
+            .map_err(|e| format!("{e}"))?;
+
+        Ok(())
+    }
+
     // ── Installer / first-run commands ────────────────────────────────────────
 
     /// Check whether this is a first run by looking for the `.anya_configured`
@@ -395,6 +425,8 @@ pub fn run() {
             commands::get_launch_mode,
             commands::get_uninstall_info,
             commands::perform_uninstall,
+            commands::get_thresholds,
+            commands::save_thresholds,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Anya");

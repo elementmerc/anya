@@ -14,13 +14,17 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 // Re-export modules
+pub mod case;
 pub mod confidence;
 pub mod config;
 pub mod data;
 pub mod elf_parser;
 pub mod guided_output;
+pub mod hash_check;
+pub mod ioc;
 pub mod output;
 pub mod pe_parser;
+pub mod yara;
 
 // Output verbosity level
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +67,8 @@ pub struct FileAnalysisResult {
     pub elf_analysis: Option<output::ELFAnalysis>,
     pub mime_type: Option<String>,
     pub byte_histogram: Option<Vec<u32>>,
+    pub file_type_mismatch: Option<output::FileTypeMismatch>,
+    pub ioc_summary: Option<output::IocSummary>,
 }
 
 /// Batch analysis summary
@@ -124,46 +130,68 @@ impl BatchSummary {
     }
 }
 
-/// Calculate cryptographic hashes for data
+/// Calculate cryptographic hashes for data (parallel via rayon)
 pub fn calculate_hashes(data: &[u8]) -> output::Hashes {
-    let md5 = Md5::digest(data);
-    let sha1 = Sha1::digest(data);
-    let sha256 = Sha256::digest(data);
-
-    let tlsh = calculate_tlsh(data);
+    // Compute (md5, sha1) in parallel with (sha256, tlsh)
+    let ((md5, sha1), (sha256, tlsh)) = rayon::join(
+        || {
+            rayon::join(
+                || format!("{:x}", Md5::digest(data)),
+                || format!("{:x}", Sha1::digest(data)),
+            )
+        },
+        || {
+            rayon::join(
+                || format!("{:x}", Sha256::digest(data)),
+                || calculate_tlsh(data),
+            )
+        },
+    );
 
     output::Hashes {
-        md5: format!("{:x}", md5),
-        sha1: format!("{:x}", sha1),
-        sha256: format!("{:x}", sha256),
+        md5,
+        sha1,
+        sha256,
         tlsh,
     }
 }
 
-/// Calculate Shannon entropy
-pub fn calculate_file_entropy(data: &[u8]) -> output::EntropyInfo {
+/// Calculate Shannon entropy and byte histogram in a single pass
+pub fn calculate_entropy_and_histogram(data: &[u8]) -> (output::EntropyInfo, Vec<u32>) {
     let mut frequencies = [0u32; 256];
     for &byte in data {
         frequencies[byte as usize] += 1;
     }
 
     let len = data.len() as f64;
-    let entropy: f64 = frequencies
-        .iter()
-        .filter(|&&count| count > 0)
-        .map(|&count| {
-            let p = count as f64 / len;
-            -p * p.log2()
-        })
-        .sum();
+    let entropy: f64 = if data.is_empty() {
+        0.0
+    } else {
+        frequencies
+            .iter()
+            .filter(|&&count| count > 0)
+            .map(|&count| {
+                let p = count as f64 / len;
+                -p * p.log2()
+            })
+            .sum()
+    };
 
     let (category, is_suspicious) = categorize_entropy(entropy);
 
-    output::EntropyInfo {
+    let info = output::EntropyInfo {
         value: entropy,
         category: category.to_string(),
         is_suspicious,
-    }
+        confidence: None,
+    };
+
+    (info, frequencies.to_vec())
+}
+
+/// Calculate Shannon entropy (delegates to combined function)
+pub fn calculate_file_entropy(data: &[u8]) -> output::EntropyInfo {
+    calculate_entropy_and_histogram(data).0
 }
 
 /// Categorize entropy value
@@ -181,16 +209,25 @@ pub fn categorize_entropy(entropy: f64) -> (&'static str, bool) {
     }
 }
 
-/// Extract printable ASCII strings
-pub fn extract_strings_data(data: &[u8], min_length: usize) -> output::StringsInfo {
+/// Extract printable ASCII strings with byte offsets (capped at 500)
+pub fn extract_strings_with_offsets(data: &[u8], min_length: usize) -> (Vec<(String, usize)>, usize) {
+    const MAX_COLLECT: usize = 500;
     let mut strings = Vec::new();
+    let mut total_count: usize = 0;
     let mut current = Vec::new();
+    let mut start_offset: usize = 0;
 
-    for &byte in data {
+    for (i, &byte) in data.iter().enumerate() {
         if byte.is_ascii_graphic() || byte == b' ' {
+            if current.is_empty() {
+                start_offset = i;
+            }
             current.push(byte);
         } else if current.len() >= min_length {
-            strings.push(String::from_utf8_lossy(&current).to_string());
+            total_count += 1;
+            if strings.len() < MAX_COLLECT {
+                strings.push((String::from_utf8_lossy(&current).to_string(), start_offset));
+            }
             current.clear();
         } else {
             current.clear();
@@ -198,14 +235,23 @@ pub fn extract_strings_data(data: &[u8], min_length: usize) -> output::StringsIn
     }
 
     if current.len() >= min_length {
-        strings.push(String::from_utf8_lossy(&current).to_string());
+        total_count += 1;
+        if strings.len() < MAX_COLLECT {
+            strings.push((String::from_utf8_lossy(&current).to_string(), start_offset));
+        }
     }
 
-    let total_count = strings.len();
-    let sample_count = 10.min(total_count);
-    let samples: Vec<String> = strings.iter().take(sample_count).cloned().collect();
+    (strings, total_count)
+}
 
-    let classified = Some(classify_strings(&strings));
+/// Extract printable ASCII strings (capped collection to limit memory)
+pub fn extract_strings_data(data: &[u8], min_length: usize) -> output::StringsInfo {
+    let (strings_with_offsets, total_count) = extract_strings_with_offsets(data, min_length);
+
+    let sample_count = 10.min(strings_with_offsets.len());
+    let samples: Vec<String> = strings_with_offsets.iter().take(sample_count).map(|(s, _)| s.clone()).collect();
+
+    let classified = Some(classify_strings(&strings_with_offsets));
 
     output::StringsInfo {
         min_length,
@@ -252,27 +298,24 @@ fn calculate_tlsh(data: &[u8]) -> Option<String> {
     })
 }
 
-/// Calculate byte value histogram (256 entries)
-fn calculate_byte_histogram(data: &[u8]) -> Vec<u32> {
-    let mut hist = vec![0u32; 256];
-    for &b in data {
-        hist[b as usize] += 1;
-    }
-    hist
-}
+// calculate_byte_histogram is now integrated into calculate_entropy_and_histogram
 
-/// Classify extracted strings into categories
-fn classify_strings(strings: &[String]) -> Vec<output::ClassifiedString> {
+/// Classify extracted strings into categories (IOC-first, then legacy fallback)
+fn classify_strings(strings: &[(String, usize)]) -> Vec<output::ClassifiedString> {
     strings
         .iter()
-        .filter(|s| s.len() >= 8)
-        .take(500) // Limit to avoid huge results
-        .map(|s| {
-            let category = classify_single_string(s);
+        .filter(|(s, _)| s.len() >= 8)
+        .take(500)
+        .map(|(s, offset)| {
+            let category = if let Some(ioc) = ioc::classify_ioc(s) {
+                ioc::ioc_type_to_category(&ioc)
+            } else {
+                classify_single_string(s)
+            };
             output::ClassifiedString {
                 value: s.clone(),
                 category,
-                offset: None,
+                offset: Some(format!("0x{:X}", offset)),
             }
         })
         .collect()
@@ -349,29 +392,100 @@ fn looks_like_ipv4(s: &str) -> bool {
     })
 }
 
+/// Detect mismatch between file extension and detected magic bytes.
+fn detect_file_type_mismatch(data: &[u8], extension: Option<&str>) -> Option<output::FileTypeMismatch> {
+    let ext = extension?;
+    let ext_lower = ext.to_lowercase();
+
+    // Map magic bytes → (label, expected extensions)
+    let (detected_type, expected): (&str, &[&str]) = if data.starts_with(b"MZ") {
+        ("PE/MZ executable", &["exe", "dll", "sys", "drv", "ocx", "scr", "cpl", "efi"])
+    } else if data.starts_with(b"\x7fELF") {
+        ("ELF binary", &["elf", "so", "bin", ""])
+    } else if data.starts_with(b"%PDF") {
+        ("PDF document", &["pdf"])
+    } else if data.starts_with(b"PK\x03\x04") {
+        ("ZIP archive", &["zip", "docx", "xlsx", "pptx", "jar", "apk"])
+    } else if data.starts_with(b"Rar!") {
+        ("RAR archive", &["rar"])
+    } else if data.len() >= 4 && data[..4] == [0x37, 0x7A, 0xBC, 0xAF] {
+        ("7-Zip archive", &["7z"])
+    } else if data.len() >= 2 && data[..2] == [0x1F, 0x8B] {
+        ("GZIP archive", &["gz", "tgz"])
+    } else if data.starts_with(b"\x89PNG") {
+        ("PNG image", &["png"])
+    } else if data.len() >= 3 && data[..3] == [0xFF, 0xD8, 0xFF] {
+        ("JPEG image", &["jpg", "jpeg"])
+    } else {
+        return None; // Unrecognised magic — can't compare
+    };
+
+    if expected.contains(&ext_lower.as_str()) {
+        return None; // Extension matches detected type
+    }
+
+    // Determine severity
+    let severity = {
+        let is_executable_magic = detected_type.contains("executable") || detected_type.contains("ELF");
+        let is_disguise_ext = matches!(
+            ext_lower.as_str(),
+            "pdf" | "doc" | "docx" | "xls" | "xlsx" | "jpg" | "jpeg" | "png"
+            | "txt" | "csv" | "mp3" | "mp4" | "zip" | "rar"
+        );
+
+        if is_executable_magic && is_disguise_ext {
+            output::MismatchSeverity::High
+        } else if detected_type.contains("archive") && !expected.contains(&ext_lower.as_str()) {
+            output::MismatchSeverity::Medium
+        } else {
+            output::MismatchSeverity::Low
+        }
+    };
+
+    Some(output::FileTypeMismatch {
+        detected_type: detected_type.to_string(),
+        claimed_extension: format!(".{}", ext_lower),
+        severity,
+    })
+}
+
 /// Analyze a single file and return structured result
 pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysisResult> {
     // Read file
-    let data = fs::read(path).context("Failed to read file")?;
+    let data = fs::read(path).with_context(|| {
+        format!(
+            "Couldn't read '{}'. Check that the file exists and you have read permission.",
+            path.display()
+        )
+    })?;
     let size_bytes = data.len();
 
     // Calculate hashes
     let hashes = calculate_hashes(&data);
 
-    // Calculate entropy
-    let entropy = calculate_file_entropy(&data);
+    // Calculate entropy + byte histogram in one pass
+    let (entropy, histogram) = calculate_entropy_and_histogram(&data);
 
-    // Extract strings
+    // Extract strings + IOC detection
     let strings = extract_strings_data(&data, min_string_length);
+    let ioc_summary = {
+        let (strings_with_offsets, _) = extract_strings_with_offsets(&data, min_string_length);
+        let summary = ioc::extract_iocs(&strings_with_offsets);
+        if summary.ioc_strings.is_empty() { None } else { Some(summary) }
+    };
 
     // Determine file format and analyse
     let (file_format, pe_analysis, elf_analysis) = match Object::parse(&data) {
         Ok(Object::PE(_)) => {
-            let pe_data = pe_parser::analyse_pe_data(&data)?;
+            let pe_data = pe_parser::analyse_pe_data(&data).with_context(|| {
+                format!("PE analysis failed for '{}'. The file may be corrupted or truncated.", path.display())
+            })?;
             ("Windows PE".to_string(), Some(pe_data), None)
         }
         Ok(Object::Elf(_)) => {
-            let elf_data = elf_parser::analyse_elf_data(&data)?;
+            let elf_data = elf_parser::analyse_elf_data(&data).with_context(|| {
+                format!("ELF analysis failed for '{}'. The file may be corrupted or truncated.", path.display())
+            })?;
             ("Linux ELF".to_string(), None, Some(elf_data))
         }
         Ok(Object::Mach(_)) => ("macOS Mach-O".to_string(), None, None),
@@ -379,9 +493,14 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
         Err(_) => ("Unrecognized".to_string(), None, None),
     };
 
-    // New v1.0.2 features
+    // MIME type detection
     let mime_type = detect_mime_type(&data);
-    let byte_histogram = Some(calculate_byte_histogram(&data));
+
+    // File type mismatch detection
+    let file_type_mismatch = detect_file_type_mismatch(
+        &data,
+        path.extension().and_then(|e| e.to_str()),
+    );
 
     Ok(FileAnalysisResult {
         path: path.to_path_buf(),
@@ -393,18 +512,26 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
         pe_analysis,
         elf_analysis,
         mime_type,
-        byte_histogram,
+        byte_histogram: Some(histogram),
+        file_type_mismatch,
+        ioc_summary,
     })
 }
 
 /// Find all executable files in a directory
 pub fn find_executable_files(dir_path: &Path, recursive: bool) -> Result<Vec<PathBuf>> {
     if !dir_path.exists() {
-        anyhow::bail!("Directory does not exist: {:?}", dir_path);
+        anyhow::bail!(
+            "Couldn't find the directory at '{}'. Double-check the path and try again.",
+            dir_path.display()
+        );
     }
 
     if !dir_path.is_dir() {
-        anyhow::bail!("Path is not a directory: {:?}", dir_path);
+        anyhow::bail!(
+            "'{}' is not a directory. Provide a directory path for batch scanning.",
+            dir_path.display()
+        );
     }
 
     let walker = if recursive {
@@ -422,6 +549,58 @@ pub fn find_executable_files(dir_path: &Path, recursive: bool) -> Result<Vec<Pat
         .collect();
 
     Ok(files)
+}
+
+/// Compute a verdict string from analysis results.
+/// Returns (verdict_word, full_summary) e.g. ("MALICIOUS", "MALICIOUS — 4 critical indicators, 2 high")
+pub fn compute_verdict(result: &output::AnalysisResult) -> (String, String) {
+    let detections = confidence::top_detections(result, 100);
+
+    // Check for unknown format first
+    if result.file_format == "Unrecognized" || result.file_format == "Unknown" {
+        return ("UNKNOWN".to_string(), "UNKNOWN — file format not recognised".to_string());
+    }
+
+    let mut critical = 0usize;
+    let mut high = 0usize;
+    let mut medium = 0usize;
+
+    for d in &detections {
+        match d.confidence {
+            output::ConfidenceLevel::Critical => critical += 1,
+            output::ConfidenceLevel::High => high += 1,
+            output::ConfidenceLevel::Medium => medium += 1,
+            output::ConfidenceLevel::Low => {}
+        }
+    }
+
+    let verdict = if critical > 0 || high >= 2 {
+        "MALICIOUS"
+    } else if high > 0 || medium >= 2 {
+        "SUSPICIOUS"
+    } else {
+        "CLEAN"
+    };
+
+    // Build detail string
+    let mut parts = Vec::new();
+    if critical > 0 {
+        parts.push(format!("{} critical", critical));
+    }
+    if high > 0 {
+        parts.push(format!("{} high", high));
+    }
+    if medium > 0 {
+        parts.push(format!("{} medium", medium));
+    }
+
+    let summary = if parts.is_empty() {
+        format!("{} — no significant indicators found", verdict)
+    } else {
+        format!("{} — {} indicator{}", verdict, parts.join(", "), if critical + high + medium == 1 { "" } else { "s" })
+    };
+
+    (verdict.to_string(), summary)
 }
 
 /// Check if a file is suspicious based on analysis
@@ -611,6 +790,10 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
             data::explanations::get_explanation_for_api_combo(&import_names)
         },
         byte_histogram: result.byte_histogram.clone(),
+        file_type_mismatch: result.file_type_mismatch.clone(),
+        ioc_summary: result.ioc_summary.clone(),
+        verdict_summary: None, // populated by caller
+        top_findings: vec![],  // populated by caller
     }
 }
 
@@ -800,6 +983,7 @@ mod tests {
             value: 4.0,
             category: "Moderate".to_string(),
             is_suspicious: false,
+            confidence: None,
         }
     }
 
@@ -808,6 +992,7 @@ mod tests {
             value: 7.8,
             category: "Very High".to_string(),
             is_suspicious: true,
+            confidence: None,
         }
     }
 
@@ -862,6 +1047,8 @@ mod tests {
             elf_analysis: None,
             mime_type: None,
             byte_histogram: None,
+            file_type_mismatch: None,
+            ioc_summary: None,
         }
     }
 
@@ -880,6 +1067,8 @@ mod tests {
             elf_analysis: None,
             mime_type: None,
             byte_histogram: None,
+            file_type_mismatch: None,
+            ioc_summary: None,
         };
 
         assert!(is_suspicious_file(&result));
@@ -903,6 +1092,7 @@ mod tests {
             is_suspicious: false,
             is_wx: true,
             name_anomaly: None,
+            confidence: None,
         });
         let mut result = baseline_result();
         result.pe_analysis = Some(pe);
@@ -987,6 +1177,7 @@ mod tests {
             high_entropy: true,
             overlay_mime_type: None,
             overlay_characterisation: None,
+            confidence: None,
         });
         let mut result = baseline_result();
         result.pe_analysis = Some(pe);
@@ -1003,6 +1194,7 @@ mod tests {
             high_entropy: false,
             overlay_mime_type: None,
             overlay_characterisation: None,
+            confidence: None,
         });
         let mut result = baseline_result();
         result.pe_analysis = Some(pe);
@@ -1161,6 +1353,8 @@ mod tests {
             elf_analysis: None,
             mime_type: None,
             byte_histogram: None,
+            file_type_mismatch: None,
+            ioc_summary: None,
         };
 
         let json = to_json_output(&result);
