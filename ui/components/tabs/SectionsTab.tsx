@@ -131,6 +131,7 @@ export default function SectionsTab({ result }: Props) {
                     </span>
                   </th>
                 ))}
+                <th style={{ ...HEADER_STYLE }}>Anomaly</th>
                 <th style={{ ...HEADER_STYLE }}>Permissions</th>
                 <th style={{ ...HEADER_STYLE }}>Flags</th>
               </tr>
@@ -202,6 +203,17 @@ export default function SectionsTab({ result }: Props) {
                       }}
                     >
                       {sec.entropy.toFixed(4)}
+                    </td>
+                    <td
+                      style={{
+                        padding: "10px 12px",
+                        fontSize: "var(--font-size-xs)",
+                        color: sec.name_anomaly ? "var(--risk-medium)" : "var(--text-muted)",
+                        borderBottom: "1px solid var(--border-subtle)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {sec.name_anomaly ?? "—"}
                     </td>
                     <td
                       style={{

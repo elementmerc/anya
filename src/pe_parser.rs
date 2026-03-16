@@ -295,6 +295,7 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
                 entropy,
                 is_suspicious: entropy > 7.5,
                 is_wx: writable && executable,
+                name_anomaly: None, // Populated below after section collection
             }
         })
         .collect();
@@ -311,12 +312,22 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
         }
     }
 
+    let total_imports = pe.imports.len();
+    let file_size_bytes = data.len();
+    let imports_per_kb = if file_size_bytes > 0 {
+        Some(((total_imports as f64 / (file_size_bytes as f64 / 1024.0)) * 100.0).round() / 100.0)
+    } else {
+        None
+    };
+
     let imports = output::ImportAnalysis {
         dll_count: pe.libraries.len(),
-        total_imports: pe.imports.len(),
+        total_imports,
         suspicious_api_count: suspicious_apis.len(),
         suspicious_apis,
         libraries: pe.libraries.iter().map(|s| s.to_string()).collect(),
+        imports_per_kb,
+        import_ratio_suspicious: imports_per_kb.map(|r| r > 30.0),
     };
 
     // Analyse exports
@@ -364,6 +375,19 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
     let authenticode = Some(check_authenticode(data, &pe));
     let version_info = extract_version_info(&pe, data);
 
+    // New v1.0.2 features
+    let debug_artifacts = Some(extract_debug_artifacts(data, &pe, &version_info));
+    let weak_crypto = detect_weak_crypto(data);
+    let compiler_deps = compiler.as_ref()
+        .map(|c| infer_compiler_deps(&c.name, &imports.libraries))
+        .unwrap_or_default();
+
+    // Populate section name anomalies
+    let sections = sections.into_iter().map(|mut s| {
+        s.name_anomaly = Some(classify_section_name(&s.name, s.entropy));
+        s
+    }).collect();
+
     Ok(output::PEAnalysis {
         architecture,
         is_64bit: pe.is_64,
@@ -385,6 +409,9 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
         ordinal_imports,
         authenticode,
         version_info,
+        debug_artifacts,
+        weak_crypto,
+        compiler_deps,
     })
 }
 
@@ -1368,11 +1395,27 @@ fn detect_overlay(data: &[u8], pe: &PE) -> Option<output::OverlayInfo> {
     let overlay_data = &data[end_of_sections..];
     let entropy = calculate_entropy(overlay_data);
 
+    let overlay_mime = if overlay_data.len() >= 16 {
+        infer::get(overlay_data).map(|t| t.mime_type().to_string())
+    } else {
+        None
+    };
+
+    let overlay_char = overlay_mime.as_deref().map(|m| match m {
+        "application/zip" => "ZIP archive — possible payload container".to_string(),
+        "application/x-dosexec" => "Embedded PE executable".to_string(),
+        "application/pdf" => "PDF document".to_string(),
+        m if m.starts_with("image/") => "Image data".to_string(),
+        other => other.to_string(),
+    }).or_else(|| Some("Unknown/random data".to_string()));
+
     Some(output::OverlayInfo {
         offset: end_of_sections,
         size: overlay_data.len(),
         entropy,
         high_entropy: entropy > 6.8,
+        overlay_mime_type: overlay_mime,
+        overlay_characterisation: overlay_char,
     })
 }
 
@@ -1891,6 +1934,9 @@ fn check_authenticode(data: &[u8], pe: &PE) -> output::AuthenticodeInfo {
         issuer_cn: None,
         is_microsoft_signed: false,
         cert_size: 0,
+        status: Some("Absent".to_string()),
+        issuer: None,
+        not_after: None,
     };
 
     let oh = match pe.header.optional_header.as_ref() {
@@ -1912,6 +1958,9 @@ fn check_authenticode(data: &[u8], pe: &PE) -> output::AuthenticodeInfo {
             issuer_cn: None,
             is_microsoft_signed: false,
             cert_size: cert_dd.size,
+            status: Some("Present".to_string()),
+            issuer: None,
+            not_after: None,
         };
     }
 
@@ -1939,12 +1988,24 @@ fn check_authenticode(data: &[u8], pe: &PE) -> output::AuthenticodeInfo {
         .map(|s| s.contains("Microsoft"))
         .unwrap_or(false);
 
+    // Determine status: Self-signed if signer == issuer, otherwise Present
+    let status = if signer_cn.is_some() && signer_cn == issuer_cn {
+        "Self-signed".to_string()
+    } else {
+        "Present".to_string()
+    };
+
+    let issuer_for_new_field = issuer_cn.clone();
+
     output::AuthenticodeInfo {
         present: true,
         signer_cn,
         issuer_cn,
         is_microsoft_signed,
         cert_size: cert_dd.size,
+        status: Some(status),
+        issuer: issuer_for_new_field,
+        not_after: None, // Full PKCS#7 parsing needed for expiry date
     }
 }
 
@@ -2238,6 +2299,170 @@ fn calculate_entropy(data: &[u8]) -> f64 {
     }
 
     entropy
+}
+
+// ─── New v1.0.2 analysis functions ───────────────────────────────────────────
+
+/// Classify a section name as "Normal", "Elevated", or "Suspicious"
+fn classify_section_name(name: &str, entropy: f64) -> String {
+    const STANDARD_NAMES: &[&str] = &[
+        ".text", ".data", ".rdata", ".rsrc", ".reloc", ".pdata", ".bss",
+        ".edata", ".idata", ".tls", ".debug", ".ndata",
+        "CODE", "DATA", "BSS",
+    ];
+    const PACKER_NAMES: &[&str] = &[
+        ".MPRESS1", ".MPRESS2", "UPX0", "UPX1", ".themida",
+        ".vmp0", ".vmp1", ".vmp2", ".packed", ".shrink", "ASPack",
+    ];
+
+    let name_upper = name.to_uppercase();
+    if PACKER_NAMES.iter().any(|p| p.to_uppercase() == name_upper) {
+        return "Suspicious".to_string();
+    }
+
+    let is_standard = STANDARD_NAMES.iter().any(|s| s.to_uppercase() == name_upper);
+    if is_standard {
+        if entropy > 7.0 {
+            "Suspicious".to_string()
+        } else if entropy > 5.0 {
+            "Elevated".to_string()
+        } else {
+            "Normal".to_string()
+        }
+    } else if entropy > 7.0 {
+        "Suspicious".to_string()
+    } else if entropy > 5.0 {
+        "Elevated".to_string()
+    } else {
+        "Normal".to_string()
+    }
+}
+
+/// Extract debug artifacts from PE debug directory
+fn extract_debug_artifacts(
+    data: &[u8],
+    pe: &PE,
+    version_info: &Option<output::VersionInfo>,
+) -> output::DebugArtifacts {
+    let timestamp_zeroed = pe.header.coff_header.time_date_stamp == 0;
+
+    // Extract PDB path from CODEVIEW debug entry
+    let pdb_path = pe.debug_data.as_ref().and_then(|debug| {
+        debug.codeview_pdb70_debug_info.as_ref().map(|cv| {
+            String::from_utf8_lossy(&cv.filename).trim_end_matches('\0').to_string()
+        })
+    });
+
+    // Check version info for suspicious repeated characters
+    let version_info_suspicious = version_info.as_ref().map(|vi| {
+        let fields = [
+            &vi.company_name, &vi.product_name, &vi.file_description,
+            &vi.file_version, &vi.original_filename, &vi.legal_copyright,
+        ];
+        fields.iter().any(|f| {
+            if let Some(val) = f {
+                if !val.is_empty() {
+                    let chars: std::collections::HashSet<char> = val.chars().collect();
+                    chars.len() <= 1
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        })
+    }).unwrap_or(false);
+
+    output::DebugArtifacts {
+        pdb_path,
+        timestamp_zeroed,
+        version_info_suspicious,
+    }
+}
+
+/// Detect weak cryptography constants in binary data
+fn detect_weak_crypto(data: &[u8]) -> Vec<output::WeakCryptoIndicator> {
+    let mut indicators = Vec::new();
+
+    // MD5 init constants: 0x67452301 0xEFCDAB89 0x98BADCFE 0x10325476
+    let md5_init: [u8; 16] = [
+        0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+        0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10,
+    ];
+    if let Some(pos) = data.windows(16).position(|w| w == md5_init) {
+        indicators.push(output::WeakCryptoIndicator {
+            name: "MD5 init constants".to_string(),
+            evidence: "MD5 initialisation vector found — may implement custom MD5 hashing".to_string(),
+            offset: Some(format!("0x{:06X}", pos)),
+        });
+    }
+
+    // AES S-box first 16 bytes
+    let aes_sbox: [u8; 16] = [
+        0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5,
+        0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
+    ];
+    if let Some(pos) = data.windows(16).position(|w| w == aes_sbox) {
+        indicators.push(output::WeakCryptoIndicator {
+            name: "AES S-box constants".to_string(),
+            evidence: "AES substitution box found — custom AES implementation".to_string(),
+            offset: Some(format!("0x{:06X}", pos)),
+        });
+    }
+
+    indicators
+}
+
+/// Infer compiler dependencies from compiler name and imported libraries
+fn infer_compiler_deps(compiler: &str, libraries: &[String]) -> Vec<output::CompilerDep> {
+    let mut deps = Vec::new();
+    let compiler_lower = compiler.to_lowercase();
+    let libs_lower: Vec<String> = libraries.iter().map(|l| l.to_lowercase()).collect();
+
+    if compiler_lower.contains("delphi") || compiler_lower.contains("borland") {
+        deps.push(output::CompilerDep {
+            name: "Borland RTL".to_string(),
+            description: "Borland runtime library".to_string(),
+            risk: "Expected".to_string(),
+        });
+        if libs_lower.iter().any(|l| l.contains("ws2_32") || l.contains("wsock32")) {
+            deps.push(output::CompilerDep {
+                name: "Network socket capability".to_string(),
+                description: "ws2_32.dll present in a Delphi application".to_string(),
+                risk: "Uncommon".to_string(),
+            });
+        }
+    } else if compiler_lower.contains("msvc") {
+        deps.push(output::CompilerDep {
+            name: "MSVC CRT".to_string(),
+            description: "Microsoft Visual C++ runtime".to_string(),
+            risk: "Expected".to_string(),
+        });
+        for lib in &libs_lower {
+            if lib.starts_with("msvcr") || lib.starts_with("vcruntime") || lib.starts_with("ucrtbase") {
+                deps.push(output::CompilerDep {
+                    name: lib.clone(),
+                    description: "Visual C++ runtime library".to_string(),
+                    risk: "Expected".to_string(),
+                });
+                break;
+            }
+        }
+    } else if compiler_lower.contains("go") {
+        deps.push(output::CompilerDep {
+            name: "Go runtime".to_string(),
+            description: "Self-contained binary, imports minimal system APIs".to_string(),
+            risk: "Expected".to_string(),
+        });
+    } else if compiler_lower.contains("rust") {
+        deps.push(output::CompilerDep {
+            name: "Rust stdlib".to_string(),
+            description: "Memory-safe runtime, typically statically linked".to_string(),
+            risk: "Expected".to_string(),
+        });
+    }
+
+    deps
 }
 
 #[cfg(test)]

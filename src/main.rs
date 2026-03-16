@@ -418,6 +418,7 @@ fn analyse_single_file(
             extension: file_path
                 .extension()
                 .map(|e| e.to_string_lossy().to_string()),
+            mime_type: None,
         };
 
         let result = output::AnalysisResult {
@@ -439,6 +440,7 @@ fn analyse_single_file(
             mitre_techniques: vec![],
             confidence_scores: std::collections::HashMap::new(),
             plain_english_findings: vec![],
+            byte_histogram: None,
         };
 
         // Serialise to JSON (pretty-printed with indentation)

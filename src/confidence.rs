@@ -206,6 +206,8 @@ mod tests {
                 suspicious_api_count: 0,
                 suspicious_apis: vec![],
                 libraries: vec![],
+                imports_per_kb: None,
+                import_ratio_suspicious: None,
             },
             exports: None,
             imphash: None,
@@ -219,6 +221,9 @@ mod tests {
             ordinal_imports: vec![],
             authenticode: None,
             version_info: None,
+            debug_artifacts: None,
+            weak_crypto: vec![],
+            compiler_deps: vec![],
         }
     }
 
@@ -239,6 +244,7 @@ mod tests {
             entropy: 7.9,
             is_suspicious: true,
             is_wx: true,
+            name_anomaly: None,
         });
         let score = calculate_risk_score(Some(&pe), None);
         assert!(score >= BONUS_WX_SECTION);
@@ -288,6 +294,8 @@ mod tests {
             size: 500,
             entropy: 7.9,
             high_entropy: true,
+            overlay_mime_type: None,
+            overlay_characterisation: None,
         });
         let score = calculate_risk_score(Some(&pe), None);
         assert!(score >= BONUS_HIGH_ENTROPY_OVERLAY);
@@ -301,6 +309,8 @@ mod tests {
             size: 500,
             entropy: 3.0,
             high_entropy: false,
+            overlay_mime_type: None,
+            overlay_characterisation: None,
         });
         assert_eq!(calculate_risk_score(Some(&pe), None), 0);
     }
@@ -354,6 +364,7 @@ mod tests {
             entropy: 7.9,
             is_suspicious: true,
             is_wx: true,
+            name_anomaly: None,
         });
         pe.packers.push(PackerFinding {
             name: "UPX".to_string(),
@@ -369,6 +380,8 @@ mod tests {
             size: 500,
             entropy: 7.9,
             high_entropy: true,
+            overlay_mime_type: None,
+            overlay_characterisation: None,
         });
         pe.anti_analysis.extend([
             AntiAnalysisFinding {

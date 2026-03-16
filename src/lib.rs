@@ -61,6 +61,8 @@ pub struct FileAnalysisResult {
     pub file_format: String,
     pub pe_analysis: Option<output::PEAnalysis>,
     pub elf_analysis: Option<output::ELFAnalysis>,
+    pub mime_type: Option<String>,
+    pub byte_histogram: Option<Vec<u32>>,
 }
 
 /// Batch analysis summary
@@ -128,10 +130,13 @@ pub fn calculate_hashes(data: &[u8]) -> output::Hashes {
     let sha1 = Sha1::digest(data);
     let sha256 = Sha256::digest(data);
 
+    let tlsh = calculate_tlsh(data);
+
     output::Hashes {
         md5: format!("{:x}", md5),
         sha1: format!("{:x}", sha1),
         sha256: format!("{:x}", sha256),
+        tlsh,
     }
 }
 
@@ -200,11 +205,14 @@ pub fn extract_strings_data(data: &[u8], min_length: usize) -> output::StringsIn
     let sample_count = 10.min(total_count);
     let samples: Vec<String> = strings.iter().take(sample_count).cloned().collect();
 
+    let classified = Some(classify_strings(&strings));
+
     output::StringsInfo {
         min_length,
         total_count,
         samples,
         sample_count,
+        classified,
     }
 }
 
@@ -221,6 +229,100 @@ pub fn is_executable_file(path: &Path) -> bool {
         "elf" | "so" | "bin" |                          // Linux
         "dylib" | "bundle" | "app" // macOS
     )
+}
+
+/// Detect MIME type via magic bytes
+fn detect_mime_type(data: &[u8]) -> Option<String> {
+    infer::get(data).map(|t| t.mime_type().to_string())
+}
+
+/// Calculate TLSH fuzzy hash (returns None if file < 50 bytes)
+fn calculate_tlsh(data: &[u8]) -> Option<String> {
+    if data.len() < 50 {
+        return None;
+    }
+    let mut builder = tlsh2::TlshBuilder128_1::new();
+    builder.update(data);
+    builder.build().map(|h| {
+        let bytes = h.hash();
+        bytes.iter().map(|b| format!("{:02X}", b)).collect::<String>()
+    })
+}
+
+/// Calculate byte value histogram (256 entries)
+fn calculate_byte_histogram(data: &[u8]) -> Vec<u32> {
+    let mut hist = vec![0u32; 256];
+    for &b in data {
+        hist[b as usize] += 1;
+    }
+    hist
+}
+
+/// Classify extracted strings into categories
+fn classify_strings(strings: &[String]) -> Vec<output::ClassifiedString> {
+    strings
+        .iter()
+        .filter(|s| s.len() >= 8)
+        .take(500) // Limit to avoid huge results
+        .map(|s| {
+            let category = classify_single_string(s);
+            output::ClassifiedString {
+                value: s.clone(),
+                category,
+                offset: None,
+            }
+        })
+        .collect()
+}
+
+fn classify_single_string(s: &str) -> String {
+    // URL
+    if s.starts_with("http://") || s.starts_with("https://") || s.starts_with("ftp://") || s.contains("://") {
+        return "URL".to_string();
+    }
+    // IP address (simple check: 4 groups of 1-3 digits separated by dots)
+    if looks_like_ipv4(s) {
+        return "IP".to_string();
+    }
+    // Registry
+    if s.starts_with("HKEY_") || s.starts_with("HKLM\\") || s.starts_with("HKCU\\")
+        || s.starts_with("SOFTWARE\\") || s.starts_with("SYSTEM\\") || s.contains("CurrentVersion")
+    {
+        return "Registry".to_string();
+    }
+    // Command
+    if s.contains("cmd.exe") || s.contains("powershell") || s.contains("/c ")
+        || s.contains("wget ") || s.contains("curl ") || s.contains("bash -c") || s.contains("sh -c")
+    {
+        return "Command".to_string();
+    }
+    // Path
+    if (s.starts_with("C:\\") || s.starts_with("D:\\") || s.starts_with("%")
+        || s.starts_with("/home/") || s.starts_with("/etc/") || s.starts_with("/usr/"))
+        || ((s.contains('\\') || s.contains('/'))
+            && (s.contains(".exe") || s.contains(".dll") || s.contains(".pdb")))
+    {
+        return "Path".to_string();
+    }
+    // Base64 (length >= 20, alphanumeric + /+=, length multiple of 4)
+    if s.len() >= 20 && s.len() % 4 <= 1
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
+        && s.ends_with('=')
+    {
+        return "Base64".to_string();
+    }
+    "Plain".to_string()
+}
+
+fn looks_like_ipv4(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() != 4 {
+        return false;
+    }
+    parts.iter().all(|p| {
+        p.len() >= 1 && p.len() <= 3 && p.chars().all(|c| c.is_ascii_digit())
+            && p.parse::<u16>().map(|n| n <= 255).unwrap_or(false)
+    })
 }
 
 /// Analyze a single file and return structured result
@@ -253,6 +355,10 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
         Err(_) => ("Unrecognized".to_string(), None, None),
     };
 
+    // New v1.0.2 features
+    let mime_type = detect_mime_type(&data);
+    let byte_histogram = Some(calculate_byte_histogram(&data));
+
     Ok(FileAnalysisResult {
         path: path.to_path_buf(),
         size_bytes,
@@ -262,6 +368,8 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
         file_format,
         pe_analysis,
         elf_analysis,
+        mime_type,
+        byte_histogram,
     })
 }
 
@@ -361,6 +469,7 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
                 .path
                 .extension()
                 .map(|e| e.to_string_lossy().to_string()),
+            mime_type: result.mime_type.clone(),
         },
         hashes: result.hashes.clone(),
         entropy: result.entropy.clone(),
@@ -477,6 +586,7 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
                 .unwrap_or_default();
             data::explanations::get_explanation_for_api_combo(&import_names)
         },
+        byte_histogram: result.byte_histogram.clone(),
     }
 }
 
@@ -695,6 +805,8 @@ mod tests {
                 suspicious_api_count: 0,
                 suspicious_apis: vec![],
                 libraries: vec![],
+                imports_per_kb: None,
+                import_ratio_suspicious: None,
             },
             exports: None,
             imphash: None,
@@ -708,6 +820,9 @@ mod tests {
             ordinal_imports: vec![],
             authenticode: None,
             version_info: None,
+            debug_artifacts: None,
+            weak_crypto: vec![],
+            compiler_deps: vec![],
         }
     }
 
@@ -721,6 +836,8 @@ mod tests {
             file_format: "Windows PE".to_string(),
             pe_analysis: None,
             elf_analysis: None,
+            mime_type: None,
+            byte_histogram: None,
         }
     }
 
@@ -737,6 +854,8 @@ mod tests {
             file_format: "PE".to_string(),
             pe_analysis: None,
             elf_analysis: None,
+            mime_type: None,
+            byte_histogram: None,
         };
 
         assert!(is_suspicious_file(&result));
@@ -759,6 +878,7 @@ mod tests {
             entropy: 3.0,
             is_suspicious: false,
             is_wx: true,
+            name_anomaly: None,
         });
         let mut result = baseline_result();
         result.pe_analysis = Some(pe);
@@ -841,6 +961,8 @@ mod tests {
             size: 256,
             entropy: 7.5,
             high_entropy: true,
+            overlay_mime_type: None,
+            overlay_characterisation: None,
         });
         let mut result = baseline_result();
         result.pe_analysis = Some(pe);
@@ -855,6 +977,8 @@ mod tests {
             size: 256,
             entropy: 3.0,
             high_entropy: false,
+            overlay_mime_type: None,
+            overlay_characterisation: None,
         });
         let mut result = baseline_result();
         result.pe_analysis = Some(pe);
@@ -1011,6 +1135,8 @@ mod tests {
             file_format: "PE".to_string(),
             pe_analysis: None,
             elf_analysis: None,
+            mime_type: None,
+            byte_histogram: None,
         };
 
         let json = to_json_output(&result);

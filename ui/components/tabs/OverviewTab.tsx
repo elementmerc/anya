@@ -151,12 +151,17 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate }: Prop
     ["Subsystem",   pe?.file_type ?? "—"],
   ];
 
+  if (fi.mime_type) {
+    infoRows.push(["MIME Type", fi.mime_type]);
+  }
+
   const hashRows: [string, string][] = [
     ["MD5",    result.hashes.md5],
     ["SHA1",   result.hashes.sha1],
     ["SHA256", result.hashes.sha256],
   ];
 
+  if (result.hashes.tlsh) hashRows.push(["TLSH", result.hashes.tlsh]);
   if (pe?.imphash) hashRows.push(["ImpHash", pe.imphash]);
 
   return (
@@ -368,6 +373,29 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate }: Prop
                           Known families: {f.malware_families.join(", ")}
                         </p>
                       )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Compiler Dependencies ── */}
+          {pe?.compiler_deps && pe.compiler_deps.length > 0 && (
+            <div>
+              <p style={{ fontSize: "var(--font-size-xs)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 12 }}>
+                Compiler Dependencies
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {pe.compiler_deps.map((dep, i) => {
+                  const riskColor = dep.risk === "Suspicious" ? "var(--risk-high)" : dep.risk === "Uncommon" ? "var(--risk-medium)" : "var(--text-muted)";
+                  return (
+                    <div key={i} className="animate-in" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ fontSize: "var(--font-size-sm)", fontWeight: 500, color: "var(--text-primary)" }}>{dep.name}</span>
+                        <p style={{ margin: "2px 0 0", fontSize: "var(--font-size-xs)", color: "var(--text-muted)", lineHeight: 1.4 }}>{dep.description}</p>
+                      </div>
+                      <span style={{ fontSize: "var(--font-size-xs)", padding: "2px 8px", borderRadius: 999, background: `${riskColor}1a`, color: riskColor, border: `1px solid ${riskColor}44`, flexShrink: 0 }}>{dep.risk}</span>
                     </div>
                   );
                 })}

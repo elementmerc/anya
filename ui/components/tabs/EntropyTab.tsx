@@ -174,6 +174,75 @@ export default function EntropyTab({ result }: Props) {
           </ResponsiveContainer>
         </div>
 
+        {/* Section name anomalies */}
+        {(() => {
+          const peSections = result.pe_analysis?.sections ?? [];
+          const anomalies = peSections.filter((s) => s.name_anomaly);
+          if (anomalies.length === 0) return null;
+          return (
+            <div style={{ marginTop: 24 }}>
+              <h3 style={{ margin: "0 0 10px", fontSize: "var(--font-size-sm)", fontWeight: 600, color: "var(--text-primary)" }}>
+                Section Name Anomalies
+              </h3>
+              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+                {anomalies.map((s, i) => (
+                  <div key={s.name || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 16px", borderTop: i > 0 ? "1px solid var(--border-subtle)" : undefined }}>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-size-sm)", color: "var(--risk-medium)", minWidth: 100, flexShrink: 0 }}>{s.name || "<unnamed>"}</span>
+                    <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>{s.name_anomaly}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Byte histogram */}
+        {result.byte_histogram && result.byte_histogram.length === 256 && (
+          <div style={{ marginTop: 24 }}>
+            <h3 style={{ margin: "0 0 4px", fontSize: "var(--font-size-sm)", fontWeight: 600, color: "var(--text-primary)" }}>
+              Byte Histogram
+            </h3>
+            <p style={{ margin: "0 0 12px", fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>
+              Distribution of all 256 byte values — flat distributions suggest encryption
+            </p>
+            <div style={{ width: "100%", height: 180 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={result.byte_histogram.map((count, byte) => ({ byte, count }))}
+                  margin={{ top: 4, right: 8, bottom: 4, left: 8 }}
+                >
+                  <XAxis
+                    dataKey="byte"
+                    tick={{ fill: "var(--text-muted)", fontSize: 9 }}
+                    tickLine={false}
+                    axisLine={{ stroke: "var(--border)" }}
+                    interval={31}
+                    tickFormatter={(v: number) => `0x${v.toString(16).toUpperCase()}`}
+                  />
+                  <YAxis hide />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0].payload as { byte: number; count: number };
+                      return (
+                        <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "6px 10px", fontSize: "var(--font-size-xs)" }}>
+                          <p style={{ margin: 0, color: "var(--text-primary)" }}>Byte 0x{d.byte.toString(16).toUpperCase().padStart(2, "0")}</p>
+                          <p style={{ margin: 0, color: "var(--text-secondary)" }}>Count: {d.count.toLocaleString()}</p>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Bar dataKey="count" radius={[1, 1, 0, 0]} maxBarSize={4}>
+                    {result.byte_histogram.map((_, i) => (
+                      <Cell key={i} fill="var(--accent)" fillOpacity={0.7} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
         {/* Legend */}
         <div
           style={{

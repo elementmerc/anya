@@ -159,6 +159,18 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
         </div>
       </div>
 
+      {/* Import ratio warning */}
+      {pe.imports.import_ratio_suspicious && (
+        <div style={{ flexShrink: 0, padding: "8px 24px" }}>
+          <div style={{ maxWidth: 1600, margin: "0 auto", display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", borderRadius: "var(--radius)", background: "rgba(249,115,22,0.08)", border: "1px solid rgba(249,115,22,0.25)" }}>
+            <AlertTriangle size={14} style={{ color: "var(--risk-high)", flexShrink: 0 }} />
+            <span style={{ fontSize: "var(--font-size-xs)", color: "var(--risk-high)" }}>
+              Abnormal import ratio{pe.imports.imports_per_kb != null ? ` (${pe.imports.imports_per_kb.toFixed(1)} imports/KB)` : ""} — may indicate API hammering or dynamic resolution
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Tree */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px 24px" }}>
         <div style={{ maxWidth: 1600, margin: "0 auto" }}>

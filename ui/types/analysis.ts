@@ -5,6 +5,7 @@ export interface Hashes {
   md5: string;
   sha1: string;
   sha256: string;
+  tlsh?: string;
 }
 
 export interface EntropyInfo {
@@ -18,6 +19,13 @@ export interface StringsInfo {
   total_count: number;
   samples: string[];
   sample_count: number;
+  classified?: ClassifiedString[];
+}
+
+export interface ClassifiedString {
+  value: string;
+  category: string;
+  offset?: string;
 }
 
 export interface SecurityFeatures {
@@ -33,6 +41,7 @@ export interface SectionInfo {
   entropy: number;
   is_suspicious: boolean;
   is_wx: boolean;
+  name_anomaly?: string;
 }
 
 export interface SuspiciousAPI {
@@ -46,6 +55,8 @@ export interface ImportAnalysis {
   suspicious_api_count: number;
   suspicious_apis: SuspiciousAPI[];
   libraries: string[];
+  imports_per_kb?: number;
+  import_ratio_suspicious?: boolean;
 }
 
 export interface ExportInfo {
@@ -87,6 +98,8 @@ export interface OverlayInfo {
   size: number;
   entropy: number;
   high_entropy: boolean;
+  overlay_mime_type?: string;
+  overlay_characterisation?: string;
 }
 
 export interface CompilerInfo {
@@ -120,6 +133,9 @@ export interface AuthenticodeInfo {
   issuer_cn?: string;
   is_microsoft_signed: boolean;
   cert_size: number;
+  status?: string;
+  issuer?: string;
+  not_after?: string;
 }
 
 export interface VersionInfo {
@@ -152,6 +168,27 @@ export interface PEAnalysis {
   ordinal_imports: OrdinalImport[];
   authenticode?: AuthenticodeInfo;
   version_info?: VersionInfo;
+  debug_artifacts?: DebugArtifacts;
+  weak_crypto?: WeakCryptoIndicator[];
+  compiler_deps?: CompilerDep[];
+}
+
+export interface DebugArtifacts {
+  pdb_path?: string;
+  timestamp_zeroed: boolean;
+  version_info_suspicious: boolean;
+}
+
+export interface WeakCryptoIndicator {
+  name: string;
+  evidence: string;
+  offset?: string;
+}
+
+export interface CompilerDep {
+  name: string;
+  description: string;
+  risk: string;
 }
 
 export interface ElfSectionInfo {
@@ -197,6 +234,7 @@ export interface FileInfo {
   size_bytes: number;
   size_kb: number;
   extension?: string;
+  mime_type?: string;
 }
 
 // ── New analysis engine types ─────────────────────────────────────────────────
@@ -275,6 +313,7 @@ export interface AnalysisResult {
   mitre_techniques?: MitreTechnique[];
   confidence_scores?: Record<string, ConfidenceLevel>;
   plain_english_findings?: PlainEnglishFinding[];
+  byte_histogram?: number[];
 }
 
 /** Wrapper returned by the analyze_file Tauri command */

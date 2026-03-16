@@ -90,6 +90,10 @@ pub struct AnalysisResult {
     /// Analyst-facing plain-English findings
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plain_english_findings: Vec<PlainEnglishFinding>,
+
+    /// Byte value histogram (256 entries, one per byte value 0x00–0xFF)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub byte_histogram: Option<Vec<u32>>,
 }
 
 /// File metadata
@@ -107,6 +111,10 @@ pub struct FileInfo {
     /// File extension if any
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extension: Option<String>,
+
+    /// MIME type detected via magic bytes
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
 }
 
 /// Cryptographic hashes
@@ -120,6 +128,10 @@ pub struct Hashes {
 
     /// SHA256 hash (hex)
     pub sha256: String,
+
+    /// TLSH fuzzy hash (70-char hex, None if file < 50 bytes)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tlsh: Option<String>,
 }
 
 /// Entropy analysis results
@@ -149,6 +161,10 @@ pub struct StringsInfo {
 
     /// Number of samples shown
     pub sample_count: usize,
+
+    /// Classified strings with categories and offsets
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classified: Option<Vec<ClassifiedString>>,
 }
 
 /// PE file analysis results
@@ -222,6 +238,18 @@ pub struct PEAnalysis {
     /// Version information from VS_VERSIONINFO resource
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version_info: Option<VersionInfo>,
+
+    /// Debug artifacts (PDB path, timestamp, version info anomalies)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debug_artifacts: Option<DebugArtifacts>,
+
+    /// Weak cryptography indicators found in the binary
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub weak_crypto: Vec<WeakCryptoIndicator>,
+
+    /// Compiler dependency manifest
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub compiler_deps: Vec<CompilerDep>,
 }
 
 /// PE checksum comparison
@@ -270,6 +298,14 @@ pub struct OverlayInfo {
     pub entropy: f64,
     /// True when entropy > 6.8 (high entropy — may warrant further review)
     pub high_entropy: bool,
+
+    /// MIME type of the overlay data detected via magic bytes
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overlay_mime_type: Option<String>,
+
+    /// Human-readable overlay characterisation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overlay_characterisation: Option<String>,
 }
 
 /// Detected compiler or language runtime
@@ -321,6 +357,18 @@ pub struct AuthenticodeInfo {
     pub is_microsoft_signed: bool,
     /// Raw certificate block size in bytes
     pub cert_size: u32,
+
+    /// Authenticode status: "Absent", "Present", "Self-signed"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+
+    /// Issuer distinguished name (if parseable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<String>,
+
+    /// Expiry date as ISO 8601 string (if parseable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_after: Option<String>,
 }
 
 /// Version information extracted from the VS_VERSIONINFO resource (RT_VERSION)
@@ -373,6 +421,10 @@ pub struct SectionInfo {
 
     /// Is writable and executable
     pub is_wx: bool,
+
+    /// Section name anomaly assessment: "Normal", "Elevated", or "Suspicious"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name_anomaly: Option<String>,
 }
 
 /// Import analysis
@@ -392,6 +444,14 @@ pub struct ImportAnalysis {
 
     /// List of imported libraries
     pub libraries: Vec<String>,
+
+    /// Imports per KB of file size (total_imports / (file_size / 1024))
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imports_per_kb: Option<f64>,
+
+    /// True if imports_per_kb > 30.0 (anomalous density)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub import_ratio_suspicious: Option<bool>,
 }
 
 /// Suspicious API information
@@ -595,6 +655,54 @@ pub struct SuspiciousLibcCall {
     pub confidence: ConfidenceLevel,
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// New structs for v1.0.2 analysis features
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Debug artifacts extracted from PE debug directory and version info
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebugArtifacts {
+    /// PDB path from IMAGE_DEBUG_TYPE_CODEVIEW
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pdb_path: Option<String>,
+    /// True if PE timestamp is zeroed
+    pub timestamp_zeroed: bool,
+    /// True if version info fields contain suspicious repeated chars
+    pub version_info_suspicious: bool,
+}
+
+/// Weak cryptography indicator found in the binary
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeakCryptoIndicator {
+    /// e.g. "RC4 S-box constants", "MD5 init constants"
+    pub name: String,
+    /// Human-readable evidence description
+    pub evidence: String,
+    /// Hex offset where the pattern was found
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<String>,
+}
+
+/// Compiler dependency manifest entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompilerDep {
+    pub name: String,
+    pub description: String,
+    /// "Expected", "Suspicious", or "Uncommon"
+    pub risk: String,
+}
+
+/// A classified extracted string with category and offset
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClassifiedString {
+    pub value: String,
+    /// "URL", "IP", "Path", "Registry", "Suspicious", "Base64",
+    /// "CryptoConstant", "Command", "Plain"
+    pub category: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -607,12 +715,14 @@ mod tests {
                 size_bytes: 1024,
                 size_kb: 1.0,
                 extension: Some("exe".to_string()),
+                mime_type: None,
             },
             hashes: Hashes {
                 md5: "d41d8cd98f00b204e9800998ecf8427e".to_string(),
                 sha1: "da39a3ee5e6b4b0d3255bfef95601890afd80709".to_string(),
                 sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                     .to_string(),
+                tlsh: None,
             },
             entropy: EntropyInfo {
                 value: 7.8,
@@ -624,6 +734,7 @@ mod tests {
                 total_count: 100,
                 samples: vec!["test".to_string(), "sample".to_string()],
                 sample_count: 2,
+                classified: None,
             },
             pe_analysis: None,
             elf_analysis: None,
@@ -639,6 +750,7 @@ mod tests {
             mitre_techniques: vec![],
             confidence_scores: HashMap::new(),
             plain_english_findings: vec![],
+            byte_histogram: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -654,6 +766,7 @@ mod tests {
             size_bytes: 524288,
             size_kb: 512.0,
             extension: Some("exe".to_string()),
+            mime_type: None,
         };
 
         let json = serde_json::to_string_pretty(&file_info).unwrap();
@@ -668,6 +781,7 @@ mod tests {
             md5: "abc123".to_string(),
             sha1: "def456".to_string(),
             sha256: "789ghi".to_string(),
+            tlsh: None,
         };
 
         let json = serde_json::to_string(&hashes).unwrap();
@@ -700,6 +814,7 @@ mod tests {
             total_count: 42,
             samples: vec!["Hello".to_string(), "World".to_string(), "Test".to_string()],
             sample_count: 3,
+            classified: None,
         };
 
         let json = serde_json::to_string(&strings).unwrap();
@@ -734,6 +849,7 @@ mod tests {
             entropy: 6.2,
             is_suspicious: false,
             is_wx: false,
+            name_anomaly: None,
         };
 
         let json = serde_json::to_string_pretty(&section).unwrap();
@@ -765,6 +881,8 @@ mod tests {
                 category: "Code Injection".to_string(),
             }],
             libraries: vec!["kernel32.dll".to_string(), "ntdll.dll".to_string()],
+            imports_per_kb: None,
+            import_ratio_suspicious: None,
         };
 
         let json = serde_json::to_string_pretty(&imports).unwrap();
@@ -792,6 +910,8 @@ mod tests {
                 suspicious_api_count: 0,
                 suspicious_apis: vec![],
                 libraries: vec![],
+                imports_per_kb: None,
+                import_ratio_suspicious: None,
             },
             exports: None,
             imphash: None,
@@ -805,6 +925,9 @@ mod tests {
             ordinal_imports: vec![],
             authenticode: None,
             version_info: None,
+            debug_artifacts: None,
+            weak_crypto: vec![],
+            compiler_deps: vec![],
         };
 
         let json = serde_json::to_string_pretty(&pe).unwrap();
@@ -822,11 +945,13 @@ mod tests {
                 size_bytes: 100,
                 size_kb: 0.1,
                 extension: None, // Should be omitted
+                mime_type: None,
             },
             hashes: Hashes {
                 md5: "test".to_string(),
                 sha1: "test".to_string(),
                 sha256: "test".to_string(),
+                tlsh: None,
             },
             entropy: EntropyInfo {
                 value: 0.0,
@@ -838,6 +963,7 @@ mod tests {
                 total_count: 0,
                 samples: vec![],
                 sample_count: 0,
+                classified: None,
             },
             pe_analysis: None,  // Should be omitted
             elf_analysis: None, // Should be omitted
@@ -853,6 +979,7 @@ mod tests {
             mitre_techniques: vec![],
             confidence_scores: HashMap::new(),
             plain_english_findings: vec![],
+            byte_histogram: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -868,6 +995,7 @@ mod tests {
             md5: "abc".to_string(),
             sha1: "def".to_string(),
             sha256: "ghi".to_string(),
+            tlsh: None,
         };
 
         let json = serde_json::to_string(&original).unwrap();
@@ -884,6 +1012,7 @@ mod tests {
             md5: "test".to_string(),
             sha1: "test".to_string(),
             sha256: "test".to_string(),
+            tlsh: None,
         };
 
         let pretty = serde_json::to_string_pretty(&hashes).unwrap();

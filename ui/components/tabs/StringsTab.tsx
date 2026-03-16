@@ -31,13 +31,28 @@ const TYPE_STYLE: Record<StringType, { bg: string; color: string; label: string 
   default:    { bg: "transparent",            color: "transparent", label: "" },
 };
 
+// Extended category styles for backend-classified strings
+const CATEGORY_STYLE: Record<string, { bg: string; color: string; label: string }> = {
+  URL:      TYPE_STYLE.url,
+  IP:       TYPE_STYLE.ip,
+  Path:     TYPE_STYLE.path,
+  Registry: TYPE_STYLE.registry,
+  Command:  { bg: "rgba(239,68,68,0.12)", color: "#ef4444", label: "Command" },
+  Base64:   { bg: "rgba(251,146,60,0.12)", color: "#fb923c", label: "Base64" },
+  Crypto:   { bg: "rgba(168,85,247,0.12)", color: "#a855f7", label: "Crypto" },
+  Plain:    { bg: "transparent", color: "transparent", label: "" },
+};
+
 const ALL_TYPES: StringType[] = ["url", "ip", "path", "registry", "suspicious"];
+const EXTRA_CATEGORIES = ["Base64", "Crypto", "Command"] as const;
 
 const ROW_HEIGHT = 32;
 
 interface StringRow {
   value: string;
   type: StringType;
+  category?: string; // backend category if available
+  offset?: string;
   index: number;
 }
 
@@ -113,26 +128,33 @@ function VirtualList({ items, expandedIdx, onExpand }: {
                   item.type === "suspicious" ? "var(--suspicious-bg)" : "transparent";
               }}
             >
-              {/* Type badge */}
-              <span
-                style={{
-                  width: 80,
-                  flexShrink: 0,
-                  fontSize: "var(--font-size-xs)",
-                  fontWeight: 600,
-                  padding: "2px 6px",
-                  borderRadius: 4,
-                  textAlign: "center",
-                  background: showBadge ? ts.bg : "transparent",
-                  color: showBadge ? ts.color : "transparent",
-                  fontFamily: "var(--font-mono)",
-                  overflow: "hidden",
-                  whiteSpace: "nowrap",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {showBadge ? ts.label : ""}
-              </span>
+              {/* Type badge — use backend category if available */}
+              {(() => {
+                const catStyle = item.category ? (CATEGORY_STYLE[item.category] ?? CATEGORY_STYLE.Plain) : null;
+                const useCat = catStyle && item.category !== "Plain";
+                const badge = useCat ? catStyle : (showBadge ? ts : null);
+                return (
+                  <span
+                    style={{
+                      width: 80,
+                      flexShrink: 0,
+                      fontSize: "var(--font-size-xs)",
+                      fontWeight: 600,
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      textAlign: "center",
+                      background: badge ? badge.bg : "transparent",
+                      color: badge ? badge.color : "transparent",
+                      fontFamily: "var(--font-mono)",
+                      overflow: "hidden",
+                      whiteSpace: "nowrap",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {badge ? badge.label : ""}
+                  </span>
+                );
+              })()}
 
               {/* Value */}
               <span
@@ -151,9 +173,9 @@ function VirtualList({ items, expandedIdx, onExpand }: {
                 {item.value}
               </span>
 
-              {/* Offset placeholder (backend doesn't provide offsets) */}
-              <span style={{ fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)", color: "var(--text-muted)", flexShrink: 0 }}>
-                —
+              {/* Offset */}
+              <span style={{ fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)", color: "var(--text-muted)", flexShrink: 0, minWidth: 60, textAlign: "right" }}>
+                {item.offset ?? "—"}
               </span>
             </div>
           );
@@ -172,23 +194,43 @@ export default function StringsTab({ result }: Props) {
 
   const rawStrings: string[] = result.strings?.samples ?? [];
 
+  const backendClassified = result.strings?.classified;
+  const [extraFilter, setExtraFilter] = useState<Set<string>>(new Set());
+
   const classified = useMemo<StringRow[]>(() => {
+    // If backend provides classified strings, use those
+    if (backendClassified && backendClassified.length > 0) {
+      return backendClassified.map((cs, i) => {
+        // Map backend category to frontend StringType for backwards compat
+        const catLower = cs.category.toLowerCase();
+        let type: StringType = "default";
+        if (catLower === "url") type = "url";
+        else if (catLower === "ip") type = "ip";
+        else if (catLower === "path") type = "path";
+        else if (catLower === "registry") type = "registry";
+        else if (catLower === "command") type = "suspicious";
+        return { value: cs.value, type, category: cs.category, offset: cs.offset, index: i };
+      });
+    }
+    // Fallback to frontend classification
     return rawStrings.map((s, i) => ({
       value: s,
       type: classifyString(s),
       index: i,
     }));
-  }, [rawStrings]);
+  }, [rawStrings, backendClassified]);
 
   const filtered = useMemo<StringRow[]>(() => {
     const lSearch = search.toLowerCase();
     return classified.filter((row) => {
       if (row.value.length < minLength) return false;
       if (activeTypes.size > 0 && !activeTypes.has(row.type)) return false;
+      // Extra category filter (Base64, Crypto, Command)
+      if (extraFilter.size > 0 && (!row.category || !extraFilter.has(row.category))) return false;
       if (lSearch && !row.value.toLowerCase().includes(lSearch)) return false;
       return true;
     });
-  }, [classified, search, minLength, activeTypes]);
+  }, [classified, search, minLength, activeTypes, extraFilter]);
 
   function toggleType(t: StringType) {
     setActiveTypes((prev) => {
@@ -289,6 +331,34 @@ export default function StringsTab({ result }: Props) {
                   }}
                 >
                   {ts.label}
+                </button>
+              );
+            })}
+            {backendClassified && backendClassified.length > 0 && EXTRA_CATEGORIES.map((cat) => {
+              const cs = CATEGORY_STYLE[cat] ?? CATEGORY_STYLE.Plain;
+              const active = extraFilter.has(cat);
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setExtraFilter((prev) => {
+                    const next = new Set(prev);
+                    next.has(cat) ? next.delete(cat) : next.add(cat);
+                    return next;
+                  })}
+                  style={{
+                    height: 26,
+                    padding: "0 10px",
+                    fontSize: "var(--font-size-xs)",
+                    fontWeight: 500,
+                    borderRadius: 999,
+                    border: `1px solid ${active ? cs.color + "66" : "var(--border)"}`,
+                    background: active ? cs.bg : "transparent",
+                    color: active ? cs.color : "var(--text-muted)",
+                    cursor: "pointer",
+                    transition: "all 150ms ease-out",
+                  }}
+                >
+                  {cs.label}
                 </button>
               );
             })}

@@ -73,8 +73,11 @@ function AuthCard({ auth }: { auth: AuthenticodeInfo }) {
               <ShieldCheck size={14} /> Microsoft-signed
             </div>
           )}
+          {auth.status && <InfoRow label="Status" value={<span style={{ color: auth.status === "Valid" ? "var(--risk-low)" : "var(--risk-medium)" }}>{auth.status}</span>} />}
           {auth.signer_cn   && <InfoRow label="Signer CN"  value={auth.signer_cn} />}
           {auth.issuer_cn   && <InfoRow label="Issuer CN"  value={auth.issuer_cn} />}
+          {auth.issuer      && <InfoRow label="Issuer"     value={auth.issuer} />}
+          {auth.not_after   && <InfoRow label="Expires"    value={auth.not_after} />}
           {auth.cert_size > 0 && <InfoRow label="Cert size" value={formatBytes(auth.cert_size)} />}
         </div>
       ) : (
@@ -139,6 +142,8 @@ export default function SecurityTab({ result }: Props) {
                     <InfoRow label="Offset"  value={`0x${pe.overlay.offset.toString(16).toUpperCase()}`} />
                     <InfoRow label="Size"    value={formatBytes(pe.overlay.size)} />
                     <InfoRow label="Entropy" value={pe.overlay.entropy.toFixed(4)} />
+                    {pe.overlay.overlay_mime_type && <InfoRow label="MIME type" value={pe.overlay.overlay_mime_type} />}
+                    {pe.overlay.overlay_characterisation && <InfoRow label="Type" value={pe.overlay.overlay_characterisation} />}
                   </div>
                 </FeatureCard>
               )}
@@ -160,6 +165,37 @@ export default function SecurityTab({ result }: Props) {
                     {pe.version_info.file_version      && <InfoRow label="Version"       value={pe.version_info.file_version} />}
                     {pe.version_info.original_filename && <InfoRow label="Original name" value={pe.version_info.original_filename} />}
                     {pe.version_info.legal_copyright   && <InfoRow label="Copyright"     value={pe.version_info.legal_copyright} />}
+                  </div>
+                </FeatureCard>
+              )}
+              {pe.debug_artifacts && (
+                <FeatureCard
+                  title="Debug Artifacts"
+                  description="PDB paths and timestamp anomalies that may indicate tampering"
+                  status={pe.debug_artifacts.pdb_path || pe.debug_artifacts.timestamp_zeroed || pe.debug_artifacts.version_info_suspicious ? "disabled" : "enabled"}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {pe.debug_artifacts.pdb_path && <InfoRow label="PDB path" value={pe.debug_artifacts.pdb_path} />}
+                    <InfoRow label="Timestamp" value={pe.debug_artifacts.timestamp_zeroed ? <span style={{ color: "var(--risk-medium)" }}>Zeroed (possible evasion)</span> : <span style={{ color: "var(--risk-low)" }}>Present</span>} />
+                    {pe.debug_artifacts.version_info_suspicious && (
+                      <InfoRow label="Version info" value={<span style={{ color: "var(--risk-high)" }}>Suspicious — may be forged</span>} />
+                    )}
+                  </div>
+                </FeatureCard>
+              )}
+              {pe.weak_crypto && pe.weak_crypto.length > 0 && (
+                <FeatureCard title="Weak Crypto Indicators" description="Known weak or deprecated cryptographic algorithms detected" status="disabled" fullWidth>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {pe.weak_crypto.map((wc, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                        <AlertTriangle size={12} style={{ color: "var(--risk-high)", flexShrink: 0, marginTop: 2 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ fontSize: "var(--font-size-xs)", fontWeight: 600, color: "var(--text-primary)" }}>{wc.name}</span>
+                          <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)", marginLeft: 8 }}>{wc.evidence}</span>
+                          {wc.offset && <span style={{ fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)", color: "var(--text-muted)", marginLeft: 8 }}>@ {wc.offset}</span>}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </FeatureCard>
               )}
