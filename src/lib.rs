@@ -245,7 +245,10 @@ fn calculate_tlsh(data: &[u8]) -> Option<String> {
     builder.update(data);
     builder.build().map(|h| {
         let bytes = h.hash();
-        bytes.iter().map(|b| format!("{:02X}", b)).collect::<String>()
+        bytes
+            .iter()
+            .map(|b| format!("{:02X}", b))
+            .collect::<String>()
     })
 }
 
@@ -277,7 +280,11 @@ fn classify_strings(strings: &[String]) -> Vec<output::ClassifiedString> {
 
 fn classify_single_string(s: &str) -> String {
     // URL
-    if s.starts_with("http://") || s.starts_with("https://") || s.starts_with("ftp://") || s.contains("://") {
+    if s.starts_with("http://")
+        || s.starts_with("https://")
+        || s.starts_with("ftp://")
+        || s.contains("://")
+    {
         return "URL".to_string();
     }
     // IP address (simple check: 4 groups of 1-3 digits separated by dots)
@@ -285,28 +292,43 @@ fn classify_single_string(s: &str) -> String {
         return "IP".to_string();
     }
     // Registry
-    if s.starts_with("HKEY_") || s.starts_with("HKLM\\") || s.starts_with("HKCU\\")
-        || s.starts_with("SOFTWARE\\") || s.starts_with("SYSTEM\\") || s.contains("CurrentVersion")
+    if s.starts_with("HKEY_")
+        || s.starts_with("HKLM\\")
+        || s.starts_with("HKCU\\")
+        || s.starts_with("SOFTWARE\\")
+        || s.starts_with("SYSTEM\\")
+        || s.contains("CurrentVersion")
     {
         return "Registry".to_string();
     }
     // Command
-    if s.contains("cmd.exe") || s.contains("powershell") || s.contains("/c ")
-        || s.contains("wget ") || s.contains("curl ") || s.contains("bash -c") || s.contains("sh -c")
+    if s.contains("cmd.exe")
+        || s.contains("powershell")
+        || s.contains("/c ")
+        || s.contains("wget ")
+        || s.contains("curl ")
+        || s.contains("bash -c")
+        || s.contains("sh -c")
     {
         return "Command".to_string();
     }
     // Path
-    if (s.starts_with("C:\\") || s.starts_with("D:\\") || s.starts_with("%")
-        || s.starts_with("/home/") || s.starts_with("/etc/") || s.starts_with("/usr/"))
+    if (s.starts_with("C:\\")
+        || s.starts_with("D:\\")
+        || s.starts_with("%")
+        || s.starts_with("/home/")
+        || s.starts_with("/etc/")
+        || s.starts_with("/usr/"))
         || ((s.contains('\\') || s.contains('/'))
             && (s.contains(".exe") || s.contains(".dll") || s.contains(".pdb")))
     {
         return "Path".to_string();
     }
     // Base64 (length >= 20, alphanumeric + /+=, length multiple of 4)
-    if s.len() >= 20 && s.len() % 4 <= 1
-        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
+    if s.len() >= 20
+        && s.len() % 4 <= 1
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
         && s.ends_with('=')
     {
         return "Base64".to_string();
@@ -320,7 +342,9 @@ fn looks_like_ipv4(s: &str) -> bool {
         return false;
     }
     parts.iter().all(|p| {
-        p.len() >= 1 && p.len() <= 3 && p.chars().all(|c| c.is_ascii_digit())
+        !p.is_empty()
+            && p.len() <= 3
+            && p.chars().all(|c| c.is_ascii_digit())
             && p.parse::<u16>().map(|n| n <= 255).unwrap_or(false)
     })
 }
