@@ -352,8 +352,10 @@ install_gui() {
       }
       hdiutil detach -quiet /Volumes/AnyaInstall 2>/dev/null
       rm -rf "$TMP_DIR"
+      # Strip macOS quarantine flag to avoid Gatekeeper block (app is unsigned)
+      xattr -cr /Applications/Anya.app 2>/dev/null || true
       success "Anya.app installed to /Applications"
-      info "If macOS blocks Anya, run: xattr -cr /Applications/Anya.app"
+      info "Quarantine flag cleared — Anya will open without Gatekeeper prompts."
       ;;
 
     linux)
