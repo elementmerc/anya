@@ -4,9 +4,8 @@
 // indicators to ConfidenceLevel values.
 
 use crate::output::{
-    AnalysisResult, AntiAnalysisFinding, ConfidenceLevel, ELFAnalysis, IocType,
-    MismatchSeverity, MitreTechnique, OrdinalImport, OverlayInfo, PEAnalysis, PackerFinding,
-    SectionInfo,
+    AnalysisResult, AntiAnalysisFinding, ConfidenceLevel, ELFAnalysis, IocType, MismatchSeverity,
+    MitreTechnique, OrdinalImport, OverlayInfo, PEAnalysis, PackerFinding, SectionInfo,
 };
 use std::collections::HashMap;
 
@@ -187,7 +186,11 @@ pub fn confidence_from_str(s: &str) -> ConfidenceLevel {
 // ── Confidence assignment functions ──────────────────────────────────────────
 
 /// Assign confidence to a suspicious API based on combination rules.
-pub fn assign_api_confidence(api_name: &str, all_api_names: &[&str], api_category: &str) -> ConfidenceLevel {
+pub fn assign_api_confidence(
+    api_name: &str,
+    all_api_names: &[&str],
+    api_category: &str,
+) -> ConfidenceLevel {
     // Critical combinations
     let has = |name: &str| all_api_names.contains(&name);
     if has("VirtualAllocEx") && has("WriteProcessMemory") && has("CreateRemoteThread") {
@@ -203,13 +206,17 @@ pub fn assign_api_confidence(api_name: &str, all_api_names: &[&str], api_categor
     // High combinations
     if has("IsDebuggerPresent")
         && (has("VirtualAllocEx") || has("LoadLibrary"))
-        && (api_name == "IsDebuggerPresent" || api_name == "VirtualAllocEx" || api_name == "LoadLibrary")
+        && (api_name == "IsDebuggerPresent"
+            || api_name == "VirtualAllocEx"
+            || api_name == "LoadLibrary")
     {
         return ConfidenceLevel::High;
     }
     if has("WSAStartup")
         && (has("VirtualAllocEx") || has("CreateRemoteThread"))
-        && (api_name == "WSAStartup" || api_name == "VirtualAllocEx" || api_name == "CreateRemoteThread")
+        && (api_name == "WSAStartup"
+            || api_name == "VirtualAllocEx"
+            || api_name == "CreateRemoteThread")
     {
         return ConfidenceLevel::High;
     }
@@ -217,9 +224,7 @@ pub fn assign_api_confidence(api_name: &str, all_api_names: &[&str], api_categor
     // Count same-category APIs
     let same_cat_count = all_api_names
         .iter()
-        .filter(|&&a| {
-            crate::pe_parser::categorize_api(a) == api_category
-        })
+        .filter(|&&a| crate::pe_parser::categorize_api(a) == api_category)
         .count();
 
     if same_cat_count >= 3 {
@@ -349,7 +354,11 @@ pub fn top_detections(result: &AnalysisResult, n: usize) -> Vec<RankedDetection>
 
     // Overlay
     if let Some(ref o) = result.overlay {
-        let has_auth = result.pe_analysis.as_ref().and_then(|pe| pe.authenticode.as_ref()).is_some_and(|a| a.present);
+        let has_auth = result
+            .pe_analysis
+            .as_ref()
+            .and_then(|pe| pe.authenticode.as_ref())
+            .is_some_and(|a| a.present);
         all.push(RankedDetection {
             description: format!("Overlay: {} bytes at offset 0x{:X}", o.size, o.offset),
             confidence: assign_overlay_confidence(o, has_auth),
@@ -371,7 +380,11 @@ pub fn top_detections(result: &AnalysisResult, n: usize) -> Vec<RankedDetection>
                 let conf = assign_ioc_confidence(ioc_type, &es.value);
                 if conf >= ConfidenceLevel::High {
                     all.push(RankedDetection {
-                        description: format!("IOC ({}): {}", ioc_type, &es.value[..es.value.len().min(60)]),
+                        description: format!(
+                            "IOC ({}): {}",
+                            ioc_type,
+                            &es.value[..es.value.len().min(60)]
+                        ),
                         confidence: conf,
                     });
                 }

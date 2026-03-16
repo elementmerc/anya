@@ -271,13 +271,12 @@ impl Config {
     /// - `toml::from_str()` parses TOML
     /// - `.context()` adds helpful error messages
     pub fn load_from_file(path: &PathBuf) -> Result<Self> {
-        let contents =
-            fs::read_to_string(path).with_context(|| {
-                format!(
-                    "Couldn't read config file '{}'. Check that it exists and is readable.",
-                    path.display()
-                )
-            })?;
+        let contents = fs::read_to_string(path).with_context(|| {
+            format!(
+                "Couldn't read config file '{}'. Check that it exists and is readable.",
+                path.display()
+            )
+        })?;
 
         let mut config: Config = toml::from_str(&contents).with_context(|| {
             format!(
@@ -333,13 +332,19 @@ impl Config {
         // Create parent directory if it doesn't exist
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).with_context(|| {
-                format!("Couldn't create config directory '{}'. Check write permissions.", parent.display())
+                format!(
+                    "Couldn't create config directory '{}'. Check write permissions.",
+                    parent.display()
+                )
             })?;
         }
 
         // Write to file
         fs::write(path, toml_string).with_context(|| {
-            format!("Couldn't write config file '{}'. Check write permissions.", path.display())
+            format!(
+                "Couldn't write config file '{}'. Check write permissions.",
+                path.display()
+            )
         })?;
 
         Ok(())
@@ -558,7 +563,11 @@ format = "json"
             ..ThresholdConfig::default()
         };
         assert!(t.validate().is_err());
-        assert!(t.validate().unwrap_err().contains("less than packed_entropy"));
+        assert!(
+            t.validate()
+                .unwrap_err()
+                .contains("less than packed_entropy")
+        );
     }
 
     #[test]
@@ -569,35 +578,57 @@ format = "json"
             ..ThresholdConfig::default()
         };
         assert!(t.validate().is_err());
-        assert!(t.validate().unwrap_err().contains("less than malicious_score"));
+        assert!(
+            t.validate()
+                .unwrap_err()
+                .contains("less than malicious_score")
+        );
     }
 
     #[test]
     fn test_threshold_validate_out_of_range() {
         // suspicious_entropy too low
-        let t = ThresholdConfig { suspicious_entropy: 3.0, ..ThresholdConfig::default() };
+        let t = ThresholdConfig {
+            suspicious_entropy: 3.0,
+            ..ThresholdConfig::default()
+        };
         assert!(t.validate().is_err());
 
         // packed_entropy too high
-        let t = ThresholdConfig { packed_entropy: 9.0, ..ThresholdConfig::default() };
+        let t = ThresholdConfig {
+            packed_entropy: 9.0,
+            ..ThresholdConfig::default()
+        };
         assert!(t.validate().is_err());
 
         // suspicious_score too low
-        let t = ThresholdConfig { suspicious_score: 10, ..ThresholdConfig::default() };
+        let t = ThresholdConfig {
+            suspicious_score: 10,
+            ..ThresholdConfig::default()
+        };
         assert!(t.validate().is_err());
 
         // malicious_score too high
-        let t = ThresholdConfig { malicious_score: 100, ..ThresholdConfig::default() };
+        let t = ThresholdConfig {
+            malicious_score: 100,
+            ..ThresholdConfig::default()
+        };
         assert!(t.validate().is_err());
     }
 
     #[test]
     fn test_threshold_validate_nan() {
-        let t = ThresholdConfig { suspicious_entropy: f64::NAN, ..ThresholdConfig::default() };
+        let t = ThresholdConfig {
+            suspicious_entropy: f64::NAN,
+            ..ThresholdConfig::default()
+        };
         assert!(t.validate().is_err());
         assert!(t.validate().unwrap_err().contains("finite number"));
 
-        let t = ThresholdConfig { packed_entropy: f64::INFINITY, ..ThresholdConfig::default() };
+        let t = ThresholdConfig {
+            packed_entropy: f64::INFINITY,
+            ..ThresholdConfig::default()
+        };
         assert!(t.validate().is_err());
     }
 

@@ -4,7 +4,7 @@
 // Copyright (C) 2026 Daniel Iwugo
 // Licensed under AGPL-3.0-or-later
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use colored::Colorize;
 use regex::Regex;
@@ -15,9 +15,8 @@ use std::sync::LazyLock;
 use walkdir::WalkDir;
 
 /// Regex to extract YARA rule names from source text.
-static RULE_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^\s*rule\s+(\w+)").expect("rule name regex")
-});
+static RULE_NAME_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^\s*rule\s+(\w+)").expect("rule name regex"));
 
 // ---------------------------------------------------------------------------
 // combine
@@ -40,10 +39,7 @@ pub fn combine(input_dir: &Path, output_file: &Path, recursive: bool) -> Result<
         .collect();
 
     if yara_files.is_empty() {
-        bail!(
-            "No .yar or .yara files found in '{}'",
-            input_dir.display()
-        );
+        bail!("No .yar or .yara files found in '{}'", input_dir.display());
     }
 
     let now = Utc::now();
@@ -57,14 +53,8 @@ pub fn combine(input_dir: &Path, output_file: &Path, recursive: bool) -> Result<
         "// Combined by Anya on {}\n",
         now.format("%Y-%m-%dT%H:%M:%SZ")
     ));
-    combined.push_str(&format!(
-        "// Source directory: {}\n",
-        input_dir.display()
-    ));
-    combined.push_str(&format!(
-        "// Files: {}\n\n",
-        yara_files.len()
-    ));
+    combined.push_str(&format!("// Source directory: {}\n", input_dir.display()));
+    combined.push_str(&format!("// Files: {}\n\n", yara_files.len()));
 
     for entry in &yara_files {
         let contents = fs::read_to_string(entry.path())
@@ -108,12 +98,7 @@ pub fn combine(input_dir: &Path, output_file: &Path, recursive: bool) -> Result<
         total_rules,
         duplicates
     );
-    println!(
-        "  {}  {} ({} KB)",
-        "Written:".bold(),
-        out_display,
-        size_kb
-    );
+    println!("  {}  {} ({} KB)", "Written:".bold(), out_display, size_kb);
     println!();
 
     Ok(())
@@ -127,15 +112,17 @@ pub fn combine(input_dir: &Path, output_file: &Path, recursive: bool) -> Result<
 fn sanitise_rule_name(name: &str) -> String {
     let sanitised: String = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
 
     // Ensure starts with letter or underscore
-    if sanitised
-        .chars()
-        .next()
-        .is_none_or(|c| c.is_ascii_digit())
-    {
+    if sanitised.chars().next().is_none_or(|c| c.is_ascii_digit()) {
         format!("_{sanitised}")
     } else {
         sanitised
@@ -170,10 +157,7 @@ pub fn from_strings(
         .collect();
 
     if strings.is_empty() {
-        bail!(
-            "No strings found in '{}'",
-            strings_file.display()
-        );
+        bail!("No strings found in '{}'", strings_file.display());
     }
 
     let total_available = raw
@@ -209,7 +193,9 @@ pub fn from_strings(
 
     // meta
     rule.push_str("    meta:\n");
-    rule.push_str("        description = \"Auto-generated rule \u{2014} review and edit before use\"\n");
+    rule.push_str(
+        "        description = \"Auto-generated rule \u{2014} review and edit before use\"\n",
+    );
     rule.push_str("        author      = \"Anya\"\n");
     rule.push_str(&format!("        date        = \"{today}\"\n"));
     rule.push_str("        confidence  = \"low\"\n");

@@ -290,11 +290,10 @@ pub mod commands {
             .map_err(|e| format!("Failed to load config: {e}"))?;
         config.thresholds = thresholds;
 
-        let path = anya_security_core::config::Config::default_path()
-            .ok_or_else(|| "Config state unavailable: could not determine config path".to_string())?;
-        config
-            .save_to_file(&path)
-            .map_err(|e| format!("{e}"))?;
+        let path = anya_security_core::config::Config::default_path().ok_or_else(|| {
+            "Config state unavailable: could not determine config path".to_string()
+        })?;
+        config.save_to_file(&path).map_err(|e| format!("{e}"))?;
 
         Ok(())
     }

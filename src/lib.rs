@@ -210,7 +210,10 @@ pub fn categorize_entropy(entropy: f64) -> (&'static str, bool) {
 }
 
 /// Extract printable ASCII strings with byte offsets (capped at 500)
-pub fn extract_strings_with_offsets(data: &[u8], min_length: usize) -> (Vec<(String, usize)>, usize) {
+pub fn extract_strings_with_offsets(
+    data: &[u8],
+    min_length: usize,
+) -> (Vec<(String, usize)>, usize) {
     const MAX_COLLECT: usize = 500;
     let mut strings = Vec::new();
     let mut total_count: usize = 0;
@@ -249,7 +252,11 @@ pub fn extract_strings_data(data: &[u8], min_length: usize) -> output::StringsIn
     let (strings_with_offsets, total_count) = extract_strings_with_offsets(data, min_length);
 
     let sample_count = 10.min(strings_with_offsets.len());
-    let samples: Vec<String> = strings_with_offsets.iter().take(sample_count).map(|(s, _)| s.clone()).collect();
+    let samples: Vec<String> = strings_with_offsets
+        .iter()
+        .take(sample_count)
+        .map(|(s, _)| s.clone())
+        .collect();
 
     let classified = Some(classify_strings(&strings_with_offsets));
 
@@ -393,19 +400,28 @@ fn looks_like_ipv4(s: &str) -> bool {
 }
 
 /// Detect mismatch between file extension and detected magic bytes.
-fn detect_file_type_mismatch(data: &[u8], extension: Option<&str>) -> Option<output::FileTypeMismatch> {
+fn detect_file_type_mismatch(
+    data: &[u8],
+    extension: Option<&str>,
+) -> Option<output::FileTypeMismatch> {
     let ext = extension?;
     let ext_lower = ext.to_lowercase();
 
     // Map magic bytes → (label, expected extensions)
     let (detected_type, expected): (&str, &[&str]) = if data.starts_with(b"MZ") {
-        ("PE/MZ executable", &["exe", "dll", "sys", "drv", "ocx", "scr", "cpl", "efi"])
+        (
+            "PE/MZ executable",
+            &["exe", "dll", "sys", "drv", "ocx", "scr", "cpl", "efi"],
+        )
     } else if data.starts_with(b"\x7fELF") {
         ("ELF binary", &["elf", "so", "bin", ""])
     } else if data.starts_with(b"%PDF") {
         ("PDF document", &["pdf"])
     } else if data.starts_with(b"PK\x03\x04") {
-        ("ZIP archive", &["zip", "docx", "xlsx", "pptx", "jar", "apk"])
+        (
+            "ZIP archive",
+            &["zip", "docx", "xlsx", "pptx", "jar", "apk"],
+        )
     } else if data.starts_with(b"Rar!") {
         ("RAR archive", &["rar"])
     } else if data.len() >= 4 && data[..4] == [0x37, 0x7A, 0xBC, 0xAF] {
@@ -426,11 +442,24 @@ fn detect_file_type_mismatch(data: &[u8], extension: Option<&str>) -> Option<out
 
     // Determine severity
     let severity = {
-        let is_executable_magic = detected_type.contains("executable") || detected_type.contains("ELF");
+        let is_executable_magic =
+            detected_type.contains("executable") || detected_type.contains("ELF");
         let is_disguise_ext = matches!(
             ext_lower.as_str(),
-            "pdf" | "doc" | "docx" | "xls" | "xlsx" | "jpg" | "jpeg" | "png"
-            | "txt" | "csv" | "mp3" | "mp4" | "zip" | "rar"
+            "pdf"
+                | "doc"
+                | "docx"
+                | "xls"
+                | "xlsx"
+                | "jpg"
+                | "jpeg"
+                | "png"
+                | "txt"
+                | "csv"
+                | "mp3"
+                | "mp4"
+                | "zip"
+                | "rar"
         );
 
         if is_executable_magic && is_disguise_ext {
@@ -471,20 +500,30 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
     let ioc_summary = {
         let (strings_with_offsets, _) = extract_strings_with_offsets(&data, min_string_length);
         let summary = ioc::extract_iocs(&strings_with_offsets);
-        if summary.ioc_strings.is_empty() { None } else { Some(summary) }
+        if summary.ioc_strings.is_empty() {
+            None
+        } else {
+            Some(summary)
+        }
     };
 
     // Determine file format and analyse
     let (file_format, pe_analysis, elf_analysis) = match Object::parse(&data) {
         Ok(Object::PE(_)) => {
             let pe_data = pe_parser::analyse_pe_data(&data).with_context(|| {
-                format!("PE analysis failed for '{}'. The file may be corrupted or truncated.", path.display())
+                format!(
+                    "PE analysis failed for '{}'. The file may be corrupted or truncated.",
+                    path.display()
+                )
             })?;
             ("Windows PE".to_string(), Some(pe_data), None)
         }
         Ok(Object::Elf(_)) => {
             let elf_data = elf_parser::analyse_elf_data(&data).with_context(|| {
-                format!("ELF analysis failed for '{}'. The file may be corrupted or truncated.", path.display())
+                format!(
+                    "ELF analysis failed for '{}'. The file may be corrupted or truncated.",
+                    path.display()
+                )
             })?;
             ("Linux ELF".to_string(), None, Some(elf_data))
         }
@@ -497,10 +536,8 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
     let mime_type = detect_mime_type(&data);
 
     // File type mismatch detection
-    let file_type_mismatch = detect_file_type_mismatch(
-        &data,
-        path.extension().and_then(|e| e.to_str()),
-    );
+    let file_type_mismatch =
+        detect_file_type_mismatch(&data, path.extension().and_then(|e| e.to_str()));
 
     Ok(FileAnalysisResult {
         path: path.to_path_buf(),
@@ -558,7 +595,10 @@ pub fn compute_verdict(result: &output::AnalysisResult) -> (String, String) {
 
     // Check for unknown format first
     if result.file_format == "Unrecognized" || result.file_format == "Unknown" {
-        return ("UNKNOWN".to_string(), "UNKNOWN — file format not recognised".to_string());
+        return (
+            "UNKNOWN".to_string(),
+            "UNKNOWN — file format not recognised".to_string(),
+        );
     }
 
     let mut critical = 0usize;
@@ -597,7 +637,16 @@ pub fn compute_verdict(result: &output::AnalysisResult) -> (String, String) {
     let summary = if parts.is_empty() {
         format!("{} — no significant indicators found", verdict)
     } else {
-        format!("{} — {} indicator{}", verdict, parts.join(", "), if critical + high + medium == 1 { "" } else { "s" })
+        format!(
+            "{} — {} indicator{}",
+            verdict,
+            parts.join(", "),
+            if critical + high + medium == 1 {
+                ""
+            } else {
+                "s"
+            }
+        )
     };
 
     (verdict.to_string(), summary)

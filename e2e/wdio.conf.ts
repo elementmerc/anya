@@ -57,12 +57,46 @@ export const config: WebdriverIO.Config = {
   // onPrepare runs once before all workers — start tauri-driver here so only
   // one instance binds to port 4444.
   onPrepare: () => {
-    tauriDriver = spawn("tauri-driver", [], {
-      stdio: [null, process.stdout, process.stderr],
-    });
+    return new Promise<void>((resolve, reject) => {
+      tauriDriver = spawn("tauri-driver", [], {
+        stdio: [null, process.stdout, process.stderr],
+      });
 
-    // Give tauri-driver time to bind to port 4444 before workers connect
-    return new Promise<void>((resolve) => setTimeout(resolve, 2000));
+      let settled = false;
+
+      tauriDriver.on("error", (err) => {
+        if (!settled) {
+          settled = true;
+          reject(
+            new Error(
+              `Failed to start tauri-driver: ${err.message}\n` +
+                "Install it with: cargo install tauri-driver\n" +
+                "On Linux, also install: sudo apt-get install -y webkit2gtk-driver"
+            )
+          );
+        }
+      });
+
+      tauriDriver.on("exit", (code) => {
+        if (!settled && code !== null && code !== 0) {
+          settled = true;
+          reject(
+            new Error(
+              `tauri-driver exited with code ${code}.\n` +
+                "On Linux, ensure webkit2gtk-driver is installed: sudo apt-get install -y webkit2gtk-driver"
+            )
+          );
+        }
+      });
+
+      // Give tauri-driver time to bind to port 4444 before workers connect
+      setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      }, 2000);
+    });
   },
 
   onComplete: () => {

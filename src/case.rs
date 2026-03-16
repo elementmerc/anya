@@ -180,8 +180,8 @@ pub fn save_to_case(
     });
 
     // Write case.yaml
-    let yaml = serde_yaml::to_string(&case_file)
-        .context("Failed to serialise case file to YAML")?;
+    let yaml =
+        serde_yaml::to_string(&case_file).context("Failed to serialise case file to YAML")?;
     fs::write(&case_yaml_path, yaml)
         .with_context(|| format!("Failed to write {}", case_yaml_path.display()))?;
 
@@ -293,10 +293,7 @@ mod tests {
         );
 
         // Leading/trailing special chars are trimmed
-        assert_eq!(
-            sanitise_case_name("--hello--").unwrap(),
-            "hello"
-        );
+        assert_eq!(sanitise_case_name("--hello--").unwrap(), "hello");
 
         // Too short after sanitisation
         assert!(sanitise_case_name("!").is_err());

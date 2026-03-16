@@ -18,8 +18,8 @@
 
 // Import necessary libraries
 use anya_security_core::{
-    BatchSummary, OutputLevel, analyse_file, case, compute_verdict, config, elf_parser,
-    hash_check, is_executable_file, output, pe_parser, to_json_output, yara,
+    BatchSummary, OutputLevel, analyse_file, case, compute_verdict, config, elf_parser, hash_check,
+    is_executable_file, output, pe_parser, to_json_output, yara,
 };
 use anyhow::{Context, Result}; // For better error handling
 use clap::{Parser, Subcommand}; // For parsing command-line arguments
@@ -272,8 +272,9 @@ fn write_output(content: &str, output_path: Option<&PathBuf>, append_mode: bool)
 
             // write_all() writes the entire string to the file
             // content.as_bytes() converts &str to &[u8] (bytes)
-            file.write_all(content.as_bytes())
-                .with_context(|| format!("Failed to write to '{}'. Disk may be full.", path.display()))?;
+            file.write_all(content.as_bytes()).with_context(|| {
+                format!("Failed to write to '{}'. Disk may be full.", path.display())
+            })?;
 
             // Explicit flush ensures data is written to disk immediately
             // Without this, data might sit in a buffer
@@ -305,7 +306,11 @@ fn main() -> Result<()> {
             println!("  — {}", reference.bright_cyan());
             return Ok(());
         }
-        Some(Commands::HashCheck { target, against, json }) => {
+        Some(Commands::HashCheck {
+            target,
+            against,
+            json,
+        }) => {
             let matched = hash_check::run(target, against, *json)?;
             if matched {
                 std::process::exit(1);
@@ -314,11 +319,25 @@ fn main() -> Result<()> {
         }
         Some(Commands::Yara { command }) => {
             match command {
-                YaraCommands::Combine { input_dir, output_file, recursive } => {
+                YaraCommands::Combine {
+                    input_dir,
+                    output_file,
+                    recursive,
+                } => {
                     yara::combine(input_dir, output_file, *recursive)?;
                 }
-                YaraCommands::FromStrings { strings_file, output, name, overwrite } => {
-                    yara::from_strings(strings_file, output.as_deref(), name.as_deref(), *overwrite)?;
+                YaraCommands::FromStrings {
+                    strings_file,
+                    output,
+                    name,
+                    overwrite,
+                } => {
+                    yara::from_strings(
+                        strings_file,
+                        output.as_deref(),
+                        name.as_deref(),
+                        *overwrite,
+                    )?;
                 }
             }
             return Ok(());
@@ -534,10 +553,7 @@ fn analyse_single_file(
         };
         println!(
             "{}FILE TYPE MISMATCH [{}] — detected {}, extension claims {}",
-            prefix,
-            m.severity,
-            m.detected_type,
-            m.claimed_extension
+            prefix, m.severity, m.detected_type, m.claimed_extension
         );
     }
 
@@ -548,10 +564,18 @@ fn analyse_single_file(
             let level_str = format!("[{:?}]", d.confidence).to_uppercase();
             let padded = format!("{:<10}", level_str);
             let line = match d.confidence {
-                output::ConfidenceLevel::Critical => format!("  {} {}", padded.red().bold(), d.description),
-                output::ConfidenceLevel::High => format!("  {} {}", padded.yellow().bold(), d.description),
-                output::ConfidenceLevel::Medium => format!("  {} {}", padded.white(), d.description),
-                output::ConfidenceLevel::Low => format!("  {} {}", padded.white().dimmed(), d.description),
+                output::ConfidenceLevel::Critical => {
+                    format!("  {} {}", padded.red().bold(), d.description)
+                }
+                output::ConfidenceLevel::High => {
+                    format!("  {} {}", padded.yellow().bold(), d.description)
+                }
+                output::ConfidenceLevel::Medium => {
+                    format!("  {} {}", padded.white(), d.description)
+                }
+                output::ConfidenceLevel::Low => {
+                    format!("  {} {}", padded.white().dimmed(), d.description)
+                }
             };
             println!("{}", line);
         }
@@ -592,7 +616,11 @@ fn analyse_single_file(
                 );
             }
             if let Err(e) = pe_parser::analyse_pe(&file_data, output_level) {
-                eprintln!("{} PE analysis failed: {}. The file may be corrupted, truncated, or not a valid PE binary.", "⚠".yellow(), e);
+                eprintln!(
+                    "{} PE analysis failed: {}. The file may be corrupted, truncated, or not a valid PE binary.",
+                    "⚠".yellow(),
+                    e
+                );
             }
         }
         Ok(Object::Elf(_elf)) => {
@@ -605,7 +633,11 @@ fn analyse_single_file(
                 );
             }
             if let Err(e) = elf_parser::analyse_elf(&file_data, output_level) {
-                eprintln!("{} ELF analysis failed: {}. The file may be corrupted, truncated, or not a valid ELF binary.", "⚠".yellow(), e);
+                eprintln!(
+                    "{} ELF analysis failed: {}. The file may be corrupted, truncated, or not a valid ELF binary.",
+                    "⚠".yellow(),
+                    e
+                );
             }
         }
         Ok(Object::Mach(_)) => {
@@ -807,7 +839,11 @@ fn analyse_directory(
         let mut clean_count = 0usize;
 
         for (idx, file_path) in executable_files.iter().enumerate() {
-            let filename = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let filename = file_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
 
             if let Some(ref pb) = progress {
                 pb.set_message(format!("Analysing: {}", filename));
@@ -819,9 +855,10 @@ fn analyse_directory(
                     let json_result = to_json_output(&result);
                     let (verdict_word, _) = compute_verdict(&json_result);
                     let top = anya_security_core::confidence::top_detections(&json_result, 1);
-                    let top_indicator = top.first().map(|d| {
-                        format!("{} [{:?}]", d.description, d.confidence)
-                    }).unwrap_or_else(|| "—".to_string());
+                    let top_indicator = top
+                        .first()
+                        .map(|d| format!("{} [{:?}]", d.description, d.confidence))
+                        .unwrap_or_else(|| "—".to_string());
 
                     match verdict_word.as_str() {
                         "MALICIOUS" => malicious_count += 1,
@@ -842,7 +879,11 @@ fn analyse_directory(
                         }
                     }
 
-                    rows.push(SummaryRow { filename, verdict: verdict_word, top_indicator });
+                    rows.push(SummaryRow {
+                        filename,
+                        verdict: verdict_word,
+                        top_indicator,
+                    });
                 }
                 Err(e) => {
                     summary.failed += 1;
@@ -878,7 +919,10 @@ fn analyse_directory(
             "\n{}",
             format!(
                 "BATCH ANALYSIS SUMMARY — {} files, {} malicious, {} suspicious, {} clean",
-                executable_files.len(), malicious_count, suspicious_count, clean_count
+                executable_files.len(),
+                malicious_count,
+                suspicious_count,
+                clean_count
             )
             .bold()
             .cyan()
@@ -1310,14 +1354,28 @@ fn print_ioc_section(ioc: &output::IocSummary) {
     }
 
     let type_order = [
-        "url", "ipv4", "ipv6", "domain", "email", "registry_key",
-        "windows_path", "linux_path", "mutex", "base64_blob",
+        "url",
+        "ipv4",
+        "ipv6",
+        "domain",
+        "email",
+        "registry_key",
+        "windows_path",
+        "linux_path",
+        "mutex",
+        "base64_blob",
     ];
     let type_labels: HashMap<&str, &str> = [
-        ("url", "URLs"), ("ipv4", "IPv4"), ("ipv6", "IPv6"),
-        ("domain", "Domains"), ("email", "Emails"), ("registry_key", "Registry"),
-        ("windows_path", "Win paths"), ("linux_path", "Linux paths"),
-        ("mutex", "Mutexes"), ("base64_blob", "Base64 blob"),
+        ("url", "URLs"),
+        ("ipv4", "IPv4"),
+        ("ipv6", "IPv6"),
+        ("domain", "Domains"),
+        ("email", "Emails"),
+        ("registry_key", "Registry"),
+        ("windows_path", "Win paths"),
+        ("linux_path", "Linux paths"),
+        ("mutex", "Mutexes"),
+        ("base64_blob", "Base64 blob"),
     ]
     .into();
 
@@ -1376,7 +1434,9 @@ fn print_explanations(result: &output::AnalysisResult) {
 fn generate_explanation(description: &str) -> String {
     let desc_lower = description.to_lowercase();
 
-    if desc_lower.contains("process injection") || desc_lower.contains("virtualallocex") && desc_lower.contains("writeprocessmemory") {
+    if desc_lower.contains("process injection")
+        || desc_lower.contains("virtualallocex") && desc_lower.contains("writeprocessmemory")
+    {
         "VirtualAllocEx, WriteProcessMemory, and CreateRemoteThread imported together is the classic signature of process injection: malware allocating memory inside another running process and writing shellcode into it. This allows malware to run hidden inside a legitimate process like explorer.exe. Commonly seen in: RATs, banking trojans, loaders.".to_string()
     } else if desc_lower.contains("createremotethread") {
         "CreateRemoteThread creates a new thread in a remote process. Alone, it may be used legitimately, but it is a building block of process injection. Combined with other APIs, it raises confidence significantly.".to_string()
@@ -1384,7 +1444,10 @@ fn generate_explanation(description: &str) -> String {
         "Registry modification combined with service creation or run-key paths indicates the malware is trying to survive reboots. This is a common persistence mechanism used by most malware families.".to_string()
     } else if desc_lower.contains("debugger") || desc_lower.contains("isdebuggerpresent") {
         "Debugger detection APIs check whether the process is being analysed. Malware uses these to alter its behaviour when under inspection, making dynamic analysis harder.".to_string()
-    } else if desc_lower.contains("entropy") || desc_lower.contains("packed") || desc_lower.contains("encrypted") {
+    } else if desc_lower.contains("entropy")
+        || desc_lower.contains("packed")
+        || desc_lower.contains("encrypted")
+    {
         "High entropy means the file's contents are nearly random. Legitimate executables rarely exceed 7.0. This strongly suggests the file is packed or encrypted — a common technique to hide malware from static analysis and antivirus scanners.".to_string()
     } else if desc_lower.contains("packer") {
         "A packer compresses or encrypts the original executable and wraps it in a decompression stub. While some legitimate software uses packers to reduce file size, packers are heavily used by malware to evade signature-based detection.".to_string()
@@ -1394,11 +1457,20 @@ fn generate_explanation(description: &str) -> String {
         "Overlay data is appended after the last PE section. It can contain embedded payloads, encrypted configurations, or additional executables that the main program extracts at runtime.".to_string()
     } else if desc_lower.contains("mismatch") || desc_lower.contains("disguised") {
         "The file's actual format (detected from magic bytes) doesn't match its extension. This is a social engineering technique — a PE executable named .pdf or .jpg tricks users into opening it.".to_string()
-    } else if desc_lower.contains("ioc") || desc_lower.contains("domain") || desc_lower.contains("url") {
+    } else if desc_lower.contains("ioc")
+        || desc_lower.contains("domain")
+        || desc_lower.contains("url")
+    {
         "Network indicators (URLs, domains, IPs) found in the binary's strings suggest the program communicates with remote servers. These could be command-and-control servers, download sites, or data exfiltration endpoints.".to_string()
-    } else if desc_lower.contains("anti-analysis") || desc_lower.contains("vm") || desc_lower.contains("sandbox") {
+    } else if desc_lower.contains("anti-analysis")
+        || desc_lower.contains("vm")
+        || desc_lower.contains("sandbox")
+    {
         "Anti-analysis techniques detect whether the malware is running in a virtual machine, sandbox, or debugger. If detected, the malware may refuse to execute or behave benignly to avoid being flagged.".to_string()
-    } else if desc_lower.contains("network") || desc_lower.contains("wsa") || desc_lower.contains("socket") {
+    } else if desc_lower.contains("network")
+        || desc_lower.contains("wsa")
+        || desc_lower.contains("socket")
+    {
         "Network APIs indicate the program creates network connections. Combined with other suspicious APIs, this may indicate a reverse shell, data exfiltration, or command-and-control communication.".to_string()
     } else if desc_lower.contains("checksum") {
         "A PE checksum mismatch means the file has been modified after compilation. This is common in cracked, patched, or tampered binaries. Most legitimate compilers set the correct checksum.".to_string()

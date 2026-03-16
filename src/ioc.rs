@@ -138,10 +138,7 @@ mod tests {
 
     #[test]
     fn test_url() {
-        assert_eq!(
-            classify_ioc("https://evil.com/payload"),
-            Some(IocType::Url)
-        );
+        assert_eq!(classify_ioc("https://evil.com/payload"), Some(IocType::Url));
         assert_eq!(classify_ioc("http://10.0.0.1/cmd"), Some(IocType::Url));
     }
 

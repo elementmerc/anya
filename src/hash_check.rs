@@ -86,8 +86,7 @@ fn fmt_thousands(n: usize) -> String {
 ///
 /// Returns `Ok(true)` when the hash is found in the list, `Ok(false)` otherwise.
 pub fn run(target: &str, against: &Path, json: bool) -> Result<bool> {
-    let (hash_set, list_entries) =
-        load_hash_list(against).context("Could not load hash list")?;
+    let (hash_set, list_entries) = load_hash_list(against).context("Could not load hash list")?;
 
     let list_name = against
         .file_name()
@@ -111,21 +110,27 @@ pub fn run(target: &str, against: &Path, json: bool) -> Result<bool> {
             .unwrap_or_else(|| target.to_string());
 
         // Check SHA256 first, then SHA1, then MD5.
-        let (matched, matched_hash, matched_type) =
-            if hash_set.contains(&sha256_hex) {
-                (true, sha256_hex.clone(), "sha256")
-            } else if hash_set.contains(&sha1_hex) {
-                (true, sha1_hex.clone(), "sha1")
-            } else if hash_set.contains(&md5_hex) {
-                (true, md5_hex.clone(), "md5")
-            } else {
-                (false, sha256_hex.clone(), "sha256")
-            };
+        let (matched, matched_hash, matched_type) = if hash_set.contains(&sha256_hex) {
+            (true, sha256_hex.clone(), "sha256")
+        } else if hash_set.contains(&sha1_hex) {
+            (true, sha1_hex.clone(), "sha1")
+        } else if hash_set.contains(&md5_hex) {
+            (true, md5_hex.clone(), "md5")
+        } else {
+            (false, sha256_hex.clone(), "sha256")
+        };
 
         if json {
             print_json(matched, &matched_hash, matched_type, list_entries);
         } else {
-            print_terminal(matched, &file_display, &matched_hash, matched_type, &list_name, list_entries);
+            print_terminal(
+                matched,
+                &file_display,
+                &matched_hash,
+                matched_type,
+                &list_name,
+                list_entries,
+            );
         }
 
         Ok(matched)
@@ -138,7 +143,14 @@ pub fn run(target: &str, against: &Path, json: bool) -> Result<bool> {
         if json {
             print_json(matched, &normalised, hash_type, list_entries);
         } else {
-            print_terminal(matched, target, &normalised, hash_type, &list_name, list_entries);
+            print_terminal(
+                matched,
+                target,
+                &normalised,
+                hash_type,
+                &list_name,
+                list_entries,
+            );
         }
 
         Ok(matched)
@@ -224,9 +236,7 @@ mod tests {
         // All entries should be lowercased
         assert!(set.contains("d41d8cd98f00b204e9800998ecf8427e"));
         assert!(set.contains("da39a3ee5e6b4b0d3255bfef95601890afd80709"));
-        assert!(set.contains(
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        ));
+        assert!(set.contains("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"));
 
         // Comments and blank lines must not appear
         assert!(!set.contains("# This is a comment"));
