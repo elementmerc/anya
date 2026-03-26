@@ -586,7 +586,6 @@ export default function App() {
           <DropZone
             isLoading={isLoading}
             error={error}
-            onFileDrop={analyse}
             onPickFile={analyse}
           />
         )}

@@ -7,11 +7,10 @@ import CaseBrowser from "@/components/CaseBrowser";
 interface Props {
   isLoading: boolean;
   error: string | null;
-  onFileDrop: (path: string) => void;
   onPickFile: (path: string) => void;
 }
 
-export default function DropZone({ isLoading, error, onFileDrop: handleDrop, onPickFile }: Props) {
+export default function DropZone({ isLoading, error, onPickFile }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [recent, setRecent] = useState<Array<{ file_path: string; file_name: string; risk_score: number; timestamp: string }>>([]);
 
