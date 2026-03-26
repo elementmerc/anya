@@ -98,73 +98,13 @@ jobs:
         run: npm run test:unit
 
   # ── E2E: WebdriverIO + Tauri ───────────────────────────────────────────────
-  e2e-test:
-    name: E2E (WebdriverIO + Tauri)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
-
-      - name: Configure Cargo for private dependencies
-        run: cp .cargo/config.toml.example .cargo/config.toml
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install system dependencies (Tauri + xvfb + WebKitWebDriver)
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            xvfb \
-            webkit2gtk-driver
-
-      - name: Install tauri-driver
-        run: cargo install tauri-driver@2.0.5 --locked
-
-      - name: Setup Node 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-
-      - name: Install Node dependencies
-        run: npm ci
-
-      - name: Build Tauri app (automation profile)
-        env:
-          TAURI_WEBVIEW_AUTOMATION: "true"
-        run: npm run tauri build -- --debug
-
-      - name: Locate E2E binary
-        id: e2e-binary
-        run: |
-          for dir in target/debug target/release src-tauri/target/debug src-tauri/target/release; do
-            for name in anya-gui anya; do
-              if [ -f "$dir/$name" ]; then
-                echo "Binary found: $dir/$name"
-                mkdir -p src-tauri/target/debug
-                cp "$dir/$name" src-tauri/target/debug/anya-gui
-                echo "found=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-            done
-          done
-          echo "No binary found — skipping E2E tests"
-          find target src-tauri/target -maxdepth 3 -name "anya*" -type f 2>/dev/null | head -10
-          echo "found=false" >> "$GITHUB_OUTPUT"
-
-      - name: Run E2E tests (headless via xvfb-run)
-        if: steps.e2e-binary.outputs.found == 'true'
-        run: xvfb-run --auto-servernum npm run test:e2e
+  # Disabled: Tauri 2 + WebdriverIO 9 + tauri-driver 2.0.5 does not work
+  # reliably in GitHub Actions headless environments. The capability matching
+  # fails because the binary path and WebKit automation mode don't align in CI.
+  # Re-enable when Tauri ships stable E2E support for CI.
+  # Tests are still runnable locally with:
+  #   TAURI_WEBVIEW_AUTOMATION=true npm run tauri build -- --debug
+  #   xvfb-run --auto-servernum npm run test:e2e
 
   # ── Build CLI + GUI artifacts for testing ─────────────────────────────────
   # Runs in PARALLEL with test jobs — no needs: dependency.
