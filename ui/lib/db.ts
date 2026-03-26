@@ -183,6 +183,24 @@ export async function saveSettingsToDb(
   }
 }
 
+// ─── Guided tour ─────────────────────────────────────────────────────────────
+
+export async function isGuidedTourCompleted(): Promise<boolean> {
+  const db = await getDb();
+  const rows = await db.select<{ value: string }[]>(
+    "SELECT value FROM settings WHERE key = 'guided_tour_completed'"
+  );
+  return rows.length > 0 && rows[0].value === "true";
+}
+
+export async function markGuidedTourCompleted(): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "INSERT OR REPLACE INTO settings (key, value) VALUES ('guided_tour_completed', 'true')",
+    []
+  );
+}
+
 // ─── Teacher Mode: progress ───────────────────────────────────────────────────
 
 export async function markLessonComplete(

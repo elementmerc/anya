@@ -8,11 +8,12 @@ import { useTheme } from "@/hooks/useTheme";
 import { useFontSize } from "@/hooks/useFontSize";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { TeacherModeContext, type TeacherModeContextValue, type TeacherFocusItem } from "@/hooks/useTeacherMode";
-import { loadTeacherSettings, saveTeacherSettings, loadSettings, saveSettingsToDb } from "@/lib/db";
+import { loadTeacherSettings, saveTeacherSettings, loadSettings, saveSettingsToDb, isGuidedTourCompleted, markGuidedTourCompleted } from "@/lib/db";
 import { getThresholds, openFolderPicker, openFilePicker, analyzeDirectory, onBatchStarted, onBatchFileResult, onBatchComplete, pollDirectory, exportJson, saveJsonPicker, onFileDrop } from "@/lib/tauri-bridge";
 import { BibleVerseBar } from "@/components/BibleVerseBar";
 import { ToastProvider } from "@/components/Toast";
 import DropZone from "@/components/DropZone";
+import GuidedTour from "@/components/GuidedTour";
 import TopBar from "@/components/TopBar";
 import TabNav from "@/components/TabNav";
 import SettingsModal from "@/components/SettingsModal";
@@ -88,6 +89,28 @@ export default function App() {
   });
 
   const [batchState, setBatchState] = useState<BatchState>(INITIAL_BATCH);
+
+  // ── Guided tour (first analysis) ──────────────────────────────────────────
+  const [showTour, setShowTour] = useState(false);
+  const [tourEligible, setTourEligible] = useState(false);
+
+  useEffect(() => {
+    isGuidedTourCompleted().then((done) => {
+      if (!done) setTourEligible(true);
+    }).catch(() => setTourEligible(true));
+  }, []);
+
+  useEffect(() => {
+    if (result && tourEligible && !showTour) {
+      setShowTour(true);
+    }
+  }, [result, tourEligible]);
+
+  const handleTourComplete = useCallback(() => {
+    setShowTour(false);
+    setTourEligible(false);
+    markGuidedTourCompleted().catch(() => {});
+  }, []);
 
   // ── C7: Keyboard shortcuts ──────────────────────────────────────────────
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -591,6 +614,8 @@ export default function App() {
         )}
 
         {bibleVersesEnabled && <BibleVerseBar />}
+
+        <GuidedTour active={showTour} onComplete={handleTourComplete} />
 
         {showSettings && (
           <SettingsModal
