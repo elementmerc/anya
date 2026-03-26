@@ -19,15 +19,20 @@ RUN apt-get update && \
 
 WORKDIR /build
 
-# ── Layer caching: compile all dependencies before touching our source ──────
-# Copy manifests first — these layers are re-used as long as deps don't change
+# ── Copy dependency manifests and stub/private crates ──────────────────────
+# The workspace depends on anya-scoring and anya-data (path deps).
+# .cargo/config.toml redirects stubs → anya-proprietary (the real code).
 COPY Cargo.toml Cargo.lock ./
+COPY anya-stubs ./anya-stubs
+COPY anya-proprietary ./anya-proprietary
+COPY .cargo ./.cargo
 
 # The workspace Cargo.toml lists src-tauri as a member, which isn't present
 # in this build context (excluded by .dockerignore). Remove it from the
 # workspace members list so cargo can resolve the workspace cleanly.
 RUN sed -i 's/members = \["src-tauri"\]/members = []/' Cargo.toml
 
+# ── Layer caching: compile all dependencies before touching our source ──────
 # Create minimal stub sources — just enough to let cargo compile the external
 # dependency graph. The stub itself may fail to compile; that's fine because
 # by the time cargo reaches our code all third-party crates are compiled and

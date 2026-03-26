@@ -200,8 +200,8 @@ jobs:
       - name: Install cross-compilation tools (aarch64-musl)
         if: contains(matrix.target, 'aarch64') && contains(matrix.target, 'musl')
         run: |
-          sudo apt-get install -y gcc-aarch64-linux-gnu musl-tools
-          # Use cross for aarch64-musl
+          # cross handles cross-compilation via Docker containers —
+          # no host gcc-aarch64-linux-gnu needed (and it 404s on GH runners).
           cargo install cross --locked
 
       - name: Build CLI binary
