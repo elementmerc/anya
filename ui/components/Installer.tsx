@@ -146,10 +146,10 @@ export function Installer({ onComplete }: InstallerProps) {
             </p>
             <div className="path-row">
               <div className="path-display" title={installPath}>
-                {installPath || "Loading\u2026"}
+                {installPath || "Loading…"}
               </div>
               <button className="browse-btn" onClick={() => void handleBrowse()}>
-                Browse\u2026
+                Browse…
               </button>
             </div>
             <p className="inst-hint" style={{ fontSize: 10, marginTop: 8 }}>

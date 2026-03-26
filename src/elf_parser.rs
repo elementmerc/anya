@@ -257,6 +257,115 @@ pub fn analyse_elf_data(data: &[u8]) -> Result<output::ELFAnalysis> {
     let imports = analyse_elf_imports(&elf);
     let packer_indicators = detect_elf_packers(&elf, data);
 
+    // Check RPATH/RUNPATH for suspicious entries
+    let mut rpath_anomalies = Vec::new();
+    if let Some(dynamic) = &elf.dynamic {
+        for entry in &dynamic.dyns {
+            // DT_RPATH = 15, DT_RUNPATH = 29
+            if entry.d_tag == 15 || entry.d_tag == 29 {
+                if let Some(path_str) = elf.dynstrtab.get_at(entry.d_val as usize) {
+                    for path in path_str.split(':') {
+                        let p = path.trim();
+                        if p.starts_with("/tmp")
+                            || p.starts_with("/var/tmp")
+                            || p.starts_with("/dev/shm")
+                            || p == "."
+                            || p.starts_with("./")
+                            || !p.starts_with('/')
+                        {
+                            rpath_anomalies.push(format!("{}: writable or relative path", p));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Check GOT/PLT for exploitation-relevant symbols
+    let got_plt_suspicious: Vec<String> = {
+        let exploit_functions = ["system", "execve", "execvp", "dlopen", "popen"];
+        elf.dynsyms
+            .iter()
+            .filter(|sym| sym.st_shndx == 0 && sym.st_name != 0)
+            .filter_map(|sym| {
+                elf.dynstrtab.get_at(sym.st_name).and_then(|name| {
+                    if exploit_functions.contains(&name) {
+                        Some(name.to_string())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect()
+    };
+
+    // Check interpreter path for anomalies
+    let interpreter_suspicious = interpreter.as_ref().is_some_and(|interp| {
+        let standard_prefixes = ["/lib/", "/lib64/", "/usr/lib/", "/usr/lib64/"];
+        !standard_prefixes.iter().any(|p| interp.starts_with(p))
+    });
+
+    // Check for DWARF debug info
+    let has_dwarf_info = elf.section_headers.iter().any(|sh| {
+        elf.shdr_strtab
+            .get_at(sh.sh_name)
+            .map(|n| n.starts_with(".debug_"))
+            .unwrap_or(false)
+    });
+
+    // Check for suspicious section names
+    let suspicious_section_names: Vec<String> = elf
+        .section_headers
+        .iter()
+        .filter_map(|sh| {
+            elf.shdr_strtab.get_at(sh.sh_name).and_then(|name| {
+                if name.starts_with(".") && name.len() > 1 {
+                    // Flag non-standard section names that could indicate packing or injection
+                    let standard = [
+                        ".text",
+                        ".data",
+                        ".bss",
+                        ".rodata",
+                        ".symtab",
+                        ".strtab",
+                        ".shstrtab",
+                        ".rel",
+                        ".rela",
+                        ".plt",
+                        ".got",
+                        ".got.plt",
+                        ".dynamic",
+                        ".dynsym",
+                        ".dynstr",
+                        ".init",
+                        ".fini",
+                        ".init_array",
+                        ".fini_array",
+                        ".interp",
+                        ".note",
+                        ".eh_frame",
+                        ".eh_frame_hdr",
+                        ".gcc_except_table",
+                        ".tbss",
+                        ".tdata",
+                        ".comment",
+                        ".gnu",
+                        ".hash",
+                    ];
+                    if !standard.iter().any(|s| name.starts_with(s))
+                        && !name.starts_with(".debug_")
+                        && !name.starts_with(".rela.")
+                        && !name.starts_with(".rel.")
+                        && !name.starts_with(".note.")
+                    {
+                        return Some(name.to_string());
+                    }
+                }
+                None
+            })
+        })
+        .collect();
+
     Ok(output::ELFAnalysis {
         architecture,
         is_64bit,
@@ -270,13 +379,12 @@ pub fn analyse_elf_data(data: &[u8]) -> Result<output::ELFAnalysis> {
         has_relro,
         is_stripped,
         packer_indicators,
-        // new fields — populated by analyse_elf_extended() in elf_analysis.rs
-        got_plt_suspicious: vec![],
-        rpath_anomalies: vec![],
-        has_dwarf_info: false,
-        interpreter_suspicious: false,
-        suspicious_section_names: vec![],
-        suspicious_libc_calls: vec![],
+        got_plt_suspicious,
+        rpath_anomalies,
+        has_dwarf_info,
+        interpreter_suspicious,
+        suspicious_section_names,
+        suspicious_libc_calls: vec![], // populated from string analysis if needed
     })
 }
 

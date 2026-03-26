@@ -20,6 +20,7 @@ export interface StringsInfo {
   samples: string[];
   sample_count: number;
   classified?: ClassifiedString[];
+  suppressed_reason?: string;
 }
 
 export interface ClassifiedString {
@@ -293,6 +294,28 @@ export interface SuspiciousLibcCall {
   confidence: ConfidenceLevel;
 }
 
+export interface MachoAnalysis {
+  architecture: string;
+  is_64bit: boolean;
+  entry_point: string;
+  dylib_imports: string[];
+  has_code_signature: boolean;
+  pie_enabled: boolean;
+  nx_enabled: boolean;
+}
+
+export interface PdfAnalysis {
+  dangerous_objects: string[];
+  risk_indicators: string[];
+}
+
+export interface OfficeAnalysis {
+  has_macros: boolean;
+  has_embedded_objects: boolean;
+  has_external_links: boolean;
+  suspicious_components: string[];
+}
+
 export interface AnalysisResult {
   file_info: FileInfo;
   hashes: Hashes;
@@ -314,6 +337,10 @@ export interface AnalysisResult {
   confidence_scores?: Record<string, ConfidenceLevel>;
   plain_english_findings?: PlainEnglishFinding[];
   byte_histogram?: number[];
+  // File-type-specific analysis
+  mach_analysis?: MachoAnalysis;
+  pdf_analysis?: PdfAnalysis;
+  office_analysis?: OfficeAnalysis;
 }
 
 /** Wrapper returned by the analyze_file Tauri command */
@@ -386,4 +413,79 @@ export interface ThresholdConfig {
   packed_entropy: number;      // 6.0–8.0
   suspicious_score: number;    // 20–65
   malicious_score: number;     // 50–95
+}
+
+// ── Batch analysis ──────────────────────────────────────────────
+
+export type Verdict = "clean" | "suspicious" | "malicious" | "error";
+
+export interface BatchFileResult {
+  index: number;
+  filePath: string;
+  fileName: string;
+  result: AnalysisResult | null;
+  riskScore: number;
+  verdict: Verdict;
+  error?: string;
+}
+
+export interface BatchState {
+  active: boolean;
+  directoryPath: string | null;
+  recursive: boolean;
+  totalFiles: number;
+  results: BatchFileResult[];
+  selectedIndex: number | null;
+  isRunning: boolean;
+  sidebarCollapsed: boolean;
+  batchId: number;
+}
+
+export interface BatchStartedPayload {
+  directory: string;
+  total_files: number;
+  file_paths: string[];
+  batch_id: number;
+}
+
+export interface BatchFileResultPayload {
+  index: number;
+  file_path: string;
+  file_name: string;
+  result: AnalysisResult | null;
+  risk_score: number;
+  verdict: Verdict;
+  error?: string;
+  batch_id: number;
+}
+
+export interface BatchCompletePayload {
+  total: number;
+  analysed: number;
+  failed: number;
+  duration_secs: number;
+  batch_id: number;
+}
+
+// ── Case management ──────────────────────────────────────────────
+export interface CaseSummary {
+  name: string;
+  status: string;
+  file_count: number;
+  updated: string;
+}
+
+export interface CaseFile {
+  path: string;
+  sha256: string;
+  verdict: string;
+  analysed_at: string;
+}
+
+export interface CaseDetail {
+  name: string;
+  status: string;
+  created: string;
+  updated: string;
+  files: CaseFile[];
 }

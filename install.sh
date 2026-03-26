@@ -14,6 +14,22 @@
 
 set -uo pipefail
 
+INSTALLED_FILES=()
+track_install() { INSTALLED_FILES+=("$1"); }
+rollback_on_error() {
+  local exit_code=$?
+  # Clean up temp dir
+  rm -rf "${TMPDIR_TESTS:-}" 2>/dev/null
+  # Rollback installed files if error
+  if [ $exit_code -ne 0 ] && [ ${#INSTALLED_FILES[@]} -gt 0 ]; then
+    warn "Installation failed — rolling back…"
+    for f in "${INSTALLED_FILES[@]}"; do
+      rm -f "$f" 2>/dev/null && info "  Removed $f"
+    done
+  fi
+}
+trap rollback_on_error EXIT
+
 # ─── Colours ─────────────────────────────────────────────────────────────────
 
 if [ -z "${ANYA_NO_COLOR:-}" ] && [ -t 1 ]; then
@@ -83,6 +99,20 @@ preflight() {
     info "For the Windows GUI (.msi), download from:"
     info "  https://github.com/elementmerc/anya/releases"
   fi
+
+  # Proxy detection
+  if [ -n "${https_proxy:-}" ] || [ -n "${http_proxy:-}" ] || [ -n "${HTTPS_PROXY:-}" ] || [ -n "${HTTP_PROXY:-}" ]; then
+    info "Proxy detected: ${https_proxy:-${http_proxy:-${HTTPS_PROXY:-${HTTP_PROXY}}}}"
+  fi
+
+  # Network connectivity check
+  if command -v curl >/dev/null 2>&1; then
+    if ! curl -fsS --connect-timeout 5 "https://api.github.com" >/dev/null 2>&1; then
+      error "No internet connection detected."
+      info  "Download Anya manually from: https://github.com/elementmerc/anya/releases"
+      die   "Cannot proceed without network access."
+    fi
+  fi
 }
 
 # ─── Platform detection ───────────────────────────────────────────────────────
@@ -110,7 +140,7 @@ detect_platform() {
       ARCH="x86_64"
       ;;
     FreeBSD)
-      die "FreeBSD is not yet supported. Use 'cargo install anya-security-core' to build from source."
+      die "FreeBSD is not yet supported. Check https://github.com/elementmerc/anya/releases for available platforms."
       ;;
     *)
       die "Unsupported OS: $_OS"
@@ -162,6 +192,70 @@ download() {
   fi
 }
 
+# ─── Upgrade detection ────────────────────────────────────────────────────────
+
+detect_existing() {
+  if command -v anya >/dev/null 2>&1; then
+    local current
+    current=$(anya --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    if [ -n "$current" ]; then
+      if [ "$current" = "${VERSION#v}" ]; then
+        info "Anya ${current} is already installed and up to date."
+        if [ -t 0 ]; then
+          read -rp "  Reinstall? [y/N] " choice </dev/tty 2>/dev/null || choice="y"
+          [[ "$choice" =~ ^[Yy] ]] || { success "Nothing to do."; exit 0; }
+        fi
+      else
+        info "Upgrading Anya: ${current} → ${VERSION#v}"
+      fi
+    fi
+  fi
+}
+
+# ─── Checksum verification ───────────────────────────────────────────────────
+
+verify_checksum() {
+  local file="$1" checksum_url="$2"
+  local checksum_file="${file}.sha256"
+
+  # Try to download checksum file
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$checksum_file" "$checksum_url" 2>/dev/null
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$checksum_file" "$checksum_url" 2>/dev/null
+  fi
+
+  if [ ! -s "$checksum_file" ]; then
+    warn "No checksum file available — skipping integrity verification"
+    rm -f "$checksum_file"
+    return 0
+  fi
+
+  local expected actual
+  expected=$(awk '{print $1}' "$checksum_file")
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual=$(sha256sum "$file" | awk '{print $1}')
+  elif command -v shasum >/dev/null 2>&1; then
+    actual=$(shasum -a 256 "$file" | awk '{print $1}')
+  else
+    warn "No SHA-256 tool available — skipping integrity verification"
+    rm -f "$checksum_file"
+    return 0
+  fi
+
+  rm -f "$checksum_file"
+
+  if [ "$expected" = "$actual" ]; then
+    info "Integrity verified ✓"
+    return 0
+  else
+    error "Checksum mismatch!"
+    error "  Expected: ${expected}"
+    error "  Got:      ${actual}"
+    die "Download may be corrupted. Please try again."
+  fi
+}
+
 # ─── CLI install ──────────────────────────────────────────────────────────────
 
 install_cli() {
@@ -190,7 +284,7 @@ install_cli() {
 
   local DOWNLOAD_URL="https://github.com/elementmerc/anya/releases/download/${VERSION}/${ASSET}"
   local TMP_DIR
-  TMP_DIR="$(mktemp -d)"
+  TMP_DIR=$(mktemp -d 2>/dev/null) || { TMP_DIR="/tmp/anya-install-$$"; mkdir -p "$TMP_DIR"; }
   local TMP_FILE="$TMP_DIR/$ASSET"
 
   info "Downloading $ASSET…"
@@ -204,6 +298,7 @@ install_cli() {
     return
   fi
   spinner_stop
+  verify_checksum "$TMP_FILE" "${DOWNLOAD_URL}.sha256"
 
   # Extract
   mkdir -p "$INSTALL_DIR"
@@ -223,6 +318,7 @@ install_cli() {
   [ -n "$EXTRACTED_BINARY" ] || die "Could not find binary '$BINARY_NAME' in the downloaded archive."
 
   install -m 755 "$EXTRACTED_BINARY" "$INSTALL_DIR/$BINARY_NAME"
+  track_install "$INSTALL_DIR/$BINARY_NAME"
   rm -rf "$TMP_DIR"
 
   success "CLI installed to $INSTALL_DIR/$BINARY_NAME"
@@ -233,25 +329,44 @@ install_cli() {
 }
 
 install_cli_cargo() {
-  info "Installing via cargo (this compiles from source — may take a few minutes)…"
-  require_cmd cargo
+  # Tier 2: Try musl static binary (works on any Linux)
+  if [ "$OS" = "linux" ]; then
+    info "Trying statically-linked binary (works on any Linux)…"
+    local musl_asset="anya-${VERSION}-${ARCH}-unknown-linux-musl.tar.gz"
+    local musl_url="https://github.com/elementmerc/anya/releases/download/${VERSION}/${musl_asset}"
+    local musl_file="${TMPDIR_TESTS:-/tmp}/${musl_asset}"
 
-  # Check Rust version — edition 2024 requires rustc >= 1.85
-  local rust_ver
-  rust_ver=$(rustc --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
-  if [ -n "$rust_ver" ]; then
-    local rust_minor
-    rust_minor=$(echo "$rust_ver" | cut -d. -f2)
-    if [ "$rust_minor" -lt 85 ] 2>/dev/null; then
-      error "Anya requires Rust 1.85 or newer (you have rustc $rust_ver)."
-      info  "Update with:  rustup update stable"
-      info  "Or install rustup from https://rustup.rs"
-      die   "Cannot compile from source with this Rust version."
+    if download "$musl_url" "$musl_file" 2>/dev/null && [ -s "$musl_file" ]; then
+      verify_checksum "$musl_file" "${musl_url}.sha256"
+      extract_and_install "$musl_file"
+      return 0
     fi
+    warn "No static binary available for ${ARCH}"
   fi
 
-  cargo install anya-security-core --locked || die "cargo install failed"
-  success "CLI installed via cargo"
+  # Tier 3: Docker wrapper fallback
+  if command -v docker >/dev/null 2>&1; then
+    info "Falling back to Docker image…"
+    if docker pull "elementmerc/anya:${VERSION#v}" 2>/dev/null || docker pull "elementmerc/anya:latest" 2>/dev/null; then
+      local wrapper="${ANYA_INSTALL_DIR:-/usr/local/bin}/anya"
+      cat > "$wrapper" << 'DOCKERWRAPPER'
+#!/bin/sh
+exec docker run --rm -v "$(pwd):/work:ro" -w /work elementmerc/anya:latest "$@"
+DOCKERWRAPPER
+      chmod 755 "$wrapper"
+      track_install "$wrapper"
+      success "Installed via Docker wrapper at $wrapper"
+      info "Note: requires Docker running. Use 'docker pull elementmerc/anya:latest' to update."
+      return 0
+    fi
+    warn "Docker pull failed"
+  fi
+
+  error "No installation method available for your platform (${OS}/${ARCH})."
+  info  "Options:"
+  info  "  1. Download manually: https://github.com/elementmerc/anya/releases"
+  info  "  2. Use Docker: docker run --rm -v \$(pwd):/work:ro elementmerc/anya:latest --file /work/sample.exe"
+  die   "Installation failed — no compatible binary found."
 }
 
 verify_cli() {
@@ -331,7 +446,7 @@ install_gui() {
 
       ASSET="Anya_${VERSION#v}_universal.dmg"
       DOWNLOAD_URL="https://github.com/elementmerc/anya/releases/download/${VERSION}/${ASSET}"
-      TMP_DIR="$(mktemp -d)"
+      TMP_DIR=$(mktemp -d 2>/dev/null) || { TMP_DIR="/tmp/anya-install-$$"; mkdir -p "$TMP_DIR"; }
       TMP_FILE="$TMP_DIR/$ASSET"
 
       info "Downloading $ASSET…"
@@ -341,8 +456,10 @@ install_gui() {
         die "Could not download GUI package. Check https://github.com/elementmerc/anya/releases for available assets."
       fi
       spinner_stop
+      verify_checksum "$TMP_FILE" "${DOWNLOAD_URL}.sha256"
 
       info "Mounting DMG and copying to /Applications…"
+      hdiutil detach -quiet /Volumes/AnyaInstall 2>/dev/null || true
       if ! hdiutil attach -quiet "$TMP_FILE" -mountpoint /Volumes/AnyaInstall 2>/dev/null; then
         die "Failed to mount DMG. The download may be corrupt — try again."
       fi
@@ -354,6 +471,7 @@ install_gui() {
       rm -rf "$TMP_DIR"
       # Strip macOS quarantine flag to avoid Gatekeeper block (app is unsigned)
       xattr -cr /Applications/Anya.app 2>/dev/null || true
+      track_install "/Applications/Anya.app"
       success "Anya.app installed to /Applications"
       info "Quarantine flag cleared — Anya will open without Gatekeeper prompts."
       ;;
@@ -375,13 +493,14 @@ install_gui() {
       if [ "$_use_deb" = "true" ]; then
         ASSET="anya_${VERSION#v}_amd64.deb"
         DOWNLOAD_URL="https://github.com/elementmerc/anya/releases/download/${VERSION}/${ASSET}"
-        TMP_DIR="$(mktemp -d)"
+        TMP_DIR=$(mktemp -d 2>/dev/null) || { TMP_DIR="/tmp/anya-install-$$"; mkdir -p "$TMP_DIR"; }
         TMP_FILE="$TMP_DIR/$ASSET"
 
         info "Downloading $ASSET…"
         spinner_start "Downloading"
         if download "$DOWNLOAD_URL" "$TMP_FILE" 2>/dev/null; then
           spinner_stop
+          verify_checksum "$TMP_FILE" "${DOWNLOAD_URL}.sha256"
           info "Installing .deb package (may prompt for sudo)…"
 
           # Use apt-get install if available (auto-resolves dependencies)
@@ -441,7 +560,7 @@ install_gui() {
       DOWNLOAD_URL="https://github.com/elementmerc/anya/releases/download/${VERSION}/${ASSET}"
       local APPIMAGE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
       local APPIMAGE_BIN="${ANYA_INSTALL_DIR:-$HOME/.local/bin}/anya-gui"
-      TMP_DIR="$(mktemp -d)"
+      TMP_DIR=$(mktemp -d 2>/dev/null) || { TMP_DIR="/tmp/anya-install-$$"; mkdir -p "$TMP_DIR"; }
       TMP_FILE="$TMP_DIR/$ASSET"
 
       info "Downloading $ASSET…"
@@ -451,9 +570,11 @@ install_gui() {
         die "Could not download AppImage. Check https://github.com/elementmerc/anya/releases"
       fi
       spinner_stop
+      verify_checksum "$TMP_FILE" "${DOWNLOAD_URL}.sha256"
 
       mkdir -p "$(dirname "$APPIMAGE_BIN")"
       install -m 755 "$TMP_FILE" "$APPIMAGE_BIN"
+      track_install "$APPIMAGE_BIN"
       rm -rf "$TMP_DIR"
       success "AppImage installed to $APPIMAGE_BIN"
       ensure_in_path "$(dirname "$APPIMAGE_BIN")"
@@ -472,6 +593,7 @@ install_gui() {
         die "Could not download installer. Visit https://github.com/elementmerc/anya/releases"
       fi
       spinner_stop
+      verify_checksum "$DEST" "${DOWNLOAD_URL}.sha256"
 
       info "Launching installer…"
       msiexec //i "$DEST" //passive || die "Installer failed"
@@ -506,8 +628,15 @@ main() {
   detect_platform
   preflight
   resolve_version
+  detect_existing
 
   printf "\n${BOLD}Anya${RESET} ${CYAN}${VERSION}${RESET} — ${OS}/${ARCH}\n"
+
+  # Default to CLI in non-interactive shells
+  if [ ! -t 0 ] && [ -z "${ANYA_MODE:-}" ]; then
+    ANYA_MODE="cli"
+    info "Non-interactive shell detected — installing CLI only"
+  fi
 
   # Allow non-interactive mode via ANYA_MODE env var
   if [ -n "${ANYA_MODE:-}" ]; then

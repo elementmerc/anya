@@ -4,13 +4,16 @@
 // Copyright (C) 2026 Daniel Iwugo
 // Licensed under AGPL-3.0-or-later
 
+use aho_corasick::AhoCorasick;
 use anyhow::{Context, Result};
 use goblin::Object;
 use md5::{Digest, Md5};
+use memmap2::Mmap;
 use sha1::Sha1;
 use sha2::Sha256;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use walkdir::WalkDir;
 
 // Re-export modules
@@ -19,12 +22,17 @@ pub mod confidence;
 pub mod config;
 pub mod data;
 pub mod elf_parser;
+pub mod errors;
 pub mod guided_output;
 pub mod hash_check;
 pub mod ioc;
+pub mod macho_parser;
 pub mod output;
 pub mod pe_parser;
 pub mod yara;
+
+// Scoring engine (private crate)
+pub use anya_scoring;
 
 // Output verbosity level
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,9 +74,12 @@ pub struct FileAnalysisResult {
     pub pe_analysis: Option<output::PEAnalysis>,
     pub elf_analysis: Option<output::ELFAnalysis>,
     pub mime_type: Option<String>,
-    pub byte_histogram: Option<Vec<u32>>,
+    pub byte_histogram: Option<Vec<u64>>,
     pub file_type_mismatch: Option<output::FileTypeMismatch>,
     pub ioc_summary: Option<output::IocSummary>,
+    pub mach_analysis: Option<output::MachoAnalysis>,
+    pub pdf_analysis: Option<output::PdfAnalysis>,
+    pub office_analysis: Option<output::OfficeAnalysis>,
 }
 
 /// Batch analysis summary
@@ -157,8 +168,8 @@ pub fn calculate_hashes(data: &[u8]) -> output::Hashes {
 }
 
 /// Calculate Shannon entropy and byte histogram in a single pass
-pub fn calculate_entropy_and_histogram(data: &[u8]) -> (output::EntropyInfo, Vec<u32>) {
-    let mut frequencies = [0u32; 256];
+pub fn calculate_entropy_and_histogram(data: &[u8]) -> (output::EntropyInfo, Vec<u64>) {
+    let mut frequencies = [0u64; 256];
     for &byte in data {
         frequencies[byte as usize] += 1;
     }
@@ -266,22 +277,15 @@ pub fn extract_strings_data(data: &[u8], min_length: usize) -> output::StringsIn
         samples,
         sample_count,
         classified,
+        suppressed_reason: None,
     }
 }
 
-/// Check if file is executable based on extension
+/// Check if file should be included in batch analysis.
+/// Accepts all files regardless of extension — the analysis engine handles
+/// unknown formats gracefully (hashes, entropy, strings still extracted).
 pub fn is_executable_file(path: &Path) -> bool {
-    let extension = match path.extension() {
-        Some(ext) => ext.to_string_lossy().to_lowercase(),
-        None => return false,
-    };
-
-    matches!(
-        extension.as_str(),
-        "exe" | "dll" | "sys" | "ocx" | "scr" | "cpl" | // Windows
-        "elf" | "so" | "bin" |                          // Linux
-        "dylib" | "bundle" | "app" // macOS
-    )
+    path.is_file()
 }
 
 /// Detect MIME type via magic bytes
@@ -328,6 +332,47 @@ fn classify_strings(strings: &[(String, usize)]) -> Vec<output::ClassifiedString
         .collect()
 }
 
+/// Aho-Corasick automaton for command/suspicious keyword detection.
+/// Matches all patterns in a single pass over the string instead of
+/// calling `str::contains()` once per keyword.
+static COMMAND_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    AhoCorasick::builder()
+        .ascii_case_insensitive(true)
+        .build([
+            "cmd.exe",
+            "powershell",
+            "/c ",
+            "wget ",
+            "curl ",
+            "bash -c",
+            "sh -c",
+            "mshta",
+            "wscript",
+            "cscript",
+            "regsvr32",
+            "rundll32",
+            "schtasks",
+            "certutil",
+            "bitsadmin",
+        ])
+        .unwrap()
+});
+
+/// Aho-Corasick automaton for registry key prefix detection.
+static REGISTRY_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    AhoCorasick::builder()
+        .ascii_case_insensitive(true)
+        .build([
+            "HKEY_",
+            "HKLM\\",
+            "HKCU\\",
+            "SOFTWARE\\",
+            "SYSTEM\\",
+            "CurrentVersion",
+        ])
+        .unwrap()
+});
+
 fn classify_single_string(s: &str) -> String {
     // URL
     if s.starts_with("http://")
@@ -341,25 +386,12 @@ fn classify_single_string(s: &str) -> String {
     if looks_like_ipv4(s) {
         return "IP".to_string();
     }
-    // Registry
-    if s.starts_with("HKEY_")
-        || s.starts_with("HKLM\\")
-        || s.starts_with("HKCU\\")
-        || s.starts_with("SOFTWARE\\")
-        || s.starts_with("SYSTEM\\")
-        || s.contains("CurrentVersion")
-    {
+    // Registry (Aho-Corasick single-pass match)
+    if REGISTRY_AC.is_match(s) {
         return "Registry".to_string();
     }
-    // Command
-    if s.contains("cmd.exe")
-        || s.contains("powershell")
-        || s.contains("/c ")
-        || s.contains("wget ")
-        || s.contains("curl ")
-        || s.contains("bash -c")
-        || s.contains("sh -c")
-    {
+    // Command / suspicious keywords (Aho-Corasick single-pass match)
+    if COMMAND_AC.is_match(s) {
         return "Command".to_string();
     }
     // Path
@@ -478,15 +510,206 @@ fn detect_file_type_mismatch(
     })
 }
 
+/// Detect dangerous PDF objects via byte-level pattern scanning.
+fn detect_pdf_analysis(data: &[u8]) -> Option<output::PdfAnalysis> {
+    if !data.starts_with(b"%PDF") {
+        return None;
+    }
+
+    let mut dangerous_objects: Vec<String> = Vec::new();
+    let mut risk_indicators: Vec<String> = Vec::new();
+
+    let has = |pat: &[u8]| data.windows(pat.len()).any(|w| w == pat);
+
+    if has(b"/JavaScript") {
+        dangerous_objects.push("Embedded JavaScript".to_string());
+        risk_indicators.push(
+            "JavaScript code found — can be used for exploit delivery or silent actions on open"
+                .to_string(),
+        );
+    } else {
+        // Check short form /JS followed by delimiter
+        let js_delimiters: &[&[u8]] = &[
+            b"/JS ", b"/JS\n", b"/JS\r", b"/JS\t", b"/JS/", b"/JS>", b"/JS<", b"/JS(",
+        ];
+        if js_delimiters.iter().any(|d| has(d)) {
+            dangerous_objects.push("Embedded JavaScript".to_string());
+            risk_indicators.push("JavaScript code found — can be used for exploit delivery or silent actions on open".to_string());
+        }
+    }
+
+    if has(b"/Launch") {
+        dangerous_objects.push("Launch action".to_string());
+        risk_indicators.push("/Launch action found — can execute arbitrary system commands when the document is opened".to_string());
+    }
+
+    if has(b"/EmbeddedFile") {
+        dangerous_objects.push("Embedded file".to_string());
+        risk_indicators.push(
+            "Embedded file attachment detected — document carries a hidden embedded file"
+                .to_string(),
+        );
+    }
+
+    if has(b"/OpenAction") {
+        dangerous_objects.push("Automatic action (OpenAction)".to_string());
+        risk_indicators.push(
+            "/OpenAction triggers automatically when the PDF is opened without user interaction"
+                .to_string(),
+        );
+    }
+
+    let aa_delimiters: &[&[u8]] = &[
+        b"/AA ", b"/AA\n", b"/AA\r", b"/AA\t", b"/AA/", b"/AA>", b"/AA<",
+    ];
+    if aa_delimiters.iter().any(|d| has(d)) {
+        dangerous_objects.push("Automatic action (AA)".to_string());
+        risk_indicators.push(
+            "/AA (Additional Actions) dictionary can trigger actions on page open/close events"
+                .to_string(),
+        );
+    }
+
+    // AcroForm with JS within 200 bytes
+    let acroform = b"/AcroForm";
+    for i in 0..data.len().saturating_sub(acroform.len()) {
+        if &data[i..i + acroform.len()] == acroform {
+            let end = (i + 200).min(data.len());
+            let nearby = &data[i..end];
+            let has_js = nearby
+                .windows(b"/JavaScript".len())
+                .any(|w| w == b"/JavaScript")
+                || nearby.windows(b"/JS ".len()).any(|w| w == b"/JS ");
+            if has_js && !dangerous_objects.contains(&"Form with JavaScript".to_string()) {
+                dangerous_objects.push("Form with JavaScript".to_string());
+                risk_indicators.push(
+                    "AcroForm containing JavaScript — interactive form with embedded script"
+                        .to_string(),
+                );
+            }
+            break;
+        }
+    }
+
+    Some(output::PdfAnalysis {
+        dangerous_objects,
+        risk_indicators,
+    })
+}
+
+/// Detect Office macro/embedding indicators in ZIP-based Office documents.
+fn detect_office_analysis(data: &[u8], path: &Path) -> Option<output::OfficeAnalysis> {
+    let ext = path.extension()?.to_str()?.to_lowercase();
+    if !matches!(
+        ext.as_str(),
+        "docx" | "xlsx" | "xlsm" | "pptm" | "pptx" | "docm"
+    ) {
+        return None;
+    }
+    if !data.starts_with(b"PK\x03\x04") {
+        return None;
+    }
+
+    use std::io::Read;
+    let cursor = std::io::Cursor::new(data);
+    let mut archive = match zip::ZipArchive::new(cursor) {
+        Ok(a) => a,
+        Err(_) => return None,
+    };
+
+    let mut has_macros = false;
+    let mut has_embedded_objects = false;
+    let mut has_external_links = false;
+    let mut suspicious_components: Vec<String> = Vec::new();
+
+    // First pass: collect file names from central directory
+    let mut file_names: Vec<String> = Vec::new();
+    for i in 0..archive.len() {
+        if let Ok(file) = archive.by_index_raw(i) {
+            file_names.push(file.name().to_string());
+        }
+    }
+
+    for name in &file_names {
+        if name.contains("vbaProject.bin") {
+            has_macros = true;
+        }
+        if name.contains("/embeddings/") {
+            has_embedded_objects = true;
+        }
+    }
+
+    if has_macros {
+        suspicious_components.push("VBA macro project detected (vbaProject.bin)".to_string());
+    }
+    if has_embedded_objects {
+        suspicious_components.push("Embedded objects detected".to_string());
+    }
+
+    // Second pass: scan .rels files for external link targets
+    for i in 0..archive.len() {
+        let mut file = match archive.by_index(i) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        let name = file.name().to_string();
+        if !name.ends_with(".rels") {
+            continue;
+        }
+        let mut content = Vec::new();
+        if file.read_to_end(&mut content).is_ok() {
+            let has_ext = content
+                .windows(b"TargetMode=\"External\"".len())
+                .any(|w| w == b"TargetMode=\"External\"")
+                || content
+                    .windows(b"TargetMode='External'".len())
+                    .any(|w| w == b"TargetMode='External'");
+            if has_ext {
+                has_external_links = true;
+                break;
+            }
+        }
+    }
+
+    if has_external_links {
+        suspicious_components.push("External link references in relationship files".to_string());
+    }
+
+    Some(output::OfficeAnalysis {
+        has_macros,
+        has_embedded_objects,
+        has_external_links,
+        suspicious_components,
+    })
+}
+
 /// Analyze a single file and return structured result
 pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysisResult> {
-    // Read file
-    let data = fs::read(path).with_context(|| {
+    // Memory-map the file for zero-copy I/O (avoids allocating + copying the entire file)
+    let file = fs::File::open(path).with_context(|| {
         format!(
             "Couldn't read '{}'. Check that the file exists and you have read permission.",
             path.display()
         )
     })?;
+    let file_size = file.metadata()?.len();
+
+    // Reject files larger than 1GB to prevent excessive memory mapping
+    const MAX_FILE_SIZE: u64 = 1_073_741_824; // 1GB
+    if file_size > MAX_FILE_SIZE {
+        anyhow::bail!(
+            "File is too large for analysis ({:.1} GB). Maximum supported size is 1 GB.",
+            file_size as f64 / 1_073_741_824.0
+        );
+    }
+
+    // Reject empty files early
+    if file_size == 0 {
+        anyhow::bail!("This file is empty (0 bytes).");
+    }
+
+    let data = unsafe { Mmap::map(&file) }
+        .with_context(|| format!("Failed to memory-map '{}'.", path.display()))?;
     let size_bytes = data.len();
 
     // Calculate hashes
@@ -495,20 +718,40 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
     // Calculate entropy + byte histogram in one pass
     let (entropy, histogram) = calculate_entropy_and_histogram(&data);
 
-    // Extract strings + IOC detection
-    let strings = extract_strings_data(&data, min_string_length);
-    let ioc_summary = {
-        let (strings_with_offsets, _) = extract_strings_with_offsets(&data, min_string_length);
-        let summary = ioc::extract_iocs(&strings_with_offsets);
-        if summary.ioc_strings.is_empty() {
-            None
-        } else {
-            Some(summary)
-        }
+    // MIME type detection (done early so we can conditionally suppress strings)
+    let mime_type = detect_mime_type(&data);
+    let is_image = mime_type
+        .as_deref()
+        .map(|m| m.starts_with("image/"))
+        .unwrap_or(false);
+
+    // Extract strings + IOC detection (suppressed for image files)
+    let (strings, ioc_summary) = if is_image {
+        let suppressed = output::StringsInfo {
+            min_length: min_string_length,
+            total_count: 0,
+            samples: vec![],
+            sample_count: 0,
+            classified: None,
+            suppressed_reason: Some("Image file — string extraction not applicable".to_string()),
+        };
+        (suppressed, None)
+    } else {
+        let s = extract_strings_data(&data, min_string_length);
+        let ioc = {
+            let (strings_with_offsets, _) = extract_strings_with_offsets(&data, min_string_length);
+            let summary = ioc::extract_iocs(&strings_with_offsets);
+            if summary.ioc_strings.is_empty() {
+                None
+            } else {
+                Some(summary)
+            }
+        };
+        (s, ioc)
     };
 
     // Determine file format and analyse
-    let (file_format, pe_analysis, elf_analysis) = match Object::parse(&data) {
+    let (file_format, pe_analysis, elf_analysis, mach_analysis) = match Object::parse(&data) {
         Ok(Object::PE(_)) => {
             let pe_data = pe_parser::analyse_pe_data(&data).with_context(|| {
                 format!(
@@ -516,7 +759,7 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
                     path.display()
                 )
             })?;
-            ("Windows PE".to_string(), Some(pe_data), None)
+            ("Windows PE".to_string(), Some(pe_data), None, None)
         }
         Ok(Object::Elf(_)) => {
             let elf_data = elf_parser::analyse_elf_data(&data).with_context(|| {
@@ -525,19 +768,23 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
                     path.display()
                 )
             })?;
-            ("Linux ELF".to_string(), None, Some(elf_data))
+            ("Linux ELF".to_string(), None, Some(elf_data), None)
         }
-        Ok(Object::Mach(_)) => ("macOS Mach-O".to_string(), None, None),
-        Ok(_) => ("Unknown".to_string(), None, None),
-        Err(_) => ("Unrecognized".to_string(), None, None),
+        Ok(Object::Mach(_)) => {
+            let macho = macho_parser::analyse_macho_data(&data);
+            ("macOS Mach-O".to_string(), None, None, macho)
+        }
+        Ok(_) => ("Unknown".to_string(), None, None, None),
+        Err(_) => ("Unrecognized".to_string(), None, None, None),
     };
-
-    // MIME type detection
-    let mime_type = detect_mime_type(&data);
 
     // File type mismatch detection
     let file_type_mismatch =
         detect_file_type_mismatch(&data, path.extension().and_then(|e| e.to_str()));
+
+    // PDF and Office analysis
+    let pdf_analysis = detect_pdf_analysis(&data);
+    let office_analysis = detect_office_analysis(&data, path);
 
     Ok(FileAnalysisResult {
         path: path.to_path_buf(),
@@ -552,6 +799,9 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
         byte_histogram: Some(histogram),
         file_type_mismatch,
         ioc_summary,
+        mach_analysis,
+        pdf_analysis,
+        office_analysis,
     })
 }
 
@@ -580,7 +830,16 @@ pub fn find_executable_files(dir_path: &Path, recursive: bool) -> Result<Vec<Pat
     let files: Vec<PathBuf> = walker
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
+        .filter(|e| {
+            if !e.file_type().is_file() {
+                return false;
+            }
+            // Reject symlinks to prevent symlink attacks
+            match std::fs::symlink_metadata(e.path()) {
+                Ok(meta) => !meta.file_type().is_symlink(),
+                Err(_) => false,
+            }
+        })
         .map(|e| e.path().to_path_buf())
         .filter(|path| is_executable_file(path))
         .collect();
@@ -712,7 +971,7 @@ pub fn is_suspicious_file(result: &FileAnalysisResult) -> bool {
 
 /// Convert FileAnalysisResult to JSON output format
 pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
-    output::AnalysisResult {
+    let mut out = output::AnalysisResult {
         file_info: output::FileInfo {
             path: result.path.to_string_lossy().to_string(),
             size_bytes: result.size_bytes as u64,
@@ -841,9 +1100,28 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         byte_histogram: result.byte_histogram.clone(),
         file_type_mismatch: result.file_type_mismatch.clone(),
         ioc_summary: result.ioc_summary.clone(),
-        verdict_summary: None, // populated by caller
-        top_findings: vec![],  // populated by caller
-    }
+        verdict_summary: None, // filled below after struct is built
+        top_findings: vec![],  // filled below after struct is built
+        mach_analysis: result.mach_analysis.clone(),
+        pdf_analysis: result.pdf_analysis.clone(),
+        office_analysis: result.office_analysis.clone(),
+    };
+
+    // Populate verdict and top findings so all consumers (CLI + GUI) get complete output
+    let (_, verdict_text) = compute_verdict(&out);
+    out.verdict_summary = Some(verdict_text);
+
+    let top = confidence::top_detections(&out, 3);
+    out.top_findings = top
+        .iter()
+        .map(|d| output::TopFinding {
+            label: d.description.clone(),
+            confidence: d.confidence.clone(),
+            technique_id: None,
+        })
+        .collect();
+
+    out
 }
 
 #[cfg(test)]
@@ -948,24 +1226,22 @@ mod tests {
 
     #[test]
     fn test_is_executable_file() {
-        assert!(is_executable_file(&PathBuf::from("test.exe")));
-        assert!(is_executable_file(&PathBuf::from("library.dll")));
-        assert!(is_executable_file(&PathBuf::from("driver.sys")));
-        assert!(is_executable_file(&PathBuf::from("program.elf")));
-        assert!(is_executable_file(&PathBuf::from("library.so")));
-        assert!(is_executable_file(&PathBuf::from("lib.dylib")));
-
-        assert!(!is_executable_file(&PathBuf::from("document.txt")));
-        assert!(!is_executable_file(&PathBuf::from("image.png")));
-        assert!(!is_executable_file(&PathBuf::from("data.json")));
-        assert!(!is_executable_file(&PathBuf::from("noextension")));
+        // is_executable_file now accepts any existing regular file (no extension filter)
+        use tempfile::NamedTempFile;
+        let f = NamedTempFile::new().unwrap();
+        assert!(is_executable_file(f.path()));
+        // Non-existent paths return false
+        assert!(!is_executable_file(&PathBuf::from(
+            "/nonexistent/path/test.exe"
+        )));
     }
 
     #[test]
     fn test_is_executable_case_insensitive() {
-        assert!(is_executable_file(&PathBuf::from("TEST.EXE")));
-        assert!(is_executable_file(&PathBuf::from("Library.DLL")));
-        assert!(is_executable_file(&PathBuf::from("PROGRAM.ELF")));
+        // Extension is no longer filtered — any existing file is accepted
+        use tempfile::NamedTempFile;
+        let f = NamedTempFile::new().unwrap();
+        assert!(is_executable_file(f.path()));
     }
 
     #[test]
@@ -990,7 +1266,7 @@ mod tests {
         fs::write(temp_dir.path().join("test.txt"), b"txt").unwrap();
 
         let files = find_executable_files(temp_dir.path(), false).unwrap();
-        assert_eq!(files.len(), 2); // Only .exe and .dll
+        assert_eq!(files.len(), 3); // All files (no extension filter)
     }
 
     #[test]
@@ -1098,6 +1374,9 @@ mod tests {
             byte_histogram: None,
             file_type_mismatch: None,
             ioc_summary: None,
+            mach_analysis: None,
+            pdf_analysis: None,
+            office_analysis: None,
         }
     }
 
@@ -1118,6 +1397,9 @@ mod tests {
             byte_histogram: None,
             file_type_mismatch: None,
             ioc_summary: None,
+            mach_analysis: None,
+            pdf_analysis: None,
+            office_analysis: None,
         };
 
         assert!(is_suspicious_file(&result));
@@ -1404,6 +1686,9 @@ mod tests {
             byte_histogram: None,
             file_type_mismatch: None,
             ioc_summary: None,
+            mach_analysis: None,
+            pdf_analysis: None,
+            office_analysis: None,
         };
 
         let json = to_json_output(&result);

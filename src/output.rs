@@ -20,6 +20,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// Re-export scoring types from anya-scoring so existing code continues to work
+pub use anya_scoring::types::{
+    ConfidenceLevel, ExtractedString, IocSummary, IocType, MismatchSeverity,
+};
+
 /// Complete analysis result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisResult {
@@ -93,7 +98,7 @@ pub struct AnalysisResult {
 
     /// Byte value histogram (256 entries, one per byte value 0x00–0xFF)
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub byte_histogram: Option<Vec<u32>>,
+    pub byte_histogram: Option<Vec<u64>>,
 
     /// File type mismatch between extension and detected magic bytes
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -110,6 +115,18 @@ pub struct AnalysisResult {
     /// Top N findings by confidence (for summary display)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub top_findings: Vec<TopFinding>,
+
+    /// Mach-O binary analysis (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mach_analysis: Option<MachoAnalysis>,
+
+    /// PDF dangerous object analysis (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pdf_analysis: Option<PdfAnalysis>,
+
+    /// Office document macro/embedding analysis (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub office_analysis: Option<OfficeAnalysis>,
 }
 
 /// A single top finding for JSON output
@@ -194,6 +211,10 @@ pub struct StringsInfo {
     /// Classified strings with categories and offsets
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub classified: Option<Vec<ClassifiedString>>,
+
+    /// Reason string extraction was suppressed (e.g. for image files)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suppressed_reason: Option<String>,
 }
 
 /// PE file analysis results
@@ -601,98 +622,8 @@ pub struct ElfImportAnalysis {
 // New analysis engine structs (v1 engine expansion)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Confidence level for a detection or finding
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ConfidenceLevel {
-    Low,
-    Medium,
-    High,
-    Critical,
-}
-
-impl std::fmt::Display for ConfidenceLevel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ConfidenceLevel::Low => write!(f, "Low"),
-            ConfidenceLevel::Medium => write!(f, "Medium"),
-            ConfidenceLevel::High => write!(f, "High"),
-            ConfidenceLevel::Critical => write!(f, "Critical"),
-        }
-    }
-}
-
-/// Type of Indicator of Compromise found in an extracted string
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum IocType {
-    Ipv4,
-    Ipv6,
-    Url,
-    Domain,
-    Email,
-    RegistryKey,
-    WindowsPath,
-    LinuxPath,
-    Mutex,
-    Base64Blob,
-}
-
-impl std::fmt::Display for IocType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IocType::Ipv4 => write!(f, "ipv4"),
-            IocType::Ipv6 => write!(f, "ipv6"),
-            IocType::Url => write!(f, "url"),
-            IocType::Domain => write!(f, "domain"),
-            IocType::Email => write!(f, "email"),
-            IocType::RegistryKey => write!(f, "registry_key"),
-            IocType::WindowsPath => write!(f, "windows_path"),
-            IocType::LinuxPath => write!(f, "linux_path"),
-            IocType::Mutex => write!(f, "mutex"),
-            IocType::Base64Blob => write!(f, "base64_blob"),
-        }
-    }
-}
-
-/// A string extracted from the binary with optional IOC classification
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExtractedString {
-    pub value: String,
-    /// Byte offset where the string starts in the file
-    pub offset: usize,
-    /// IOC type if the string matches an IOC pattern
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ioc_type: Option<IocType>,
-}
-
-/// IOC extraction summary
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IocSummary {
-    /// Strings that matched IOC patterns
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub ioc_strings: Vec<ExtractedString>,
-    /// Count of each IOC type found
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub ioc_counts: HashMap<String, usize>,
-}
-
-/// Severity of a file type mismatch between extension and detected format
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum MismatchSeverity {
-    Low,
-    Medium,
-    High,
-}
-
-impl std::fmt::Display for MismatchSeverity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MismatchSeverity::Low => write!(f, "Low"),
-            MismatchSeverity::Medium => write!(f, "Medium"),
-            MismatchSeverity::High => write!(f, "High"),
-        }
-    }
-}
+// ConfidenceLevel, IocType, MismatchSeverity, ExtractedString, and IocSummary
+// are now defined in anya-scoring::types and re-exported above.
 
 /// A mismatch between the file's detected type (magic bytes) and its claimed extension
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -785,7 +716,7 @@ pub struct SuspiciousLibcCall {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// New structs for v1.1.0 analysis features
+// File-type-specific analysis structures
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Debug artifacts extracted from PE debug directory and version info
@@ -819,6 +750,34 @@ pub struct CompilerDep {
     pub description: String,
     /// "Expected", "Suspicious", or "Uncommon"
     pub risk: String,
+}
+
+/// Mach-O binary analysis results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MachoAnalysis {
+    pub architecture: String,
+    pub is_64bit: bool,
+    pub entry_point: String,
+    pub dylib_imports: Vec<String>,
+    pub has_code_signature: bool,
+    pub pie_enabled: bool,
+    pub nx_enabled: bool,
+}
+
+/// PDF dangerous object analysis results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PdfAnalysis {
+    pub dangerous_objects: Vec<String>,
+    pub risk_indicators: Vec<String>,
+}
+
+/// Office document macro/embedding analysis results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OfficeAnalysis {
+    pub has_macros: bool,
+    pub has_embedded_objects: bool,
+    pub has_external_links: bool,
+    pub suspicious_components: Vec<String>,
 }
 
 /// A classified extracted string with category and offset
@@ -865,6 +824,7 @@ mod tests {
                 samples: vec!["test".to_string(), "sample".to_string()],
                 sample_count: 2,
                 classified: None,
+                suppressed_reason: None,
             },
             pe_analysis: None,
             elf_analysis: None,
@@ -885,6 +845,9 @@ mod tests {
             ioc_summary: None,
             verdict_summary: None,
             top_findings: vec![],
+            mach_analysis: None,
+            pdf_analysis: None,
+            office_analysis: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -950,6 +913,7 @@ mod tests {
             samples: vec!["Hello".to_string(), "World".to_string(), "Test".to_string()],
             sample_count: 3,
             classified: None,
+            suppressed_reason: None,
         };
 
         let json = serde_json::to_string(&strings).unwrap();
@@ -1103,6 +1067,7 @@ mod tests {
                 samples: vec![],
                 sample_count: 0,
                 classified: None,
+                suppressed_reason: None,
             },
             pe_analysis: None,  // Should be omitted
             elf_analysis: None, // Should be omitted
@@ -1123,6 +1088,9 @@ mod tests {
             ioc_summary: None,
             verdict_summary: None,
             top_findings: vec![],
+            mach_analysis: None,
+            pdf_analysis: None,
+            office_analysis: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();

@@ -25,11 +25,16 @@ anya/
 │   ├── output.rs               # JSON-serialisable data structures
 │   ├── pe_parser.rs            # PE analysis logic
 │   ├── elf_parser.rs           # ELF analysis logic
+│   ├── macho_parser.rs         # Mach-O analysis logic
+│   ├── errors.rs               # Error suggestion hints (plain-English)
 │   ├── ioc.rs                  # IOC regex detection (IPv4, URL, domain, etc.)
 │   ├── hash_check.rs           # Hash list lookup subcommand
 │   ├── yara.rs                 # YARA combine + from-strings subcommands
 │   ├── case.rs                 # Case management (YAML persistence)
 │   ├── confidence.rs           # Confidence scoring logic
+│   ├── watch.rs              # Directory watch mode (anya watch)
+│   ├── compare.rs            # File comparison (anya compare)
+│   ├── report.rs             # HTML report generation
 │   └── data/
 │       ├── mod.rs              # Data submodule exports
 │       ├── explanations.rs     # Human-readable finding descriptions
@@ -60,6 +65,16 @@ anya/
 │   │   ├── Installer.tsx       # 5-step first-run setup wizard
 │   │   ├── Installer.css       # Installer + uninstaller theme-aware styles
 │   │   ├── Uninstaller.tsx     # 4-step uninstall cleanup wizard
+│   │   ├── BatchSidebar.tsx  # Collapsible file list for batch analysis
+│   │   ├── BatchDashboard.tsx # Batch summary with verdict cards + donut chart
+│   │   ├── Toast.tsx         # Toast notification system (ToastProvider + useToast)
+│   │   ├── SkeletonLoader.tsx # Shimmer placeholder during loading
+│   │   ├── GuidedTour.tsx    # 5-step first-analysis walkthrough
+│   │   ├── TabNav.tsx        # Tab navigation with sliding indicator + disabled state
+│   │   ├── CaseBrowser.tsx    # Case list + file browser on DropZone
+│   │   ├── CompareView.tsx    # Side-by-side analysis comparison
+│   │   ├── CopyButton.tsx     # Reusable copy-to-clipboard button
+│   │   ├── KeyboardShortcutsOverlay.tsx # ? shortcut overlay
 │   │   └── tabs/
 │   │       ├── OverviewTab.tsx
 │   │       ├── SectionsTab.tsx
@@ -72,10 +87,11 @@ anya/
 │   │   ├── useAnalysis.ts      # File analysis state management
 │   │   ├── useTheme.ts         # Theme persistence
 │   │   ├── useFontSize.ts      # Font size persistence
-│   │   └── useTeacherMode.ts   # Teacher Mode context + focus/blur helpers
+│   │   ├── useTeacherMode.ts   # Teacher Mode context + focus/blur helpers
+│   │   └── useKeyboardShortcuts.ts # Global keyboard shortcuts
 │   ├── data/
 │   │   ├── mitre_attack.json           # MITRE ATT&CK techniques
-│   │   ├── technique_explanations.json # Simple explanations for Teacher Mode
+│   │   ├── technique_explanations.json # Simple explanations for Teacher Mode (includes real_world_example field)
 │   │   ├── dll_explanations.json       # One-line DLL descriptions (40 entries)
 │   │   └── function_explanations.json  # Suspicious API explanations (112 entries)
 │   └── lib/
@@ -107,11 +123,35 @@ anya/
 │   └── custom_config.rs
 ├── docker/
 │   └── seccomp.json            # Minimal seccomp allowlist for container
+├── anya-stubs/                 # Stub crates (committed, public repo)
+│   ├── scoring/                # anya-scoring stub (zero-value weights, _STUB marker)
+│   └── data/                   # anya-data stub (empty JSON strings)
+├── anya-proprietary/           # Git submodule → private repo (authorised only)
+│   ├── scoring/                # Real scoring engine
+│   └── data/                   # Real educational content
+├── .cargo/
+│   ├── config.toml             # Path override: stubs → submodule (gitignored)
+│   └── config.toml.example     # Template for authorised developers
+├── private/                    # Internal (gitignored)
+│   └── scripts/                # Build check, integration tests, icon generation
 ├── Dockerfile
 ├── docker-compose.yml
 ├── Makefile
 └── Cargo.toml                  # Workspace root + anya-security-core package
 ```
+
+---
+
+### Modular Architecture
+
+Anya's analysis engine is split into modular crates. The scoring engine
+and educational data live in a private repository (`anya-proprietary`),
+included as a git submodule. The public repo ships stub crates in
+`anya-stubs/` that mirror the API surface but contain no real weights,
+patterns, or content. A `.cargo/config.toml` path override (gitignored)
+redirects Cargo from stubs to the submodule when present. Pre-built
+binaries include all modules. Building from source requires authorised
+access — see README for installation options.
 
 ---
 
@@ -150,6 +190,8 @@ TOML-based user preferences. Loading priority (highest to lowest):
 3. `~/.config/anya/config.toml` (Linux/macOS) / `%APPDATA%\anya\config.toml` (Windows)
 4. Hardcoded defaults
 
+Configurable thresholds for entropy classification and risk scoring. Defaults are set internally and adjustable via the GUI.
+
 ```toml
 [analysis]
 min_string_length = 4
@@ -166,12 +208,6 @@ enabled = false
 additional = []
 ignore = []
 custom_list = []
-
-[thresholds]
-suspicious_entropy = 5.0   # 4.0–7.5
-packed_entropy = 7.0       # 6.0–8.0
-suspicious_score = 40      # 20–65
-malicious_score = 70       # 50–95
 ```
 
 ### output.rs
@@ -196,7 +232,7 @@ PE analysis via [`goblin`](https://github.com/m4b/goblin).
 
 1. Headers — architecture, entry point, image base, timestamp
 2. Sections — name, virtual/raw size, permissions, per-section entropy, W+X detection
-3. Import table — DLL list, function names, suspicious API matching (40+ signatures across 7 categories)
+3. Import table — DLL list, function names, suspicious API detection with categorised heuristics
 4. Export table — function names and RVAs
 5. Security features — ASLR (`IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE`), DEP/NX (`IMAGE_DLLCHARACTERISTICS_NX_COMPAT`)
 
@@ -219,7 +255,26 @@ invoke("get_triggered_lessons", …)  →   get_triggered_lessons() → Lesson[]
 invoke("get_random_verse")          →   get_random_verse() → { text, reference }
 invoke("get_thresholds")            →   get_thresholds() → ThresholdConfig
 invoke("save_thresholds", { … })    →   save_thresholds() → validates + writes anya.toml
+invoke("analyze_directory", { path, recursive, batchId }) → analyze_directory() + batch events
+invoke("poll_directory", { path, recursive })              → poll_directory() → Vec<String>
+invoke("save_to_case", { result, caseName })   → save_to_case()
+invoke("list_cases")                            → list_cases() → CaseSummary[]
+invoke("get_case", { name })                    → get_case() → CaseDetail
+invoke("delete_case", { name })                 → delete_case()
+invoke("export_html_report", { result, path })  → export_html_report()
 ```
+
+### Tauri Events (batch analysis)
+
+The `analyze_directory` command streams results via events:
+
+| Event | Payload | When |
+|-------|---------|------|
+| `batch-started` | Structured payloads with file identification, analysis results, and progress metadata. | Directory scan complete |
+| `batch-file-result` | Structured payloads with file identification, analysis results, and progress metadata. | Each file analysed |
+| `batch-complete` | Structured payloads with file identification, analysis results, and progress metadata. | All files done |
+
+Frontend uses `batch_id` to ignore events from stale/cancelled batches.
 
 Network access is disabled by omitting all network permissions from `src-tauri/capabilities/default.json`. The OS will not grant network access to the process regardless of what the application code attempts.
 
@@ -233,30 +288,7 @@ The plugin `@tauri-apps/plugin-sql` provides SQLite access from TypeScript. The 
 | macOS | `~/Library/Application Support/com.anya.app/anya.db` |
 | Linux | `~/.local/share/com.anya.app/anya.db` |
 
-**Schema:**
-
-```sql
-CREATE TABLE IF NOT EXISTS analyses (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  file_name   TEXT NOT NULL,
-  file_path   TEXT NOT NULL,
-  file_hash   TEXT NOT NULL,   -- SHA-256
-  analysed_at TEXT NOT NULL,   -- ISO 8601 timestamp
-  risk_score  INTEGER NOT NULL,
-  result_json TEXT NOT NULL    -- full AnalysisResult as JSON
-);
-
-CREATE TABLE IF NOT EXISTS settings (
-  key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-```
-
-Settings keys in use: `theme` (`"dark"` | `"light"`), `font_size` (`"small"` | `"default"` | `"large"` | `"xl"`), `bible_verses_enabled` (`"true"` | `"false"`).
-
-Teacher settings are stored in a separate `teacher_settings` table with keys: `enabled`, `auto_show_on_trigger`, `show_beginner`, `show_intermediate`, `show_advanced`.
-
-If the same file (same SHA-256) is analysed more than once, the existing row is updated in place rather than creating a duplicate entry.
+Local SQLite database stores analysis history, settings, and teacher mode progress. Schema is managed internally.
 
 ### Frontend architecture
 
@@ -414,6 +446,6 @@ Benchmarked operations: hash calculation, entropy calculation, string extraction
 
 ---
 
-**Last updated:** 2026-03-16
+**Last updated:** 2026-03-16 (v1.1.0 — batch analysis, GUI enhancements)
 **Version:** 1.1.0
 **Maintainer:** Daniel Iwugo — daniel@themalwarefiles.com

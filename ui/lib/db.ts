@@ -127,6 +127,15 @@ export async function getRecentAnalyses(limit = 20): Promise<StoredAnalysis[]> {
   );
 }
 
+export async function getRecentAnalysisSummaries(limit = 5): Promise<Array<{ file_path: string; file_name: string; risk_score: number; timestamp: string }>> {
+  const db = await getDb();
+  const rows = await db.select<Array<{ file_path: string; file_name: string; risk_score: number; analysed_at: string }>>(
+    "SELECT file_path, file_name, risk_score, analysed_at FROM analyses ORDER BY analysed_at DESC LIMIT $1",
+    [limit]
+  );
+  return rows.map((r) => ({ file_path: r.file_path, file_name: r.file_name, risk_score: r.risk_score, timestamp: r.analysed_at }));
+}
+
 export async function getAnalysisByHash(
   sha256: string
 ): Promise<StoredAnalysis | null> {

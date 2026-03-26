@@ -3,123 +3,16 @@
 //
 // Copyright (C) 2026 Daniel Iwugo
 // Licensed under AGPL-3.0-or-later
+//
+// The implementation now lives in the anya-scoring crate.
+// This module re-exports everything for backward compatibility.
 
-use crate::output::{ExtractedString, IocSummary, IocType};
-use regex::Regex;
-use std::collections::HashMap;
-use std::sync::LazyLock;
-
-struct IocPattern {
-    ioc_type: IocType,
-    regex: Regex,
-}
-
-// Compile all IOC regexes once on first use. Order matters: first match wins.
-static IOC_PATTERNS: LazyLock<Vec<IocPattern>> = LazyLock::new(|| {
-    vec![
-        IocPattern {
-            ioc_type: IocType::Ipv4,
-            regex: Regex::new(
-                r"^(?:25[0-5]|2[0-4]\d|[01]?\d\d?)(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)){3}$",
-            )
-            .expect("ipv4 regex"),
-        },
-        IocPattern {
-            ioc_type: IocType::Ipv6,
-            regex: Regex::new(r"(?i)^([0-9a-f]{1,4}:){7}[0-9a-f]{1,4}$").expect("ipv6 regex"),
-        },
-        IocPattern {
-            ioc_type: IocType::Url,
-            regex: Regex::new(r"(?i)^https?://\S{4,}$").expect("url regex"),
-        },
-        IocPattern {
-            ioc_type: IocType::Email,
-            regex: Regex::new(r"(?i)^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
-                .expect("email regex"),
-        },
-        IocPattern {
-            ioc_type: IocType::RegistryKey,
-            regex: Regex::new(r"^HKEY_[A-Z_]+(?:\\\S+)+$").expect("registry regex"),
-        },
-        IocPattern {
-            ioc_type: IocType::WindowsPath,
-            regex: Regex::new(r"^[A-Za-z]:\\[^\s]+$").expect("winpath regex"),
-        },
-        IocPattern {
-            ioc_type: IocType::LinuxPath,
-            regex: Regex::new(r"^/(?:etc|tmp|var|usr|home|proc|sys)/\S{2,}$")
-                .expect("linpath regex"),
-        },
-        IocPattern {
-            ioc_type: IocType::Mutex,
-            regex: Regex::new(r"(?i)(?:mutex|mtx|lock)\S{0,40}$").expect("mutex regex"),
-        },
-        IocPattern {
-            ioc_type: IocType::Domain,
-            regex: Regex::new(
-                r"(?i)^(?:[a-zA-Z0-9\-]{1,63}\.)+(?:com|net|org|io|ru|cn|tk|top|xyz|onion)$",
-            )
-            .expect("domain regex"),
-        },
-        IocPattern {
-            ioc_type: IocType::Base64Blob,
-            regex: Regex::new(r"^[A-Za-z0-9+/]{40,}={0,2}$").expect("base64 regex"),
-        },
-    ]
-});
-
-/// Classify a single string against IOC patterns. Returns first match.
-pub fn classify_ioc(s: &str) -> Option<IocType> {
-    if s.len() < 4 {
-        return None;
-    }
-    for pattern in IOC_PATTERNS.iter() {
-        if pattern.regex.is_match(s) {
-            return Some(pattern.ioc_type.clone());
-        }
-    }
-    None
-}
-
-/// Map an IocType to the legacy category string used by ClassifiedString.
-pub fn ioc_type_to_category(ioc: &IocType) -> String {
-    match ioc {
-        IocType::Ipv4 | IocType::Ipv6 => "IP".to_string(),
-        IocType::Url => "URL".to_string(),
-        IocType::Domain => "URL".to_string(),
-        IocType::Email => "URL".to_string(),
-        IocType::RegistryKey => "Registry".to_string(),
-        IocType::WindowsPath | IocType::LinuxPath => "Path".to_string(),
-        IocType::Mutex => "Command".to_string(),
-        IocType::Base64Blob => "Base64".to_string(),
-    }
-}
-
-/// Run IOC classification on a list of extracted strings with offsets.
-pub fn extract_iocs(strings: &[(String, usize)]) -> IocSummary {
-    let mut ioc_strings = Vec::new();
-    let mut ioc_counts: HashMap<String, usize> = HashMap::new();
-
-    for (value, offset) in strings {
-        if let Some(ioc) = classify_ioc(value) {
-            *ioc_counts.entry(ioc.to_string()).or_insert(0) += 1;
-            ioc_strings.push(ExtractedString {
-                value: value.clone(),
-                offset: *offset,
-                ioc_type: Some(ioc),
-            });
-        }
-    }
-
-    IocSummary {
-        ioc_strings,
-        ioc_counts,
-    }
-}
+pub use anya_scoring::ioc::{classify_ioc, extract_iocs, ioc_type_to_category};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::IocType;
 
     #[test]
     fn test_ipv4() {

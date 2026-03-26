@@ -1,13 +1,20 @@
 import { useState, useMemo } from "react";
-import { ChevronRight, AlertTriangle, Search } from "lucide-react";
+import { ChevronRight, AlertTriangle, Search, Pin } from "lucide-react";
 import { getApiDescription } from "@/lib/apiDescriptions";
 import { useTeacherFocus } from "@/hooks/useTeacherMode";
 import dllExplanations from "@/data/dll_explanations.json";
 import type { AnalysisResult } from "@/types/analysis";
 
+interface PinnedFinding {
+  type: string;
+  label: string;
+  detail: string;
+}
+
 interface Props {
   result: AnalysisResult;
   onMitreNavigate?: (techId: string) => void;
+  onPin?: (finding: PinnedFinding) => void;
 }
 
 interface DllEntry {
@@ -50,7 +57,7 @@ function buildMitreMap(techniques: Props["result"]["mitre_techniques"]) {
   return map;
 }
 
-export default function ImportsTab({ result, onMitreNavigate }: Props) {
+export default function ImportsTab({ result, onMitreNavigate, onPin }: Props) {
   const pe = result.pe_analysis;
   const { teacherEnabled, focus, blur } = useTeacherFocus();
   const mitreMap = buildMitreMap(result.mitre_techniques);
@@ -177,7 +184,7 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
           <div style={{ borderRadius: 8, overflow: "hidden", background: "var(--bg-surface)", border: "1px solid var(--border)" }}>
             {filtered.length === 0 ? (
               <p style={{ padding: "32px 16px", textAlign: "center", fontSize: "var(--font-size-base)", color: "var(--text-muted)" }}>
-                No imports match the current filter.
+                {suspiciousOnly ? "No suspicious imports detected." : search ? "No imports match your search." : "No import data available."}
               </p>
             ) : filtered.map((entry, idx) => {
               const isOpen = effectiveExpanded.has(entry.dll);
@@ -278,6 +285,15 @@ export default function ImportsTab({ result, onMitreNavigate }: Props) {
                               <span style={{ fontSize: "var(--font-size-xs)", padding: "2px 7px", borderRadius: 999, background: "rgba(249,115,22,0.12)", color: "var(--risk-high)", flexShrink: 0, whiteSpace: "nowrap", marginTop: 2 }}>
                                 {category}
                               </span>
+                            )}
+                            {isSusp && onPin && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); onPin({ type: "import", label: fn, detail: `${category ?? "Suspicious API"} — ${entry.dll}` }); }}
+                                style={{ opacity: 0.4, cursor: "pointer", background: "transparent", border: "none", color: "var(--text-muted)", padding: 2, flexShrink: 0, marginTop: 2 }}
+                                title="Pin to Overview"
+                              >
+                                <Pin size={11} />
+                              </button>
                             )}
                             {isSusp && mitreTech && (
                               <button

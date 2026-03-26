@@ -28,83 +28,14 @@ use indicatif::{ProgressBar, ProgressStyle};
 use md5::{Digest, Md5};
 use std::collections::HashSet;
 
-/// Tier 1 — genuinely suspicious APIs with very limited legitimate use.
-/// These are strongly associated with malicious behaviour (process injection, hiding,
-/// kernel bypasses). Scoring: 1–2 hits → Medium; 3+ hits → High.
-const SUSPICIOUS_APIS_TIER1: &[&str] = &[
-    // Process injection
-    "CreateRemoteThread",
-    "WriteProcessMemory",
-    "VirtualAllocEx",
-    "NtQueueApcThread",
-    "QueueUserAPC",
-    "RtlCreateUserThread",
-    "NtCreateThreadEx",
-    "NtMapViewOfSection",
-    // Hooking / interception
-    "SetWindowsHookEx",
-    "SetWindowsHookExA",
-    "SetWindowsHookExW",
-    // Thread/process hiding and anti-debug (high-signal)
-    "NtQueryInformationProcess",
-    "ZwSetInformationThread",
-    "NtSetInformationThread",
-    // Persistence
-    "RegSetValueEx",
-    "RegCreateKeyEx",
-    "CreateService",
-    "StartService",
-    // Network (deliberate comms)
-    "InternetOpen",
-    "InternetOpenUrl",
-    "URLDownloadToFile",
-    "WinHttpOpen",
-    // Keylogging
-    "GetAsyncKeyState",
-];
-
-/// Tier 2 — dual-use / noteworthy APIs.
-/// Common in legitimate software but also appear in malware.
-/// Flagged as "Noteworthy" only; never contribute to the severity score.
-const NOTEWORTHY_APIS: &[&str] = &[
-    "OpenProcess",
-    "OpenProcessToken",
-    "AdjustTokenPrivileges",
-    "IsDebuggerPresent",
-    "CheckRemoteDebuggerPresent",
-    "OutputDebugString",
-    "OutputDebugStringA",
-    "OutputDebugStringW",
-    "DebugBreak",
-    "CreateToolhelp32Snapshot",
-    "WSAStartup",
-    "socket",
-    "connect",
-    "CryptEncrypt",
-    "CryptDecrypt",
-    "CryptAcquireContext",
-    "DeleteFile",
-    "MoveFile",
-    "CopyFile",
-];
+// API lists and categorisation are defined in the anya-scoring crate.
+#[cfg(test)]
+use anya_scoring::api_lists::{NOTEWORTHY_APIS, SUSPICIOUS_APIS_TIER1};
+pub use anya_scoring::api_lists::{is_noteworthy_api, is_suspicious_api};
 
 // Tier 3 (removed entirely — pure UI/system primitives with no malware signal):
 //   GetForegroundWindow, QueryPerformanceCounter, GetSystemInfo,
 //   GetComputerNameA, GetComputerNameW, GetUserNameA, GetUserNameW
-
-/// Check if an API name is in the Tier 1 suspicious list
-pub fn is_suspicious_api(api_name: &str) -> bool {
-    SUSPICIOUS_APIS_TIER1
-        .iter()
-        .any(|&a| a.eq_ignore_ascii_case(api_name))
-}
-
-/// Check if an API name is in the Tier 2 noteworthy list
-pub fn is_noteworthy_api(api_name: &str) -> bool {
-    NOTEWORTHY_APIS
-        .iter()
-        .any(|&a| a.eq_ignore_ascii_case(api_name))
-}
 
 /// Analyses a Windows PE (Portable Executable) file and displays detailed information
 ///
@@ -682,63 +613,7 @@ fn print_imports(pe: &PE, _output_level: OutputLevel) {
 }
 
 /// Categorize suspicious APIs by function
-pub fn categorize_api(api_name: &str) -> &'static str {
-    // Convert to lowercase for case-insensitive matching
-    let api_lower = api_name.to_lowercase();
-
-    match api_lower.as_str() {
-        // Code Injection
-        "createremotethread"
-        | "writeprocessmemory"
-        | "virtualallocex"
-        | "setwindowshookex"
-        | "openprocess"
-        | "ntqueueapcthread"
-        | "rtlcreateuserthread"
-        | "queueuserapc"
-        | "ntcreatethreadex"
-        | "ntmapviewofsection" => "Code Injection",
-
-        // Persistence
-        "regsetvalueex" | "regcreatekeyex" | "createservice" | "startservice"
-        | "createservicew" | "createservicea" => "Persistence Mechanism",
-
-        // Anti-Analysis
-        "isdebuggerpresent"
-        | "checkremotedebuggerpresent"
-        | "outputdebugstring"
-        | "ntqueryinformationprocess"
-        | "ntsetinformationthread" => "Anti-Analysis",
-
-        // Network
-        "internetopen" | "internetopenurl" | "internetreadfile" | "urldownloadtofile"
-        | "urldownloadtofilew" | "socket" | "connect" | "send" | "recv" | "wsastartup" => {
-            "Network Activity"
-        }
-
-        // Cryptography
-        "cryptencrypt"
-        | "cryptdecrypt"
-        | "crypthashdata"
-        | "cryptcreatehash"
-        | "cryptderivekey"
-        | "cryptacquirecontext"
-        | "cryptgenrandom" => "Cryptography",
-
-        // Keylogging
-        "getasynckeystate" | "setwindowshookexa" | "setwindowshookexw" | "getkeystate"
-        | "getkeyboardstate" => "Keylogging/Input Monitoring",
-
-        // Privilege Escalation
-        "adjusttokenprivileges"
-        | "openprocesstoken"
-        | "impersonateloggedonuser"
-        | "setentriesinacl" => "Privilege Escalation",
-
-        // Default
-        _ => "File/System Operation",
-    }
-}
+pub use anya_scoring::api_lists::categorize_api;
 
 /// Analyse and display exported functions (for DLLs)
 fn print_exports(pe: &PE, _output_level: OutputLevel) {

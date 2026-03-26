@@ -1,10 +1,18 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { Search } from "lucide-react";
+import { useState, useMemo, useRef, useEffect, useContext } from "react";
+import { Search, Pin } from "lucide-react";
 import type { AnalysisResult } from "@/types/analysis";
+import { TeacherModeContext } from "@/hooks/useTeacherMode";
 type StringType = "url" | "ip" | "path" | "registry" | "suspicious" | "default";
+
+interface PinnedFinding {
+  type: string;
+  label: string;
+  detail: string;
+}
 
 interface Props {
   result: AnalysisResult;
+  onPin?: (finding: PinnedFinding) => void;
 }
 
 // ── String classification ─────────────────────────────────────────────────────
@@ -54,141 +62,178 @@ interface StringRow {
   index: number;
 }
 
-// ── Virtual list ──────────────────────────────────────────────────────────────
-function VirtualList({ items, expandedIdx, onExpand }: {
-  items: StringRow[];
-  expandedIdx: number | null;
-  onExpand: (idx: number | null) => void;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
+// ── Virtual scroll hook ───────────────────────────────────────────────────────
+function useVirtualScroll(
+  itemCount: number,
+  itemHeight: number,
+  containerRef: React.RefObject<HTMLDivElement | null>,
+) {
   const [scrollTop, setScrollTop] = useState(0);
-  const [containerHeight, setContainerHeight] = useState(400);
+  const [containerHeight, setContainerHeight] = useState(0);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setContainerHeight(el.clientHeight));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
-  const BUFFER = 8;
-  const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - BUFFER);
-  const end   = Math.min(items.length - 1, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + BUFFER);
+    const observer = new ResizeObserver((entries) => {
+      setContainerHeight(entries[0].contentRect.height);
+    });
+    observer.observe(el);
 
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    setScrollTop((e.target as HTMLDivElement).scrollTop);
-  }, []);
+    const onScroll = () => setScrollTop(el.scrollTop);
+    el.addEventListener("scroll", onScroll, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      el.removeEventListener("scroll", onScroll);
+    };
+  }, [containerRef]);
+
+  const overscan = 5;
+  const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
+  const endIndex = Math.min(itemCount, Math.ceil((scrollTop + containerHeight) / itemHeight) + overscan);
+  const offsetY = startIndex * itemHeight;
+  const totalHeight = itemCount * itemHeight;
+
+  return { startIndex, endIndex, offsetY, totalHeight };
+}
+
+// ── Virtual list ──────────────────────────────────────────────────────────────
+function VirtualList({ items, expandedIdx, onExpand, onPin }: {
+  items: StringRow[];
+  expandedIdx: number | null;
+  onExpand: (idx: number | null) => void;
+  onPin?: (finding: PinnedFinding) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const { startIndex, endIndex, offsetY, totalHeight } = useVirtualScroll(
+    items.length, ROW_HEIGHT, scrollRef,
+  );
 
   return (
     <div
-      ref={containerRef}
-      onScroll={handleScroll}
-      style={{ flex: 1, overflowY: "auto", position: "relative" }}
+      ref={scrollRef}
+      style={{ flex: 1, overflowY: "auto" }}
     >
-      <div style={{ height: items.length * ROW_HEIGHT, position: "relative" }}>
-        {items.slice(start, end + 1).map((item, localIdx) => {
-          const absIdx = start + localIdx;
-          const isExpanded = expandedIdx === absIdx;
-          const ts = TYPE_STYLE[item.type];
-          const showBadge = item.type !== "default";
+      <div style={{ height: totalHeight, position: "relative" }}>
+        <div style={{ transform: `translateY(${offsetY}px)` }}>
+          {items.slice(startIndex, endIndex).map((item, localIdx) => {
+            const absIdx = startIndex + localIdx;
+            const isExpanded = expandedIdx === absIdx;
+            const ts = TYPE_STYLE[item.type];
+            const showBadge = item.type !== "default";
 
-          return (
-            <div
-              key={item.index}
-              onClick={() => onExpand(isExpanded ? null : absIdx)}
-              style={{
-                position: "absolute",
-                top: absIdx * ROW_HEIGHT,
-                left: 0,
-                right: 0,
-                height: isExpanded ? "auto" : ROW_HEIGHT,
-                minHeight: ROW_HEIGHT,
-                display: "flex",
-                alignItems: isExpanded ? "flex-start" : "center",
-                gap: 12,
-                padding: "0 16px",
-                cursor: "pointer",
-                borderBottom: "1px solid var(--border-subtle)",
-                background: item.type === "suspicious" ? "var(--suspicious-bg)" : "transparent",
-                transition: "background 100ms ease-out",
-                paddingTop: isExpanded ? 8 : 0,
-                paddingBottom: isExpanded ? 8 : 0,
-                zIndex: isExpanded ? 1 : 0,
-              }}
-              onMouseEnter={(e) => {
-                if (item.type !== "suspicious") {
-                  (e.currentTarget as HTMLDivElement).style.background = "var(--bg-elevated)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLDivElement).style.background =
-                  item.type === "suspicious" ? "var(--suspicious-bg)" : "transparent";
-              }}
-            >
-              {/* Type badge — use backend category if available */}
-              {(() => {
-                const catStyle = item.category ? (CATEGORY_STYLE[item.category] ?? CATEGORY_STYLE.Plain) : null;
-                const useCat = catStyle && item.category !== "Plain";
-                const badge = useCat ? catStyle : (showBadge ? ts : null);
-                return (
-                  <span
-                    style={{
-                      width: 80,
-                      flexShrink: 0,
-                      fontSize: "var(--font-size-xs)",
-                      fontWeight: 600,
-                      padding: "2px 6px",
-                      borderRadius: 4,
-                      textAlign: "center",
-                      background: badge ? badge.bg : "transparent",
-                      color: badge ? badge.color : "transparent",
-                      fontFamily: "var(--font-mono)",
-                      overflow: "hidden",
-                      whiteSpace: "nowrap",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {badge ? badge.label : ""}
-                  </span>
-                );
-              })()}
-
-              {/* Value */}
-              <span
-                className="selectable"
+            return (
+              <div
+                key={item.index}
+                onClick={() => onExpand(isExpanded ? null : absIdx)}
                 style={{
-                  flex: 1,
-                  fontSize: "var(--font-size-xs)",
-                  fontFamily: "var(--font-mono)",
-                  color: item.type === "suspicious" ? "#ef4444" : "var(--text-secondary)",
-                  overflow: isExpanded ? "visible" : "hidden",
-                  textOverflow: isExpanded ? "unset" : "ellipsis",
-                  whiteSpace: isExpanded ? "pre-wrap" : "nowrap",
-                  wordBreak: isExpanded ? "break-all" : "normal",
+                  height: isExpanded ? "auto" : ROW_HEIGHT,
+                  minHeight: ROW_HEIGHT,
+                  display: "flex",
+                  alignItems: isExpanded ? "flex-start" : "center",
+                  gap: 12,
+                  padding: "0 16px",
+                  cursor: "pointer",
+                  borderBottom: "1px solid var(--border-subtle)",
+                  background: item.type === "suspicious" ? "var(--suspicious-bg)" : "transparent",
+                  transition: "background 100ms ease-out",
+                  paddingTop: isExpanded ? 8 : 0,
+                  paddingBottom: isExpanded ? 8 : 0,
+                }}
+                onMouseEnter={(e) => {
+                  if (item.type !== "suspicious") {
+                    (e.currentTarget as HTMLDivElement).style.background = "var(--bg-elevated)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.background =
+                    item.type === "suspicious" ? "var(--suspicious-bg)" : "transparent";
                 }}
               >
-                {item.value}
-              </span>
+                {/* Type badge — use backend category if available */}
+                {(() => {
+                  const catStyle = item.category ? (CATEGORY_STYLE[item.category] ?? CATEGORY_STYLE.Plain) : null;
+                  const useCat = catStyle && item.category !== "Plain";
+                  const badge = useCat ? catStyle : (showBadge ? ts : null);
+                  return (
+                    <span
+                      style={{
+                        width: 80,
+                        flexShrink: 0,
+                        fontSize: "var(--font-size-xs)",
+                        fontWeight: 600,
+                        padding: "2px 6px",
+                        borderRadius: 4,
+                        textAlign: "center",
+                        background: badge ? badge.bg : "transparent",
+                        color: badge ? badge.color : "transparent",
+                        fontFamily: "var(--font-mono)",
+                        overflow: "hidden",
+                        whiteSpace: "nowrap",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {badge ? badge.label : ""}
+                    </span>
+                  );
+                })()}
 
-              {/* Offset */}
-              <span style={{ fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)", color: "var(--text-muted)", flexShrink: 0, minWidth: 60, textAlign: "right" }}>
-                {item.offset ?? "—"}
-              </span>
-            </div>
-          );
-        })}
+                {/* Value */}
+                <span
+                  className="selectable"
+                  style={{
+                    flex: 1,
+                    fontSize: "var(--font-size-xs)",
+                    fontFamily: "var(--font-mono)",
+                    color: item.type === "suspicious" ? "#ef4444" : "var(--text-secondary)",
+                    overflow: isExpanded ? "visible" : "hidden",
+                    textOverflow: isExpanded ? "unset" : "ellipsis",
+                    whiteSpace: isExpanded ? "pre-wrap" : "nowrap",
+                    wordBreak: isExpanded ? "break-all" : "normal",
+                  }}
+                >
+                  {item.value}
+                </span>
+
+                {/* Offset */}
+                <span style={{ fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)", color: "var(--text-muted)", flexShrink: 0, minWidth: 60, textAlign: "right" }}>
+                  {item.offset ?? "—"}
+                </span>
+
+                {/* Pin button for suspicious strings */}
+                {item.type !== "default" && onPin && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onPin({ type: "string", label: item.value.slice(0, 60), detail: `${item.category ?? item.type} string` }); }}
+                    style={{ opacity: 0.4, cursor: "pointer", background: "transparent", border: "none", color: "var(--text-muted)", padding: 2, flexShrink: 0 }}
+                    title="Pin to Overview"
+                  >
+                    <Pin size={11} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function StringsTab({ result }: Props) {
+export default function StringsTab({ result, onPin }: Props) {
+  const teacherMode = useContext(TeacherModeContext);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [minLength, setMinLength] = useState(4);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+
+  // Debounce search input — filter runs 200ms after user stops typing
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 200);
+    return () => clearTimeout(id);
+  }, [search]);
 
   const rawStrings: string[] = result.strings?.samples ?? [];
 
@@ -229,14 +274,14 @@ export default function StringsTab({ result }: Props) {
   }, [classified]);
 
   const filtered = useMemo<StringRow[]>(() => {
-    const lSearch = search.toLowerCase();
+    const lSearch = debouncedSearch.toLowerCase();
     return classified.filter((row) => {
       if (row.value.length < minLength) return false;
       if (activeCategory && (row.category ?? "Plain") !== activeCategory) return false;
       if (lSearch && !row.value.toLowerCase().includes(lSearch)) return false;
       return true;
     });
-  }, [classified, search, minLength, activeCategory]);
+  }, [classified, debouncedSearch, minLength, activeCategory]);
 
   return (
     <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -297,7 +342,12 @@ export default function StringsTab({ result }: Props) {
               return (
                 <button
                   key={cat}
-                  onClick={() => setActiveCategory(isActive ? null : cat)}
+                  onClick={() => {
+                    setActiveCategory(isActive ? null : cat);
+                    if (teacherMode?.enabled) {
+                      teacherMode.focus({ type: "ioc", iocType: cat.toLowerCase(), value: "" });
+                    }
+                  }}
                   style={{
                     display: "flex",
                     flexDirection: "column",
@@ -348,7 +398,7 @@ export default function StringsTab({ result }: Props) {
           <p style={{ color: "var(--text-muted)", fontSize: "var(--font-size-base)" }}>{activeCategory ? `No ${activeCategory} strings found` : "No strings match the current filter."}</p>
         </div>
       ) : (
-        <VirtualList items={filtered} expandedIdx={expandedIdx} onExpand={setExpandedIdx} />
+        <VirtualList items={filtered} expandedIdx={expandedIdx} onExpand={setExpandedIdx} onPin={onPin} />
       )}
 
       {/* Footer */}

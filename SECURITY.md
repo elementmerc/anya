@@ -16,6 +16,10 @@ they did not intend to expose, or allow an attacker to use Anya as a vector. Exa
   sandbox escape that allows analysed code to affect the host environment.
 - **Data leakage** — any code path that transmits user data, file contents, or analysis
   results to a remote endpoint without explicit user consent.
+- **GUI injection** — any crafted file that causes the Tauri WebView to execute
+  unintended JavaScript, load external resources, or escape the application sandbox.
+- **Case directory traversal** — a crafted case name or file path that writes case
+  data outside the intended cases directory.
 
 ## Out of Scope
 
@@ -32,6 +36,9 @@ The following are **not** security issues in Anya:
 - **Vulnerabilities in third-party dependencies** that have upstream fixes available —
   please update your dependencies via `cargo update` and open a regular issue if Anya has
   not yet adopted the fix.
+- **Reverse-engineering the compiled binary** to extract detection logic or scoring
+  weights. The binary is distributed under AGPL-3.0 and reverse-engineering for
+  interoperability is permitted. This is not a security vulnerability.
 
 ## How to Report
 
@@ -46,7 +53,7 @@ The following are **not** security issues in Anya:
 
 Email daniel@themalwarefiles.com with subject line `[SECURITY] Anya — <brief description>`.
 
-PGP key: `[Key will be published in a future update]`
+Reports can be sent via email. Encryption is not currently required.
 
 For the love of everything on God's green earth, do not post security issues publicly (GitHub Issues, social media, forums) until a fix
 has been released and you have been notified.

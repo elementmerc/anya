@@ -22,7 +22,7 @@ use anya_security_core::{
     is_executable_file, output, pe_parser, to_json_output, yara,
 };
 use anyhow::{Context, Result}; // For better error handling
-use clap::{Parser, Subcommand}; // For parsing command-line arguments
+use clap::{CommandFactory, Parser, Subcommand}; // For parsing command-line arguments
 use colored::*; // For coloured terminal output
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs; // For file system operations
@@ -30,6 +30,10 @@ use std::fs::OpenOptions; // For file creation and opening
 use std::io::Write; // For writing to files
 use std::path::PathBuf; // For handling file paths // For progress indicators
 use walkdir::WalkDir; // For recursive directory traversal
+
+mod compare;
+mod report;
+mod watch;
 
 // Hashing libraries
 use md5::{Digest, Md5};
@@ -39,10 +43,22 @@ use sha2::Sha256;
 // Goblin for file format detection
 use goblin::Object;
 
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), env!("ANYA_VERSION_SUFFIX"),);
+
+/// Bundled config values passed to analysis functions
+struct RunConfig<'a> {
+    min_string_length: usize,
+    effective_json: bool,
+    effective_html: bool,
+    packed_entropy: f64,
+    suspicious_entropy: f64,
+    cases_dir_override: Option<&'a str>,
+}
+
 /// CLI structure using Clap
 #[derive(Parser, Debug)]
 #[command(name = "Anya")]
-#[command(version)]
+#[command(version = VERSION)]
 #[command(about = "Static analysis tool for suspicious files", long_about = None)]
 #[command(after_help = "EXAMPLES:
     anya --file suspicious.exe
@@ -129,12 +145,24 @@ struct Args {
     #[arg(long, requires = "directory")]
     summary: bool,
 
+    /// Output format: text (default), json, or html (generates a report file)
+    #[arg(long, value_name = "FORMAT", default_value = "text")]
+    format: OutputFormat,
+
     /// Save results to a named case for tracking investigations
     #[arg(long, value_name = "NAME")]
     case: Option<String>,
 
     #[command(subcommand)]
     command: Option<Commands>,
+}
+
+/// Output format for analysis results
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum OutputFormat {
+    Text,
+    Json,
+    Html,
 }
 
 #[derive(Subcommand, Debug)]
@@ -165,6 +193,33 @@ enum Commands {
         /// List all cases
         #[arg(long)]
         list: bool,
+    },
+
+    /// Watch a directory for new files and analyse them automatically
+    Watch {
+        /// Directory to watch
+        #[arg(value_name = "DIR")]
+        directory: PathBuf,
+        /// Watch subdirectories too
+        #[arg(short, long)]
+        recursive: bool,
+    },
+
+    /// Compare two files side by side
+    Compare {
+        /// First file to compare
+        #[arg(value_name = "FILE1")]
+        file1: PathBuf,
+        /// Second file to compare
+        #[arg(value_name = "FILE2")]
+        file2: PathBuf,
+    },
+
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
     },
 }
 
@@ -292,7 +347,17 @@ fn write_output(content: &str, output_path: Option<&PathBuf>, append_mode: bool)
     }
 }
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("{}: {:#}", "Error".red().bold(), e);
+        if let Some(hint) = anya_security_core::errors::suggest(&format!("{:#}", e)) {
+            eprintln!("  {} {}", "Hint:".yellow(), hint);
+        }
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     // Parse command-line arguments
     let args = Args::parse();
 
@@ -344,10 +409,42 @@ fn main() -> Result<()> {
         }
         Some(Commands::Cases { list }) => {
             if *list {
-                case::list_cases()?;
+                case::list_cases(None)?;
             } else {
                 println!("Use --list to show all cases.");
             }
+            return Ok(());
+        }
+        Some(Commands::Watch {
+            directory,
+            recursive,
+        }) => {
+            let cfg = if let Some(config_path) = &args.config {
+                config::Config::load_from_file(config_path)?
+            } else {
+                config::Config::load_or_default()?
+            };
+            let msl = args
+                .min_string_length
+                .unwrap_or(cfg.analysis.min_string_length);
+            watch::watch_directory(directory, *recursive, msl)?;
+            return Ok(());
+        }
+        Some(Commands::Compare { file1, file2 }) => {
+            let cfg = if let Some(config_path) = &args.config {
+                config::Config::load_from_file(config_path)?
+            } else {
+                config::Config::load_or_default()?
+            };
+            let msl = args
+                .min_string_length
+                .unwrap_or(cfg.analysis.min_string_length);
+            compare::compare_files(file1, file2, msl)?;
+            return Ok(());
+        }
+        Some(Commands::Completions { shell }) => {
+            let mut cmd = Args::command();
+            clap_complete::generate(*shell, &mut cmd, "anya", &mut std::io::stdout());
             return Ok(());
         }
         None => {} // Continue to file/directory analysis
@@ -390,6 +487,10 @@ fn main() -> Result<()> {
         config.output.use_colours
     };
 
+    // Merge --format with --json flag: --json is shorthand for --format json
+    let effective_json = args.json || matches!(args.format, OutputFormat::Json);
+    let effective_html = matches!(args.format, OutputFormat::Html);
+
     // Validate: must provide either --file or --directory
     if args.file.is_none() && args.directory.is_none() {
         anyhow::bail!(
@@ -402,8 +503,8 @@ fn main() -> Result<()> {
         );
     }
 
-    // Validate: --output currently only works with --json
-    if args.output.is_some() && !args.json {
+    // Validate: --output currently only works with --json or --format html
+    if args.output.is_some() && !effective_json && !effective_html {
         let example_path = args
             .file
             .as_ref()
@@ -412,20 +513,24 @@ fn main() -> Result<()> {
             .unwrap_or_else(|| "FILE".to_string());
 
         anyhow::bail!(
-            "The --output flag currently only works with --json mode.\n\
+            "The --output flag currently only works with --json or --format html.\n\
              \n\
              For text output to file, use shell redirection:\n\
              anya --file {} > output.txt\n\
              \n\
              For JSON output to file:\n\
-             anya --file {} --json --output report.json",
+             anya --file {} --json --output report.json\n\
+             \n\
+             For HTML report:\n\
+             anya --file {} --format html --output report.html",
+            example_path,
             example_path,
             example_path
         );
     }
 
     // Validate: --summary and --json are mutually exclusive
-    if args.summary && args.json {
+    if args.summary && effective_json {
         anyhow::bail!(
             "The --summary and --json flags can't be used together. Pick one output format."
         );
@@ -446,12 +551,21 @@ fn main() -> Result<()> {
     let output_level = OutputLevel::from_args(args.verbose, args.quiet);
 
     // Choose mode: single file or batch
+    let run_cfg = RunConfig {
+        min_string_length,
+        effective_json,
+        effective_html,
+        packed_entropy: config.thresholds.packed_entropy,
+        suspicious_entropy: config.thresholds.suspicious_entropy,
+        cases_dir_override: config.cases_directory.as_deref(),
+    };
+
     if let Some(file_path) = &args.file {
         // Single file mode
-        analyse_single_file(file_path, &args, output_level, min_string_length)?;
+        analyse_single_file(file_path, &args, output_level, &run_cfg)?;
     } else if let Some(dir_path) = &args.directory {
         // Batch mode
-        analyse_directory(dir_path, &args, output_level, min_string_length)?;
+        analyse_directory(dir_path, &args, output_level, &run_cfg)?;
     }
 
     Ok(())
@@ -468,8 +582,16 @@ fn analyse_single_file(
     file_path: &PathBuf,
     args: &Args,
     output_level: OutputLevel,
-    min_string_length: usize,
+    cfg: &RunConfig<'_>,
 ) -> Result<()> {
+    let RunConfig {
+        min_string_length,
+        effective_json,
+        effective_html,
+        packed_entropy,
+        suspicious_entropy,
+        cases_dir_override,
+    } = *cfg;
     // Check if file exists
     if !file_path.exists() {
         anyhow::bail!(
@@ -483,7 +605,7 @@ fn analyse_single_file(
     let is_large_file = file_size > LARGE_FILE_THRESHOLD;
 
     // Show spinner for large files in non-JSON pretty mode
-    if is_large_file && output_level.should_print_info() && !args.json {
+    if is_large_file && output_level.should_print_info() && !effective_json && !effective_html {
         let spinner = ProgressBar::new_spinner();
         spinner.set_style(
             ProgressStyle::default_spinner()
@@ -501,24 +623,13 @@ fn analyse_single_file(
 
     // ── Run full structured analysis ─────────────────────────────────────────
     let analysis = analyse_file(file_path.as_path(), min_string_length)?;
-    let mut json_result = to_json_output(&analysis);
+    let json_result = to_json_output(&analysis);
 
-    // Compute verdict and top findings
+    // verdict_summary and top_findings are now populated by to_json_output()
     let (verdict_word, verdict_summary) = compute_verdict(&json_result);
-    json_result.verdict_summary = Some(verdict_summary.clone());
-
-    let top = anya_security_core::confidence::top_detections(&json_result, 3);
-    json_result.top_findings = top
-        .iter()
-        .map(|d| output::TopFinding {
-            label: d.description.clone(),
-            confidence: d.confidence.clone(),
-            technique_id: None, // TODO: extract from MITRE data if available
-        })
-        .collect();
 
     // ── JSON output ──────────────────────────────────────────────────────────
-    if args.json {
+    if effective_json {
         let json = serde_json::to_string_pretty(&json_result)?;
         write_output(&json, args.output.as_ref(), args.append)?;
 
@@ -529,6 +640,16 @@ fn analyse_single_file(
                 eprintln!("✓ JSON written to: {:?}", path);
             }
         }
+        return Ok(());
+    }
+
+    // ── HTML report output ──────────────────────────────────────────────────
+    if effective_html {
+        let output_path = args.output.clone().unwrap_or_else(|| {
+            let stem = file_path.file_stem().unwrap_or_default().to_string_lossy();
+            PathBuf::from(format!("{}_report.html", stem))
+        });
+        report::generate_html_report(&json_result, &output_path)?;
         return Ok(());
     }
 
@@ -558,23 +679,23 @@ fn analyse_single_file(
     }
 
     // 3. Top findings summary
-    if !top.is_empty() && output_level.should_print_info() {
+    if !json_result.top_findings.is_empty() && output_level.should_print_info() {
         println!("\n{}", "TOP FINDINGS".bold().cyan());
-        for d in &top {
-            let level_str = format!("[{:?}]", d.confidence).to_uppercase();
+        for f in &json_result.top_findings {
+            let level_str = format!("[{:?}]", f.confidence).to_uppercase();
             let padded = format!("{:<10}", level_str);
-            let line = match d.confidence {
+            let line = match f.confidence {
                 output::ConfidenceLevel::Critical => {
-                    format!("  {} {}", padded.red().bold(), d.description)
+                    format!("  {} {}", padded.red().bold(), f.label)
                 }
                 output::ConfidenceLevel::High => {
-                    format!("  {} {}", padded.yellow().bold(), d.description)
+                    format!("  {} {}", padded.yellow().bold(), f.label)
                 }
                 output::ConfidenceLevel::Medium => {
-                    format!("  {} {}", padded.white(), d.description)
+                    format!("  {} {}", padded.white(), f.label)
                 }
                 output::ConfidenceLevel::Low => {
-                    format!("  {} {}", padded.white().dimmed(), d.description)
+                    format!("  {} {}", padded.white().dimmed(), f.label)
                 }
             };
             println!("{}", line);
@@ -587,7 +708,10 @@ fn analyse_single_file(
     // 4. Banner + file info
     if output_level.should_print_info() {
         println!();
-        println!("{}", "=== Ányá v1.1.0 ===".bold().green());
+        println!(
+            "{}",
+            format!("=== Ányá v{VERSION} ===").as_str().bold().green()
+        );
         println!("Analysing: {:?}\n", file_path);
         print_file_info(file_path, &file_data, output_level)?;
     }
@@ -664,7 +788,7 @@ fn analyse_single_file(
     // 7. Strings + entropy (existing display functions)
     if output_level.should_print_info() {
         print_strings(&file_data, min_string_length);
-        print_entropy(&file_data);
+        print_entropy(&file_data, packed_entropy, suspicious_entropy);
     }
 
     // 8. IOC indicators section
@@ -674,7 +798,7 @@ fn analyse_single_file(
 
     // In quiet mode, summarize findings
     if output_level == OutputLevel::Quiet {
-        print_quiet_summary(&file_data);
+        print_quiet_summary(&file_data, packed_entropy);
     }
 
     // 9. --explain: print explanations at the bottom
@@ -721,6 +845,7 @@ fn analyse_single_file(
             &json_result.hashes.sha256,
             &verdict_word,
             &json_report,
+            cases_dir_override,
         )?;
     }
 
@@ -738,8 +863,16 @@ fn analyse_directory(
     dir_path: &PathBuf,
     args: &Args,
     output_level: OutputLevel,
-    min_string_length: usize,
+    cfg: &RunConfig<'_>,
 ) -> Result<()> {
+    let RunConfig {
+        min_string_length,
+        effective_json,
+        packed_entropy,
+        suspicious_entropy,
+        cases_dir_override,
+        ..
+    } = *cfg;
     use std::time::Instant;
 
     if !dir_path.exists() {
@@ -757,8 +890,14 @@ fn analyse_directory(
     }
 
     // Banner for batch mode
-    if output_level.should_print_info() && !args.json {
-        println!("{}", "=== Ányá v1.1.0 - Batch Mode ===".bold().green());
+    if output_level.should_print_info() && !effective_json {
+        println!(
+            "{}",
+            format!("=== Ányá v{VERSION} - Batch Mode ===")
+                .as_str()
+                .bold()
+                .green()
+        );
         println!("Scanning directory: {:?}", dir_path);
         if args.recursive {
             println!("Mode: Recursive");
@@ -795,7 +934,7 @@ fn analyse_directory(
         return Ok(());
     }
 
-    if output_level.should_print_info() && !args.json {
+    if output_level.should_print_info() && !effective_json {
         println!("Found {} executable files\n", executable_files.len());
     }
 
@@ -811,13 +950,13 @@ fn analyse_directory(
 
     // **Rust Concept: Progress Bar with indicatif**
     // Only show progress bar in non-JSON mode
-    let progress = if output_level.should_print_info() && !args.json {
+    let progress = if output_level.should_print_info() && !effective_json && !args.summary {
         let pb = ProgressBar::new(executable_files.len() as u64);
         pb.set_style(
             ProgressStyle::default_bar()
-                .template("{msg} [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) {eta}")
+                .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} | {msg} | {per_sec}")
                 .unwrap()
-                .progress_chars("█▓▒░ "),
+                .progress_chars("█▓░"),
         );
         pb.set_message("Analysing files");
         Some(pb)
@@ -875,6 +1014,7 @@ fn analyse_directory(
                                 &json_result.hashes.sha256,
                                 &verdict_word,
                                 &json_report,
+                                cases_dir_override,
                             );
                         }
                     }
@@ -959,13 +1099,21 @@ fn analyse_directory(
         let filename = file_path.file_name().unwrap_or_default().to_string_lossy();
 
         if let Some(ref pb) = progress {
-            pb.set_message(format!("Analysing: {}", filename));
+            pb.set_message(filename.to_string());
         }
 
-        match analyse_single_file(file_path, args, OutputLevel::Quiet, min_string_length) {
+        let batch_cfg = RunConfig {
+            min_string_length,
+            effective_json,
+            effective_html: false,
+            packed_entropy,
+            suspicious_entropy,
+            cases_dir_override,
+        };
+        match analyse_single_file(file_path, args, OutputLevel::Quiet, &batch_cfg) {
             Ok(_) => {
                 summary.analysed += 1;
-                if !args.json && output_level.should_print_info() {
+                if !effective_json && output_level.should_print_info() {
                     if let Some(ref pb) = progress {
                         pb.println(format!("  ✓ {}", filename.green()));
                     } else {
@@ -975,11 +1123,27 @@ fn analyse_directory(
             }
             Err(e) => {
                 summary.failed += 1;
-                if !args.json {
+                if !effective_json {
+                    let msg = format!("{}", e);
+                    let hint = anya_security_core::errors::suggest(&msg)
+                        .map(|h| format!("  {} {}", "Hint:".yellow(), h))
+                        .unwrap_or_default();
                     if let Some(ref pb) = progress {
-                        pb.println(format!("  ✗ {}: {}", filename.red(), e));
+                        pb.println(format!(
+                            "  ✗ {}: {}{}",
+                            filename.red(),
+                            e,
+                            if hint.is_empty() {
+                                String::new()
+                            } else {
+                                format!("\n{}", hint)
+                            }
+                        ));
                     } else {
                         eprintln!("  ✗ {}: {}", filename.red(), e);
+                        if !hint.is_empty() {
+                            eprintln!("{}", hint);
+                        }
                     }
                 }
             }
@@ -996,7 +1160,7 @@ fn analyse_directory(
 
     summary.duration = start_time.elapsed().as_secs_f64();
 
-    if output_level.should_print_info() && !args.json {
+    if output_level.should_print_info() && !effective_json {
         summary.print_summary();
     }
 
@@ -1217,7 +1381,7 @@ fn print_strings(data: &[u8], min_length: usize) {
 /// Calculate Shannon entropy of the file
 /// Entropy measures randomness. High entropy (close to 8.0) often indicates encryption, compression or packing
 /// Low entropy suggests plain text or uncompressed data
-fn print_entropy(data: &[u8]) {
+fn print_entropy(data: &[u8], packed_threshold: f64, suspicious_threshold: f64) {
     println!("{}", "=== Entropy Analysis (Full File) ===".bold().cyan());
 
     if data.is_empty() {
@@ -1264,17 +1428,17 @@ fn print_entropy(data: &[u8]) {
     println!("Shannon Entropy: {:.4} / 8.0", entropy);
 
     // Provide interpretation with a splash of colours
-    if entropy > 7.5 {
+    if entropy > packed_threshold {
         println!(
             "{}",
             "⚠ Very high entropy - likely encrypted or packed"
                 .red()
                 .bold()
         );
-    } else if entropy > 6.5 {
+    } else if entropy > suspicious_threshold {
         println!(
             "{}",
-            "⚠ High entropy - possibly compressed or obfuscated".yellow()
+            "⚠ Elevated entropy - possibly compressed or obfuscated".yellow()
         );
     } else if entropy > 4.0 {
         println!(
@@ -1299,7 +1463,7 @@ fn print_entropy(data: &[u8]) {
 /// # Arguments
 ///
 /// * `data` - The file data to analyse
-fn print_quiet_summary(data: &[u8]) {
+fn print_quiet_summary(data: &[u8], packed_threshold: f64) {
     // Calculate entropy
     let mut frequency = [0u64; 256];
     for &byte in data {
@@ -1315,8 +1479,8 @@ fn print_quiet_summary(data: &[u8]) {
         }
     }
 
-    // Only print if suspicious
-    if entropy > 7.5 {
+    // Only print if above packed threshold
+    if entropy > packed_threshold {
         println!(
             "{}",
             "⚠ HIGH ENTROPY DETECTED - Likely packed/encrypted"

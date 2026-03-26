@@ -395,5 +395,305 @@
       ]
     },
     "next_steps": ["analyst_triage_workflow", "reading_the_risk_score"]
+  },
+  {
+    "id": "what_is_batch_analysis",
+    "title": "What Is Batch Analysis?",
+    "category": "Workflow",
+    "trigger": {"type": "BatchMode"},
+    "difficulty": "Beginner",
+    "content": {
+      "summary": "Batch analysis lets you scan an entire folder of files at once, producing a summary dashboard so you can prioritise the most suspicious files first.",
+      "explanation": "Instead of dragging files in one at a time, batch analysis processes an entire directory — optionally including subdirectories. Each file is analysed independently and the results are collected into a single dashboard showing verdict distributions, risk-score histograms, and the top findings across all files. This workflow is essential during incident response when you receive a disk image or quarantine folder with dozens or hundreds of suspicious files. Batch analysis does not change how each individual file is examined; it simply automates the repetitive open-analyse-close cycle and adds cross-file aggregation. The dashboard highlights outliers — files with unusually high risk scores, rare packer signatures, or unique IOC patterns — so you can focus your deeper analysis where it matters most.",
+      "what_to_look_for": "Start with the batch dashboard. Sort by risk score (descending) to see the highest-risk files first. Look for clusters of files with similar verdicts — this can indicate a campaign or a common dropper.",
+      "real_world_example": "During the SolarWinds incident, responders received hundreds of DLLs from compromised build servers. Batch static analysis let them quickly separate the backdoored SUNBURST DLL (high entropy, unusual imports) from thousands of legitimate DLLs in the same directory.",
+      "next_action": "Open a folder containing multiple executables using File → Analyse Directory. Review the dashboard summary before diving into any single file.",
+      "glossary": [
+        {"term": "Batch Analysis", "definition": "Scanning multiple files in a single operation and aggregating the results."},
+        {"term": "Verdict Distribution", "definition": "A summary showing how many files fell into each risk category (Clean, Low, Medium, High, Critical)."},
+        {"term": "Triage", "definition": "Quickly assessing a large set of files to decide which ones deserve deeper investigation."}
+      ]
+    },
+    "next_steps": ["reading_verdict_distributions", "analyst_triage_workflow"]
+  },
+  {
+    "id": "reading_verdict_distributions",
+    "title": "Reading Verdict Distributions",
+    "category": "Workflow",
+    "trigger": {"type": "BatchMode"},
+    "difficulty": "Beginner",
+    "content": {
+      "summary": "The verdict distribution chart shows how many files in a batch fall into each risk category, giving you an instant overview of the threat landscape in that folder.",
+      "explanation": "After batch analysis completes, the dashboard shows a distribution of verdicts: how many files scored Clean (0-9), Low (10-29), Medium (30-59), High (60-79), and Critical (80-100). A healthy software distribution should be heavily weighted toward Clean and Low. A folder where most files score Medium or above warrants urgent attention. The distribution also helps you spot anomalies: if 99 files are Clean and 1 is Critical, that outlier is your priority. Conversely, if every file scores Medium, it may indicate a systematic false positive (for example, a custom packer used by the legitimate developer) rather than a real threat. Always compare the distribution against what you expect from the source of the files.",
+      "what_to_look_for": "Look at the shape of the distribution. A normal software folder is skewed left (mostly low scores). A malware dump is skewed right. A bimodal distribution (some low, some high) may indicate a mix of legitimate tools and malicious payloads.",
+      "real_world_example": "A SOC team analysed a USB drive confiscated during an investigation. The verdict distribution showed 47 Clean files and 3 Critical files. The 3 Critical files turned out to be a dropper, a keylogger, and a data exfiltration tool — a complete attack toolkit hidden among legitimate documents.",
+      "next_action": "Look at the verdict distribution chart after a batch scan. Identify any files in the High or Critical categories and open them individually for deeper analysis.",
+      "glossary": [
+        {"term": "Verdict", "definition": "The risk classification assigned to a file based on its risk score (Clean, Low, Medium, High, Critical)."},
+        {"term": "Outlier", "definition": "A file whose risk score is significantly different from the majority — often the most interesting find in a batch."},
+        {"term": "Bimodal Distribution", "definition": "A distribution with two peaks, suggesting two distinct populations of files in the batch."}
+      ]
+    },
+    "next_steps": ["what_is_batch_analysis", "triage_across_multiple_files"]
+  },
+  {
+    "id": "triage_across_multiple_files",
+    "title": "Triage Across Multiple Files",
+    "category": "Workflow",
+    "trigger": {"type": "RiskScoreAbove", "threshold": 40},
+    "difficulty": "Intermediate",
+    "content": {
+      "summary": "When batch analysis flags multiple files, you need a systematic approach to triage them efficiently without missing critical threats or wasting time on false positives.",
+      "explanation": "Multi-file triage follows the 'highest risk first' principle, but with important nuances. Step 1: Sort by risk score descending and examine Critical files first — these may need immediate containment. Step 2: Look for related files. Do multiple files share the same packer? The same C2 domain in strings? The same unusual import combination? Related files suggest a campaign rather than isolated incidents. Step 3: Check for known-good files. Hash every file and check against your allowlist and threat intelligence. Known-good files can be excluded immediately. Step 4: Group unknowns by behaviour pattern (e.g., all files with process injection APIs, all files with network indicators). Analyse one representative from each group deeply. Step 5: Document findings per-file and create an overall assessment noting any relationships between files.",
+      "what_to_look_for": "After sorting by risk score, look for patterns: shared import combinations, shared strings (domains, IPs, registry keys), shared packer signatures, or shared section names. These relationships are more valuable than individual file scores.",
+      "real_world_example": "During a phishing campaign investigation, batch analysis of 23 email attachments revealed 5 distinct malware families. Grouping by shared C2 domains (visible in strings) reduced the unique threats to analyse from 23 to 5, saving hours of analyst time.",
+      "next_action": "After a batch scan with multiple flagged files, sort by score, then look at the Strings tab of the top 3 files. Note any shared domains, IPs, or file paths — these indicate files are part of the same campaign.",
+      "glossary": [
+        {"term": "Campaign", "definition": "A coordinated set of attacks using related malware, infrastructure, and techniques."},
+        {"term": "Allowlist", "definition": "A list of known-good file hashes that can be excluded from analysis."},
+        {"term": "Indicator Correlation", "definition": "Finding the same IOC (hash, IP, domain) across multiple files, linking them to a common threat."}
+      ]
+    },
+    "next_steps": ["what_is_batch_analysis", "analyst_triage_workflow", "when_to_escalate"]
+  },
+  {
+    "id": "what_are_iocs",
+    "title": "What Are IOCs?",
+    "category": "Fundamentals",
+    "trigger": {"type": "IocPresent", "ioc_type": "url"},
+    "difficulty": "Beginner",
+    "content": {
+      "summary": "Indicators of Compromise (IOCs) are forensic artefacts — URLs, IP addresses, file hashes, registry keys — that indicate a system may have been compromised.",
+      "explanation": "IOCs are the breadcrumbs that malware leaves behind. They come in several types: Network indicators include URLs, domain names, and IP addresses that malware contacts for command-and-control (C2) communication or payload downloads. Host indicators include file paths where malware installs itself, registry keys it creates for persistence, mutex names it uses to prevent re-infection, and scheduled tasks it creates. Cryptographic indicators are file hashes (MD5, SHA256) that uniquely identify a specific malware sample. In static analysis, IOCs are extracted from the file's embedded strings — the readable text sequences found in the binary. Not every string is an IOC; many are legitimate library strings, error messages, or compiler artefacts. The challenge is separating the signal from the noise.",
+      "what_to_look_for": "Open the Strings tab and look for entries tagged as IOCs. URLs and IP addresses are the most immediately actionable — you can check them against threat intelligence databases. Registry paths suggest persistence mechanisms. Base64-encoded strings may contain hidden commands or payloads.",
+      "real_world_example": "When Emotet samples were analysed, strings extraction revealed hardcoded C2 IP addresses that rotated weekly. Sharing these IOCs through MISP (Malware Information Sharing Platform) allowed organisations worldwide to block the C2 infrastructure proactively.",
+      "next_action": "Check the Strings tab for any entries highlighted as IOCs. Copy any URLs or IP addresses and look them up on VirusTotal, AbuseIPDB, or your threat intelligence platform.",
+      "glossary": [
+        {"term": "IOC", "definition": "Indicator of Compromise — an observable artefact that suggests a system has been breached."},
+        {"term": "C2", "definition": "Command and Control — the infrastructure attackers use to communicate with and control compromised systems."},
+        {"term": "MISP", "definition": "Malware Information Sharing Platform — an open-source platform for sharing threat intelligence and IOCs."}
+      ]
+    },
+    "next_steps": ["network_indicators_in_strings", "analyst_triage_workflow"]
+  },
+  {
+    "id": "network_indicators_in_strings",
+    "title": "Network Indicators in Strings",
+    "category": "Fundamentals",
+    "trigger": {"type": "IocPresent", "ioc_type": "url"},
+    "difficulty": "Intermediate",
+    "content": {
+      "summary": "URLs, domains, and IP addresses found in a binary's strings are strong indicators of network communication capability — and potential C2 infrastructure.",
+      "explanation": "When a binary contains hardcoded URLs or IP addresses, it almost certainly communicates over the network. The key question is whether that communication is legitimate (software updates, license checks, telemetry) or malicious (C2 beaconing, data exfiltration, payload downloads). Suspicious network indicators include: IP addresses in non-routable or unusual ranges, domains with high entropy names (random-looking strings like 'xk4m2n.xyz'), URLs with paths containing '/gate/', '/panel/', '/upload/', or '/cmd/' (common C2 panel patterns), and connections to Tor hidden services (.onion). Less suspicious but still noteworthy: connections to well-known cloud providers (may be legitimate or may abuse cloud infrastructure), HTTPS URLs (encrypted C2 is harder to inspect), and URLs with base64-encoded parameters (may contain encoded commands).",
+      "what_to_look_for": "In the Strings tab, filter by IOC type 'url' or 'ip'. For each network indicator, ask: Is the domain registered recently (check WHOIS)? Does VirusTotal flag it? Is the IP in a hosting range known for bulletproof hosting? Are there multiple domains (suggesting a domain generation algorithm)?",
+      "real_world_example": "TrickBot samples consistently contained a list of hardcoded C2 IP addresses in their strings, typically 10-20 IPs in a configuration block. Extracting these IPs from new samples and sharing them as IOCs was one of the primary ways defenders tracked and disrupted TrickBot infrastructure.",
+      "next_action": "Copy each URL or IP address found in strings to VirusTotal (virustotal.com). Check the 'Relations' tab to see if it connects to known malware campaigns.",
+      "glossary": [
+        {"term": "Bulletproof Hosting", "definition": "Hosting providers that ignore abuse complaints, commonly used by cybercriminals for C2 servers."},
+        {"term": "DGA", "definition": "Domain Generation Algorithm — a technique that generates new domain names algorithmically, making C2 infrastructure harder to block."},
+        {"term": "Beaconing", "definition": "Regular, periodic network connections from malware to its C2 server, checking for commands."}
+      ]
+    },
+    "next_steps": ["what_are_iocs", "analyst_triage_workflow"]
+  },
+  {
+    "id": "registry_persistence_indicators",
+    "title": "Registry Persistence Indicators",
+    "category": "Fundamentals",
+    "trigger": {"type": "IocPresent", "ioc_type": "registry"},
+    "difficulty": "Intermediate",
+    "content": {
+      "summary": "Registry paths in a binary's strings often reveal persistence mechanisms — how malware ensures it runs again after a reboot.",
+      "explanation": "The Windows Registry is the primary persistence mechanism for most malware. Common persistence locations include: Run keys (HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run) which execute a program at every login, RunOnce keys (same path but \\RunOnce) which execute once then delete themselves, Services (HKLM\\System\\CurrentControlSet\\Services) which run as Windows services with SYSTEM privileges, Scheduled Tasks (stored in the registry under TaskCache), and COM Object hijacking (HKLM\\Software\\Classes\\CLSID). When you see these registry paths in a binary's strings, the malware is almost certainly writing to those keys to survive reboots. The specific key reveals the persistence technique: Run keys are simple but detectable, service creation is more privileged, and COM hijacking is stealthier. Some malware uses multiple persistence mechanisms as fallbacks.",
+      "what_to_look_for": "In the Strings tab, look for paths containing 'CurrentVersion\\Run', 'CurrentControlSet\\Services', 'TaskCache', or 'CLSID'. Also look for 'reg add' or 'reg.exe' strings that indicate direct registry manipulation via command line.",
+      "real_world_example": "Agent Tesla, a commodity info-stealer, reliably writes itself to HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run with a random name. This string is always visible in static analysis and is one of the fastest ways to classify a sample as Agent Tesla.",
+      "next_action": "Search the Strings tab for 'CurrentVersion' or 'HKLM' or 'HKCU'. Any registry paths found are likely persistence mechanisms — note them for your incident response team to check on affected systems.",
+      "glossary": [
+        {"term": "Persistence", "definition": "Techniques that allow malware to survive system reboots and maintain access to a compromised system."},
+        {"term": "Run Key", "definition": "A Windows Registry key that causes a program to execute automatically at user login."},
+        {"term": "COM Hijacking", "definition": "Replacing a legitimate COM object registration with a malicious DLL, causing it to load when applications use that COM class."}
+      ]
+    },
+    "next_steps": ["what_are_iocs", "what_is_mitre_attack"]
+  },
+  {
+    "id": "understanding_confidence_levels",
+    "title": "Understanding Confidence Levels",
+    "category": "Fundamentals",
+    "trigger": {"type": "ConfidenceAbove", "level": "High"},
+    "difficulty": "Beginner",
+    "content": {
+      "summary": "Each finding in Anya has a confidence level (Low, Medium, High, Critical) indicating how strongly the evidence supports a malicious interpretation.",
+      "explanation": "Confidence levels reflect the strength of the evidence, not the severity of the threat. A Low confidence finding means the indicator has many legitimate uses (e.g., CreateFile is used by virtually all software). A Medium confidence finding has some legitimate uses but is more commonly associated with malware (e.g., SetWindowsHookEx for keylogging). A High confidence finding is rarely seen in legitimate software (e.g., NtUnmapViewOfSection for process hollowing). A Critical confidence finding is an API combination or pattern that has almost no legitimate use case (e.g., the full process injection trio of VirtualAllocEx + WriteProcessMemory + CreateRemoteThread). Important: confidence is about the indicator, not the file. A file with a single Critical finding is not necessarily more dangerous than one with ten Medium findings — but the Critical finding is more reliably indicative of malicious intent.",
+      "what_to_look_for": "In the Imports tab, note the confidence badge on each suspicious API. Focus your attention on High and Critical findings first. For Medium findings, check whether the API has a plausible legitimate use in the context of this file's apparent purpose.",
+      "real_world_example": "A developer's build tool was flagged with Medium confidence for importing VirtualAlloc and WriteProcessMemory — used legitimately for JIT compilation. However, it also had a Critical confidence finding for CreateRemoteThread, which had no legitimate explanation. The Critical finding was the true indicator; the Medium findings were false positives in context.",
+      "next_action": "Review the confidence levels in the Imports tab. For any High or Critical findings, read the associated MITRE technique description to understand exactly what capability the finding implies.",
+      "glossary": [
+        {"term": "Confidence Level", "definition": "A rating (Low, Medium, High, Critical) of how strongly an indicator suggests malicious behaviour."},
+        {"term": "False Positive", "definition": "A legitimate file or behaviour incorrectly flagged as suspicious."},
+        {"term": "Process Hollowing", "definition": "A technique where malware creates a suspended legitimate process, replaces its code, then resumes it."}
+      ]
+    },
+    "next_steps": ["reading_the_risk_score", "when_multiple_medium_equals_high"]
+  },
+  {
+    "id": "when_multiple_medium_equals_high",
+    "title": "When Multiple Medium Equals High",
+    "category": "Fundamentals",
+    "trigger": {"type": "RiskScoreAbove", "threshold": 50},
+    "difficulty": "Intermediate",
+    "content": {
+      "summary": "A file with many Medium-confidence findings can be just as suspicious as one with a single High-confidence finding — the combination of capabilities matters.",
+      "explanation": "Individual Medium-confidence APIs often have legitimate uses: VirtualAlloc (memory management), CreateToolhelp32Snapshot (diagnostic tools), InternetOpen (update checkers). But when a single file imports all three, the picture changes. VirtualAlloc + WriteProcessMemory suggests in-memory payload manipulation. Add CreateToolhelp32Snapshot and it looks like process enumeration before injection. Add InternetOpen and the file can download additional payloads. Each API alone is Medium; together they describe a complete attack chain. Anya's risk score reflects this accumulation — each Medium finding adds 8 points, so five Medium findings produce a score of 40, which is solidly in the Medium risk range. This additive approach captures the intuition that breadth of suspicious capability is itself suspicious, even when no single indicator is definitive.",
+      "what_to_look_for": "When the risk score is elevated but no single finding is High or Critical, look at the full list of Medium findings. Can you construct a narrative where these capabilities work together? If the APIs describe a coherent attack workflow (enumerate → allocate → write → execute → communicate), treat the combination as High confidence.",
+      "real_world_example": "A fileless malware loader was missed by signature-based AV because no single API import was Critical. However, it imported 7 Medium-confidence APIs that together described: process enumeration, memory allocation with execute permissions, shellcode writing, thread creation, and HTTP download. The accumulated risk score of 56 correctly flagged it for analyst review.",
+      "next_action": "List all Medium-confidence findings from the Imports tab. Try to construct an attack narrative from them. If they form a coherent chain, mentally upgrade the overall assessment to High.",
+      "glossary": [
+        {"term": "Attack Chain", "definition": "A sequence of techniques used together to achieve a malicious objective."},
+        {"term": "Fileless Malware", "definition": "Malware that operates entirely in memory without writing traditional files to disk."},
+        {"term": "Additive Scoring", "definition": "A risk scoring method where each finding adds points, and the total reflects the cumulative suspiciousness."}
+      ]
+    },
+    "next_steps": ["understanding_confidence_levels", "analyst_triage_workflow"]
+  },
+  {
+    "id": "what_are_analysis_thresholds",
+    "title": "What Are Analysis Thresholds?",
+    "category": "Workflow",
+    "trigger": {"type": "ThresholdCustomised"},
+    "difficulty": "Beginner",
+    "content": {
+      "summary": "Analysis thresholds control when Anya flags something as suspicious. Adjusting them lets you reduce noise or increase sensitivity depending on your environment.",
+      "explanation": "Anya uses configurable thresholds to decide when an indicator is worth flagging. The main thresholds include: Entropy threshold — the Shannon entropy value above which a section is flagged as potentially packed or encrypted (default: 7.0). Import suspicion level — the minimum confidence level to display in the Imports tab (default: Medium, meaning Low-confidence findings are hidden). Risk score alert level — the score above which a file is highlighted as needing attention (default: 40). String minimum length — the minimum character count for extracted strings (default: 6). These defaults work well for general-purpose malware analysis, but they may need adjustment. If you analyse a lot of packed commercial software (game protectors, DRM), you might raise the entropy threshold to reduce false positives. If you are performing deep forensic analysis, you might lower thresholds to catch subtle indicators.",
+      "what_to_look_for": "Open Settings → Thresholds. Note the current values. If you are seeing too many false positives, consider raising the entropy or risk score thresholds. If you are missing findings, lower them.",
+      "real_world_example": "A game security company raised their entropy threshold to 7.8 because all their software used Themida packing (entropy ~7.5). This eliminated hundreds of false positives per day while still catching truly anomalous samples with entropy above 7.8.",
+      "next_action": "Open Settings → Thresholds and review the current values. Make a note of the defaults before changing anything so you can revert if needed.",
+      "glossary": [
+        {"term": "Threshold", "definition": "A configurable boundary value that determines when an indicator is flagged as suspicious."},
+        {"term": "Sensitivity", "definition": "How readily the analyser flags indicators — higher sensitivity catches more but produces more false positives."},
+        {"term": "Noise", "definition": "False positive findings that clutter the results and distract from genuine threats."}
+      ]
+    },
+    "next_steps": ["tuning_thresholds_for_your_environment", "reading_the_risk_score"]
+  },
+  {
+    "id": "tuning_thresholds_for_your_environment",
+    "title": "Tuning Thresholds for Your Environment",
+    "category": "Workflow",
+    "trigger": {"type": "ThresholdCustomised"},
+    "difficulty": "Advanced",
+    "content": {
+      "summary": "Different environments need different thresholds. A SOC analysing enterprise software has different needs than a malware research lab.",
+      "explanation": "Threshold tuning is an iterative process. Start with defaults and adjust based on your false positive and false negative rates. For enterprise SOC environments: raise the risk score alert threshold to 50-60 if you receive many legitimate but flagged admin tools (PsExec, WinSCP, PowerShell scripts). Keep entropy threshold at default (7.0) unless you have specific packer-heavy software. For malware research labs: lower the string minimum length to 4 to catch short but meaningful strings like 'cmd' or 'reg'. Lower the risk score alert to 20 to catch subtle indicators. Keep entropy threshold at default or lower to 6.5 for detecting partial encryption. For incident response: use aggressive (low) thresholds — you want maximum sensitivity because you already know something is wrong. False positives are acceptable when you are hunting for IOCs across a compromised environment. Always document your threshold changes and the reasoning behind them. Review thresholds quarterly as your environment and threat landscape change.",
+      "what_to_look_for": "Track your false positive rate over a week with the current thresholds. If more than 30% of flagged files turn out to be legitimate, your thresholds are too sensitive. If you miss known-bad files, they are not sensitive enough.",
+      "real_world_example": "An MSSP (Managed Security Service Provider) maintained three threshold profiles: 'Enterprise' (high thresholds, low noise) for routine monitoring, 'Hunting' (medium thresholds) for proactive threat hunting, and 'IR' (lowest thresholds, maximum sensitivity) activated during active incident response engagements.",
+      "next_action": "Create a baseline: analyse 10 known-good files and 5 known-bad files with your current thresholds. Note any false positives or false negatives, then adjust accordingly.",
+      "glossary": [
+        {"term": "False Positive Rate", "definition": "The percentage of legitimate files incorrectly flagged as suspicious."},
+        {"term": "False Negative Rate", "definition": "The percentage of malicious files that were not flagged as suspicious."},
+        {"term": "MSSP", "definition": "Managed Security Service Provider — a company that provides outsourced security monitoring and management."}
+      ]
+    },
+    "next_steps": ["what_are_analysis_thresholds", "common_false_positive_patterns"]
+  },
+  {
+    "id": "filtering_strings_by_ioc_type",
+    "title": "Filtering Strings by IOC Type",
+    "category": "Fundamentals",
+    "trigger": {"type": "IocPresent", "ioc_type": "base64"},
+    "difficulty": "Beginner",
+    "content": {
+      "summary": "Anya categorises extracted strings by IOC type — URLs, IPs, registry paths, base64, file paths — so you can quickly find the most relevant indicators.",
+      "explanation": "A typical binary contains hundreds or thousands of strings, most of which are uninteresting (compiler-generated strings, library names, format strings). Anya automatically classifies strings into IOC categories to help you focus on what matters. URL strings may reveal C2 servers, download locations, or exfiltration endpoints. IP addresses can identify hardcoded C2 infrastructure. Registry paths suggest persistence or configuration storage mechanisms. Base64-encoded strings often contain hidden commands, encoded payloads, or obfuscated configuration data — decoding them can reveal the malware's true intent. File paths indicate where the malware reads from or writes to on disk. By filtering to a specific IOC type, you can quickly scan just the network indicators, just the persistence indicators, or just the encoded content, making triage much faster than reading every string sequentially.",
+      "what_to_look_for": "In the Strings tab, use the IOC type filter to view one category at a time. Start with URLs and IPs (most immediately actionable), then check registry paths (persistence), then base64 (hidden content). Decode any base64 strings using CyberChef or a command-line tool.",
+      "real_world_example": "A QakBot sample contained 2,300 extracted strings. Filtering by IOC type 'url' reduced this to 4 strings — all C2 panel URLs. Filtering by 'base64' revealed an encoded PowerShell command that downloaded the second-stage payload. Without filtering, these critical strings were buried in noise.",
+      "next_action": "Open the Strings tab and use the IOC type filter dropdown. Select 'url' first and review any findings. Then try 'base64' — if you find encoded strings, decode them with CyberChef (gchq.github.io/CyberChef).",
+      "glossary": [
+        {"term": "Base64", "definition": "An encoding scheme that represents binary data as ASCII text — commonly used to obfuscate malicious commands in strings."},
+        {"term": "CyberChef", "definition": "A free web-based tool by GCHQ for encoding, decoding, and transforming data in many formats."},
+        {"term": "String Extraction", "definition": "The process of finding readable text sequences in a binary file, typically sequences of 4+ printable ASCII characters."}
+      ]
+    },
+    "next_steps": ["what_are_iocs", "network_indicators_in_strings"]
+  },
+  {
+    "id": "common_false_positive_patterns",
+    "title": "Common False Positive Patterns",
+    "category": "Workflow",
+    "trigger": {"type": "RiskScoreAbove", "threshold": 30},
+    "difficulty": "Intermediate",
+    "content": {
+      "summary": "Not every flagged file is malicious. Learning to recognise common false positive patterns prevents wasted time and alert fatigue.",
+      "explanation": "False positives are legitimate files that trigger suspicious indicators. The most common patterns include: System administration tools (PsExec, WinSCP, PuTTY) that import network and process manipulation APIs for legitimate purposes. Development tools and debuggers that use the same anti-debug and memory manipulation APIs as malware. Packed commercial software (games with anti-cheat, DRM-protected applications) that triggers high-entropy and packer-detection alerts. Installers and self-extracting archives that contain overlay data and import file-writing APIs. Go and Rust binaries that statically link many libraries, inflating the import count with functions they never actually use maliciously. Security software itself (AV engines, EDR agents) that imports the same hooking and injection APIs as malware because they use similar techniques for detection. The key to identifying false positives is context: does the file's apparent purpose explain the suspicious indicators?",
+      "what_to_look_for": "Before classifying a file as malicious, check: Is it digitally signed by a reputable publisher? Is the file from a known software package? Do the suspicious APIs make sense for the file's stated purpose? Is the file a known tool (check the hash on VirusTotal — a 0/70 detection ratio strongly suggests legitimate software).",
+      "real_world_example": "A SOC repeatedly escalated SysInternals Process Explorer as malicious because it imports CreateRemoteThread, ReadProcessMemory, and NtQueryInformationProcess. After adding its hash to the allowlist, they eliminated approximately 15 false positive tickets per week.",
+      "next_action": "If a file scores Medium (30-59) but looks like it could be legitimate, check its hash on VirusTotal. If it has 0 detections and is signed, it is very likely a false positive. Add it to your notes for allowlisting.",
+      "glossary": [
+        {"term": "Alert Fatigue", "definition": "The phenomenon where analysts become desensitised to alerts due to a high volume of false positives."},
+        {"term": "Allowlist", "definition": "A list of known-good file hashes or publishers that are excluded from suspicious flagging."},
+        {"term": "Digital Signature", "definition": "A cryptographic signature proving a file was published by a specific entity and has not been tampered with."}
+      ]
+    },
+    "next_steps": ["reading_the_risk_score", "signed_but_suspicious"]
+  },
+  {
+    "id": "signed_but_suspicious",
+    "title": "Signed But Suspicious",
+    "category": "Workflow",
+    "trigger": {"type": "Always"},
+    "difficulty": "Advanced",
+    "content": {
+      "summary": "A valid digital signature does not guarantee a file is safe. Stolen certificates, supply chain compromises, and dual-use tools all carry valid signatures while posing real threats.",
+      "explanation": "Code signing establishes that a file was published by a specific entity and has not been modified since signing. It does NOT prove the file is benign. There are several scenarios where signed files are genuinely dangerous: Stolen code-signing certificates — attackers steal private keys from compromised developers and sign their malware. The signature is technically valid, but the key is in the wrong hands. Supply chain attacks — an attacker compromises the build pipeline of a legitimate vendor, injecting malware into an otherwise legitimate signed update (SolarWinds, CCleaner, ASUS Live Update). Dual-use tools — legitimate signed tools like PsExec, Cobalt Strike (licensed versions), and PowerShell are used by attackers for lateral movement and post-exploitation. The tool is genuinely from the stated publisher, but its presence on a system may indicate compromise. Expired or revoked certificates — a file may have been signed with a certificate that has since been revoked due to compromise, but the signature still validates if timestamp-checked before revocation.",
+      "what_to_look_for": "If a signed file has a high risk score, check: Is the signing certificate still valid and not revoked? Is the publisher name consistent with the file's apparent purpose? Is the signing timestamp recent? Does the file hash appear on threat intelligence platforms despite being signed? A signed file with process injection APIs and no legitimate reason for them is a red flag regardless of the signature.",
+      "real_world_example": "The SolarWinds SUNBURST backdoor was signed with SolarWinds' legitimate code-signing certificate. The signature was valid, the publisher was trusted, and the file was distributed through the official update channel. Only detailed static and behavioural analysis revealed the embedded backdoor, which would have been missed by any tool that trusted signatures alone.",
+      "next_action": "For signed files with elevated risk scores: verify the certificate validity (check for revocation), cross-reference the hash on VirusTotal, and examine the suspicious APIs to determine if they are consistent with the software's stated purpose.",
+      "glossary": [
+        {"term": "Code Signing", "definition": "Cryptographically signing a binary to prove its publisher identity and integrity."},
+        {"term": "Supply Chain Attack", "definition": "Compromising a trusted vendor's build or distribution pipeline to inject malware into legitimate software updates."},
+        {"term": "Certificate Revocation", "definition": "The process of invalidating a code-signing certificate, typically after a compromise is discovered."}
+      ]
+    },
+    "next_steps": ["common_false_positive_patterns", "when_to_escalate"]
+  },
+  {
+    "id": "disguised_file_extensions",
+    "title": "Disguised File Extensions",
+    "category": "Fundamentals",
+    "trigger": {"type": "FileTypeMismatchDetected"},
+    "difficulty": "Beginner",
+    "content": {
+      "summary": "A file-type mismatch means the file's actual content does not match its extension — a classic social engineering technique to trick users into running executables.",
+      "explanation": "Every file format has 'magic bytes' — the first few bytes that identify what the file actually is. A PE executable starts with 'MZ' (4D 5A), a PDF starts with '%PDF', a ZIP starts with 'PK' (50 4B). When the magic bytes say 'this is a PE executable' but the file extension says '.pdf' or '.docx', someone has deliberately renamed the file to disguise its true nature. This is one of the oldest and most common social engineering techniques: an attacker sends 'invoice.pdf.exe' in an email. Windows hides known extensions by default, so the user sees 'invoice.pdf' and double-clicks it, executing the malware. More sophisticated variants use Right-to-Left Override (RLO) Unicode characters to visually reverse part of the filename, making 'report_fdp.exe' appear as 'report_exe.pdf' in the file manager. Anya compares the detected file format against the original extension and flags any mismatch.",
+      "what_to_look_for": "Look at the Overview tab for a file-type mismatch warning. Check the detected format (PE, ELF, ZIP, etc.) against the original filename extension. Any mismatch is suspicious, but executable-masquerading-as-document is a strong indicator of social engineering delivery.",
+      "real_world_example": "During a targeted attack on a law firm, attackers sent emails with attachments named 'settlement_agreement.pdf.exe'. Windows' default 'hide known extensions' setting made these appear as PDF files. Anya's file-type mismatch detection immediately flagged the PE magic bytes inside a supposed PDF.",
+      "next_action": "If a file-type mismatch is detected, treat the file with high suspicion regardless of its risk score. Report the original filename and true file type in your triage notes.",
+      "glossary": [
+        {"term": "Magic Bytes", "definition": "The first few bytes of a file that identify its true format, regardless of the file extension."},
+        {"term": "RLO", "definition": "Right-to-Left Override — a Unicode control character that reverses text direction, abused to disguise file extensions."},
+        {"term": "Social Engineering", "definition": "Manipulating people into performing actions or divulging information, often by disguising malicious files as legitimate documents."}
+      ]
+    },
+    "next_steps": ["what_is_a_pe_file", "reading_the_risk_score"]
+  },
+  {
+    "id": "recognising_attack_chains",
+    "title": "Recognising Attack Chains",
+    "category": "AntiAnalysis",
+    "trigger": {"type": "ApiComboPresent", "apis": ["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread"]},
+    "difficulty": "Advanced",
+    "content": {
+      "summary": "An attack chain is a sequence of techniques that together achieve a complex objective. Recognising the chain reveals the attacker's full intent, not just individual capabilities.",
+      "explanation": "Malware rarely uses a single technique in isolation. Real attacks follow chains: Delivery → Execution → Persistence → Privilege Escalation → Discovery → Lateral Movement → Collection → Exfiltration. In static analysis, you can often reconstruct parts of this chain from the import table and strings. A process injection chain might look like: CreateToolhelp32Snapshot (enumerate processes to find a target) → OpenProcess (get a handle to the target) → VirtualAllocEx (allocate memory in the target) → WriteProcessMemory (write shellcode) → CreateRemoteThread (execute the shellcode). A persistence chain might be: GetModuleFileName (find own path) → CopyFile (copy self to a persistent location) → RegSetValueEx (create a Run key). A data exfiltration chain: FindFirstFile/FindNextFile (enumerate files) → CreateFile/ReadFile (read target files) → InternetOpen/HttpSendRequest (upload to C2). The power of chain recognition is that it reveals intent: individual APIs are ambiguous, but the chain tells you exactly what the malware is trying to do.",
+      "what_to_look_for": "In the Imports tab, look for APIs that form logical sequences. Group them mentally: Which APIs are for process manipulation? Which are for file operations? Which are for networking? Which are for registry access? Each group represents one step in the attack chain.",
+      "real_world_example": "APT28 (Fancy Bear) X-Agent implant showed a clear three-stage attack chain in static analysis: Stage 1 — process injection (VirtualAllocEx chain), Stage 2 — credential harvesting (LsaEnumerateLogonSessions chain), Stage 3 — exfiltration (InternetOpen chain). Mapping these chains to MITRE ATT&CK produced a complete attack narrative that matched known APT28 TTPs.",
+      "next_action": "List all suspicious APIs from the Imports tab. Group them by function (process, memory, network, registry, file). For each group, identify the likely purpose. Then connect the groups into a narrative: what is this malware trying to do, step by step?",
+      "glossary": [
+        {"term": "Attack Chain", "definition": "A sequence of techniques used together to achieve a complex malicious objective."},
+        {"term": "Kill Chain", "definition": "A military-derived model (Lockheed Martin) describing the stages of a cyberattack from reconnaissance to action on objectives."},
+        {"term": "Lateral Movement", "definition": "Moving from one compromised system to another within a network to expand access."}
+      ]
+    },
+    "next_steps": ["suspicious_api_combinations", "what_is_mitre_attack", "when_to_escalate"]
   }
 ]

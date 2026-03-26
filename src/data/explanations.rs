@@ -6,7 +6,7 @@ use crate::output::{ConfidenceLevel, PlainEnglishFinding};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-static EXPLANATIONS_JSON: &str = include_str!("explanations_data.json");
+static EXPLANATIONS_JSON: &str = anya_data::EXPLANATIONS_JSON;
 
 #[derive(serde::Deserialize)]
 struct RawFinding {

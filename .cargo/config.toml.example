@@ -1,0 +1,5 @@
+# Path overrides — redirect stub crates to real content from the submodule.
+# Copy this file to .cargo/config.toml after initialising the submodule:
+#   git submodule update --init
+#   cp .cargo/config.toml.example .cargo/config.toml
+paths = ["anya-proprietary/scoring", "anya-proprietary/data"]

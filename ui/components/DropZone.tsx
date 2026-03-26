@@ -1,12 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Upload, AlertCircle } from "lucide-react";
-import { onFileDrop, openFilePicker } from "@/lib/tauri-bridge";
-
-const ACCEPTED_EXTS = new Set(["exe", "dll", "sys", "drv", "ocx", "so", "elf"]);
-
-function isAccepted(path: string) {
-  return ACCEPTED_EXTS.has(path.split(".").pop()?.toLowerCase() ?? "");
-}
+import { openFilePicker } from "@/lib/tauri-bridge";
+import { getRecentAnalysisSummaries } from "@/lib/db";
+import CaseBrowser from "@/components/CaseBrowser";
 
 interface Props {
   isLoading: boolean;
@@ -17,20 +13,13 @@ interface Props {
 
 export default function DropZone({ isLoading, error, onFileDrop: handleDrop, onPickFile }: Props) {
   const [dragOver, setDragOver] = useState(false);
-  const unlistenRef = useRef<(() => void) | null>(null);
+  const [recent, setRecent] = useState<Array<{ file_path: string; file_name: string; risk_score: number; timestamp: string }>>([]);
 
   useEffect(() => {
-    let cancelled = false;
-    onFileDrop((paths) => {
-      if (cancelled) return;
-      const valid = paths.find(isAccepted);
-      if (valid) { setDragOver(false); handleDrop(valid); }
-    }).then((unlisten) => {
-      if (cancelled) { unlisten(); return; }
-      unlistenRef.current = unlisten;
-    });
-    return () => { cancelled = true; unlistenRef.current?.(); };
-  }, [handleDrop]);
+    getRecentAnalysisSummaries(5).then(setRecent).catch(() => {});
+  }, []);
+
+  // Drag-drop is handled globally in App.tsx — no listener here to avoid double-fire
 
   function onDragOver(e: React.DragEvent) { e.preventDefault(); setDragOver(true); }
   function onDragLeave(e: React.DragEvent) { e.preventDefault(); setDragOver(false); }
@@ -132,7 +121,7 @@ export default function DropZone({ isLoading, error, onFileDrop: handleDrop, onP
           <>
             <Upload size={32} style={{ color: "var(--text-muted)" }} />
             <p style={{ fontSize: "var(--font-size-lg)", color: "var(--text-secondary)", margin: 0 }}>
-              Drop a PE file to analyse
+              Drop a file to analyse
             </p>
             <p style={{ fontSize: "var(--font-size-sm)", color: "var(--text-muted)", margin: 0 }}>
               or click to browse
@@ -146,8 +135,45 @@ export default function DropZone({ isLoading, error, onFileDrop: handleDrop, onP
                 letterSpacing: "0.04em",
               }}
             >
-              .exe &nbsp;&bull;&nbsp; .dll &nbsp;&bull;&nbsp; .sys &nbsp;&bull;&nbsp; .drv &nbsp;&bull;&nbsp; .ocx
+              .exe · .elf · .macho · anything really
             </p>
+            {recent.length > 0 && (
+              <div style={{
+                marginTop: 20, width: "100%", maxWidth: 360,
+                animation: "batch-fade-in 300ms ease-out",
+              }}>
+                <p style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 8px", textAlign: "center" }}>
+                  Recent
+                </p>
+                {recent.map((r, i) => (
+                  <button
+                    key={i}
+                    onClick={(e) => { e.stopPropagation(); onPickFile(r.file_path); }}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      width: "100%", padding: "6px 10px", border: "none",
+                      background: "transparent", borderRadius: 4,
+                      color: "var(--text-secondary)", fontSize: "var(--font-size-sm)",
+                      cursor: "pointer", transition: "background 100ms ease",
+                      textAlign: "left",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-surface)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>
+                      {r.file_name}
+                    </span>
+                    <span style={{
+                      fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)",
+                      color: r.risk_score >= 70 ? "var(--risk-critical)" : r.risk_score >= 40 ? "var(--risk-medium)" : "var(--text-muted)",
+                    }}>
+                      {r.risk_score}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <CaseBrowser onPickFile={onPickFile} />
           </>
         )}
       </div>

@@ -2,37 +2,29 @@
 //
 // Produces a 0–100 risk score from analysis findings, and maps individual
 // indicators to ConfidenceLevel values.
+//
+// Weight constants and pure confidence-assignment functions are defined in
+// the anya-scoring crate; this module re-exports them and provides the
+// higher-level functions that depend on core output types (PEAnalysis, etc.).
 
 use crate::output::{
-    AnalysisResult, AntiAnalysisFinding, ConfidenceLevel, ELFAnalysis, IocType, MismatchSeverity,
-    MitreTechnique, OrdinalImport, OverlayInfo, PEAnalysis, PackerFinding, SectionInfo,
+    AnalysisResult, AntiAnalysisFinding, ConfidenceLevel, ELFAnalysis, MitreTechnique,
+    OrdinalImport, OverlayInfo, PEAnalysis, PackerFinding, SectionInfo,
 };
 use std::collections::HashMap;
 
-// ── Per-level point weights (exported for use in scoring explanations) ────────
-
-#[allow(dead_code)]
-pub const WEIGHT_CRITICAL: u32 = 25;
-pub const WEIGHT_HIGH: u32 = 15;
-pub const WEIGHT_MEDIUM: u32 = 8;
-#[allow(dead_code)]
-pub const WEIGHT_LOW: u32 = 3;
-
-// Structural bonus points (not tied to a single indicator confidence level)
-const BONUS_PACKER_HIGH: u32 = 20;
-const BONUS_PACKER_MEDIUM: u32 = 10;
-const BONUS_TLS_CALLBACKS: u32 = 10;
-const BONUS_HIGH_ENTROPY_OVERLAY: u32 = 15;
-const BONUS_WX_SECTION: u32 = 15;
-const BONUS_ORDINAL_NTDLL: u32 = 12;
-const BONUS_ORDINAL_KERNEL32: u32 = 10;
-const BONUS_SUSPICIOUS_API_COUNT: u32 = 5; // per tier of 5 suspicious APIs
-const BONUS_ANTI_ANALYSIS_PER_CATEGORY: u32 = 8;
-const BONUS_ELF_NO_PIE: u32 = 5;
-const BONUS_ELF_NO_NX: u32 = 8;
-const BONUS_ELF_NO_RELRO: u32 = 5;
-const BONUS_ELF_WX_SECTION: u32 = 15;
-const BONUS_ELF_PACKER: u32 = 20;
+// Re-export scoring constants from anya-scoring so existing downstream code still compiles.
+pub use anya_scoring::confidence::{
+    BONUS_ANTI_ANALYSIS_PER_CATEGORY, BONUS_ELF_NO_NX, BONUS_ELF_NO_PIE, BONUS_ELF_NO_RELRO,
+    BONUS_ELF_PACKER, BONUS_ELF_WX_SECTION, BONUS_HIGH_ENTROPY_OVERLAY, BONUS_ORDINAL_KERNEL32,
+    BONUS_ORDINAL_NTDLL, BONUS_PACKER_HIGH, BONUS_PACKER_MEDIUM, BONUS_SUSPICIOUS_API_COUNT,
+    BONUS_TLS_CALLBACKS, BONUS_WX_SECTION, RankedDetection, WEIGHT_CRITICAL, WEIGHT_HIGH,
+    WEIGHT_LOW, WEIGHT_MEDIUM,
+};
+pub use anya_scoring::confidence::{
+    assign_entropy_confidence, assign_ioc_confidence, assign_mismatch_confidence,
+    assign_overlay_confidence as assign_overlay_confidence_raw, confidence_from_str,
+};
 
 /// Compute a 0–100 risk score from an analysis result.
 ///
@@ -124,22 +116,17 @@ pub fn calculate_risk_score(pe: Option<&PEAnalysis>, elf: Option<&ELFAnalysis>) 
 /// of technique_id → confidence.  Where an API appears in multiple techniques,
 /// the highest confidence wins.
 pub fn calculate_confidence(techniques: &[MitreTechnique]) -> HashMap<String, ConfidenceLevel> {
-    let mut map: HashMap<String, ConfidenceLevel> = HashMap::new();
-    for t in techniques {
-        let key = format!(
-            "{}{}",
-            t.technique_id,
-            t.sub_technique_id
-                .as_deref()
-                .map(|s| format!(".{}", s))
-                .unwrap_or_default()
-        );
-        let entry = map.entry(key).or_insert(ConfidenceLevel::Low);
-        if t.confidence > *entry {
-            *entry = t.confidence.clone();
-        }
-    }
-    map
+    let tuples: Vec<(String, Option<String>, ConfidenceLevel)> = techniques
+        .iter()
+        .map(|t| {
+            (
+                t.technique_id.clone(),
+                t.sub_technique_id.clone(),
+                t.confidence.clone(),
+            )
+        })
+        .collect();
+    anya_scoring::confidence::calculate_confidence(&tuples)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -173,16 +160,6 @@ fn unique_anti_analysis_categories(aa: &[AntiAnalysisFinding]) -> usize {
     cats.len()
 }
 
-/// Convenience: derive `ConfidenceLevel` from a raw PE packer confidence string.
-pub fn confidence_from_str(s: &str) -> ConfidenceLevel {
-    match s {
-        "Critical" => ConfidenceLevel::Critical,
-        "High" => ConfidenceLevel::High,
-        "Medium" => ConfidenceLevel::Medium,
-        _ => ConfidenceLevel::Low,
-    }
-}
-
 // ── Confidence assignment functions ──────────────────────────────────────────
 
 /// Assign confidence to a suspicious API based on combination rules.
@@ -191,122 +168,29 @@ pub fn assign_api_confidence(
     all_api_names: &[&str],
     api_category: &str,
 ) -> ConfidenceLevel {
-    // Critical combinations
-    let has = |name: &str| all_api_names.contains(&name);
-    if has("VirtualAllocEx") && has("WriteProcessMemory") && has("CreateRemoteThread") {
-        return ConfidenceLevel::Critical;
-    }
-    if has("CreateService") && has("RegSetValueEx") {
-        return ConfidenceLevel::Critical;
-    }
-    if has("CryptEncrypt") && (has("DeleteFile") || has("MoveFile")) {
-        return ConfidenceLevel::Critical;
-    }
-
-    // High combinations
-    if has("IsDebuggerPresent")
-        && (has("VirtualAllocEx") || has("LoadLibrary"))
-        && (api_name == "IsDebuggerPresent"
-            || api_name == "VirtualAllocEx"
-            || api_name == "LoadLibrary")
-    {
-        return ConfidenceLevel::High;
-    }
-    if has("WSAStartup")
-        && (has("VirtualAllocEx") || has("CreateRemoteThread"))
-        && (api_name == "WSAStartup"
-            || api_name == "VirtualAllocEx"
-            || api_name == "CreateRemoteThread")
-    {
-        return ConfidenceLevel::High;
-    }
-
-    // Count same-category APIs
-    let same_cat_count = all_api_names
-        .iter()
-        .filter(|&&a| crate::pe_parser::categorize_api(a) == api_category)
-        .count();
-
-    if same_cat_count >= 3 {
-        ConfidenceLevel::High
-    } else if same_cat_count >= 2 {
-        ConfidenceLevel::Medium
-    } else {
-        ConfidenceLevel::Low
-    }
-}
-
-/// Assign confidence to an entropy reading.
-pub fn assign_entropy_confidence(entropy: f64) -> ConfidenceLevel {
-    if entropy >= 7.8 {
-        ConfidenceLevel::Critical
-    } else if entropy >= 7.5 {
-        ConfidenceLevel::High
-    } else if entropy >= 6.5 {
-        ConfidenceLevel::Medium
-    } else {
-        ConfidenceLevel::Low
-    }
+    anya_scoring::confidence::assign_api_confidence(
+        api_name,
+        all_api_names,
+        api_category,
+        anya_scoring::api_lists::categorize_api,
+    )
 }
 
 /// Assign confidence to a PE section.
 pub fn assign_section_confidence(section: &SectionInfo) -> ConfidenceLevel {
-    let mut score = 0u8;
-    if section.is_wx {
-        score += 2;
-    }
-    if section.entropy > 7.0 {
-        score += 2;
-    }
-    if section.name_anomaly.as_deref() == Some("Suspicious") {
-        score += 1;
-    }
-    match score {
-        4..=u8::MAX => ConfidenceLevel::High,
-        2..=3 => ConfidenceLevel::Medium,
-        _ => ConfidenceLevel::Low,
-    }
+    anya_scoring::confidence::assign_section_confidence(
+        section.is_wx,
+        section.entropy,
+        section.name_anomaly.as_deref(),
+    )
 }
 
 /// Assign confidence to overlay detection.
 pub fn assign_overlay_confidence(overlay: &OverlayInfo, has_authenticode: bool) -> ConfidenceLevel {
-    if overlay.high_entropy && !has_authenticode {
-        ConfidenceLevel::High
-    } else if overlay.high_entropy {
-        ConfidenceLevel::Medium
-    } else {
-        ConfidenceLevel::Low
-    }
-}
-
-/// Assign confidence to an IOC detection based on type.
-pub fn assign_ioc_confidence(ioc_type: &IocType, value: &str) -> ConfidenceLevel {
-    match ioc_type {
-        IocType::Domain if value.ends_with(".onion") => ConfidenceLevel::Critical,
-        IocType::Base64Blob if value.len() >= 100 => ConfidenceLevel::High,
-        IocType::Ipv4 | IocType::Ipv6 | IocType::Url | IocType::Domain => ConfidenceLevel::Medium,
-        IocType::RegistryKey | IocType::Email => ConfidenceLevel::Medium,
-        _ => ConfidenceLevel::Low,
-    }
-}
-
-/// Assign confidence to a file type mismatch.
-pub fn assign_mismatch_confidence(severity: &MismatchSeverity) -> ConfidenceLevel {
-    match severity {
-        MismatchSeverity::High => ConfidenceLevel::Critical,
-        MismatchSeverity::Medium => ConfidenceLevel::Medium,
-        MismatchSeverity::Low => ConfidenceLevel::Low,
-    }
+    assign_overlay_confidence_raw(overlay.high_entropy, has_authenticode)
 }
 
 // ── Top detections helper ───────────────────────────────────────────────────
-
-/// A single ranked detection for the output layer.
-#[derive(Debug, Clone)]
-pub struct RankedDetection {
-    pub description: String,
-    pub confidence: ConfidenceLevel,
-}
 
 /// Collect all findings from an AnalysisResult, sort by confidence descending, return top N.
 pub fn top_detections(result: &AnalysisResult, n: usize) -> Vec<RankedDetection> {

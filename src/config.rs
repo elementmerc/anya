@@ -52,6 +52,11 @@ pub struct Config {
     /// Analysis thresholds (entropy levels, score cutoffs)
     #[serde(default)]
     pub thresholds: ThresholdConfig,
+
+    /// Directory where investigation cases are stored
+    /// Default: platform-appropriate data directory (e.g. ~/.local/share/anya/cases on Linux)
+    #[serde(default)]
+    pub cases_directory: Option<String>,
 }
 
 /// Analysis-related settings
@@ -186,17 +191,19 @@ impl ThresholdConfig {
     }
 }
 
+use anya_scoring::thresholds::*;
+
 fn default_suspicious_entropy() -> f64 {
-    5.0
+    DEFAULT_SUSPICIOUS_ENTROPY
 }
 fn default_packed_entropy() -> f64 {
-    7.0
+    DEFAULT_PACKED_ENTROPY
 }
 fn default_suspicious_score() -> u8 {
-    40
+    DEFAULT_SUSPICIOUS_SCORE
 }
 fn default_malicious_score() -> u8 {
-    70
+    DEFAULT_MALICIOUS_SCORE
 }
 
 // **Rust Concept: Default Value Functions**

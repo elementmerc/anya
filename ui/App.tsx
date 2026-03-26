@@ -1,4 +1,4 @@
-import React, { Suspense, useState, lazy, useEffect, useCallback } from "react";
+import React, { Suspense, useState, lazy, useEffect, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { SplashScreen } from "@/components/SplashScreen";
 import { Installer } from "@/components/Installer";
@@ -6,16 +6,28 @@ import { Uninstaller } from "@/components/Uninstaller";
 import { useAnalysis } from "@/hooks/useAnalysis";
 import { useTheme } from "@/hooks/useTheme";
 import { useFontSize } from "@/hooks/useFontSize";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { TeacherModeContext, type TeacherModeContextValue, type TeacherFocusItem } from "@/hooks/useTeacherMode";
 import { loadTeacherSettings, saveTeacherSettings, loadSettings, saveSettingsToDb } from "@/lib/db";
-import { getThresholds } from "@/lib/tauri-bridge";
+import { getThresholds, openFolderPicker, openFilePicker, analyzeDirectory, onBatchStarted, onBatchFileResult, onBatchComplete, pollDirectory, exportJson, saveJsonPicker, onFileDrop } from "@/lib/tauri-bridge";
 import { BibleVerseBar } from "@/components/BibleVerseBar";
+import { ToastProvider } from "@/components/Toast";
 import DropZone from "@/components/DropZone";
 import TopBar from "@/components/TopBar";
 import TabNav from "@/components/TabNav";
 import SettingsModal from "@/components/SettingsModal";
 import TeacherSidebar from "@/components/TeacherSidebar";
-import type { TabName, AnalysisResult, ThresholdConfig } from "@/types/analysis";
+import BatchSidebar from "@/components/BatchSidebar";
+import BatchDashboard from "@/components/BatchDashboard";
+import KeyboardShortcutsOverlay from "@/components/KeyboardShortcutsOverlay";
+import CompareView from "@/components/CompareView";
+import type { TabName, AnalysisResult, ThresholdConfig, BatchState } from "@/types/analysis";
+
+interface PinnedFinding {
+  type: string;
+  label: string;
+  detail: string;
+}
 
 // Lazy-load tab components (code splitting)
 const OverviewTab  = lazy(() => import("@/components/tabs/OverviewTab"));
@@ -50,6 +62,18 @@ function tabHasBadge(id: TabName, result: AnalysisResult | null): boolean {
   }
 }
 
+const INITIAL_BATCH: BatchState = {
+  active: false,
+  directoryPath: null,
+  recursive: false,
+  totalFiles: 0,
+  results: [],
+  selectedIndex: null,
+  isRunning: false,
+  sidebarCollapsed: false,
+  batchId: 0,
+};
+
 export default function App() {
   const { result, riskScore, isLoading, error, analyse, reset } = useAnalysis();
   const { theme, toggleTheme, setTheme } = useTheme();
@@ -63,9 +87,128 @@ export default function App() {
     malicious_score: 70,
   });
 
+  const [batchState, setBatchState] = useState<BatchState>(INITIAL_BATCH);
+
+  // ── C7: Keyboard shortcuts ──────────────────────────────────────────────
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
+  // ── C8: Compare mode ────────────────────────────────────────────────────
+  const [compareMode, setCompareMode] = useState(false);
+
+  // ── C11: Tab order (drag-and-drop reorder) ──────────────────────────────
+  const [tabOrder, setTabOrder] = useState<TabName[]>(["overview", "entropy", "imports", "sections", "strings", "security", "mitre"]);
+
+  // ── C12: Pinned findings ────────────────────────────────────────────────
+  const [pinnedFindings, setPinnedFindings] = useState<PinnedFinding[]>([]);
+
+  const handlePin = useCallback((finding: PinnedFinding) => {
+    setPinnedFindings((prev) => {
+      // Don't add duplicates
+      if (prev.some((f) => f.label === finding.label && f.detail === finding.detail)) return prev;
+      return [...prev, finding];
+    });
+  }, []);
+
   useEffect(() => {
     getThresholds().then(setThresholds).catch(() => {});
   }, []);
+
+  // ── Global drag-and-drop — works even when viewing results ────────────────
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    onFileDrop((paths) => {
+      if (cancelled) return;
+      const path = paths[0];
+      if (path) {
+        // Reset any batch/compare state and analyse the dropped file
+        setBatchState(INITIAL_BATCH);
+        setCompareMode(false);
+        setActiveTab("overview");
+        analyse(path);
+      }
+    }).then((fn) => { if (!cancelled) unlisten = fn; else fn(); });
+    return () => { cancelled = true; unlisten?.(); };
+  }, [analyse]);
+
+  // ── Batch event listeners ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!batchState.active) return;
+
+    const currentBatchId = batchState.batchId;
+    const unlisteners: Array<() => void> = [];
+
+    onBatchStarted((payload) => {
+      if (payload.batch_id !== currentBatchId) return;
+      setBatchState((prev) => ({ ...prev, totalFiles: payload.total_files }));
+    }).then((unlisten) => unlisteners.push(unlisten));
+
+    onBatchFileResult((payload) => {
+      if (payload.batch_id !== currentBatchId) return;
+      setBatchState((prev) => ({
+        ...prev,
+        results: prev.results.some((r) => r.filePath === payload.file_path)
+          ? prev.results  // skip duplicate
+          : [...prev.results, {
+            index: payload.index,
+            filePath: payload.file_path,
+            fileName: payload.file_name,
+            result: payload.result,
+            riskScore: payload.risk_score,
+            verdict: payload.verdict,
+            error: payload.error,
+          }],
+      }));
+    }).then((unlisten) => unlisteners.push(unlisten));
+
+    onBatchComplete((payload) => {
+      if (payload.batch_id !== currentBatchId) return;
+      setBatchState((prev) => ({ ...prev, isRunning: false }));
+    }).then((unlisten) => unlisteners.push(unlisten));
+
+    return () => { unlisteners.forEach((u) => u()); };
+  }, [batchState.active, batchState.batchId]);
+
+  // Poll directory for file changes every 5 seconds when batch is idle
+  useEffect(() => {
+    if (!batchState.active || batchState.isRunning || !batchState.directoryPath) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const currentFiles = await pollDirectory(batchState.directoryPath!, batchState.recursive);
+        const knownPaths = new Set(batchState.results.map((r) => r.filePath));
+        const currentSet = new Set(currentFiles);
+
+        // Detect removed files
+        const removedPaths = batchState.results.filter((r) => !currentSet.has(r.filePath));
+        if (removedPaths.length > 0) {
+          setBatchState((prev) => ({
+            ...prev,
+            results: prev.results.filter((r) => currentSet.has(r.filePath)),
+            totalFiles: prev.totalFiles - removedPaths.length,
+            selectedIndex: prev.selectedIndex !== null && removedPaths.some((r) => r.index === prev.selectedIndex) ? null : prev.selectedIndex,
+          }));
+        }
+
+        // Detect new files — trigger analysis for them
+        const newFiles = currentFiles.filter((f) => !knownPaths.has(f));
+        if (newFiles.length > 0) {
+          const id = Date.now();
+          setBatchState((prev) => ({
+            ...prev,
+            isRunning: true,
+            batchId: id,
+            totalFiles: prev.totalFiles + newFiles.length,
+          }));
+          await analyzeDirectory(batchState.directoryPath!, batchState.recursive, id);
+        }
+      } catch {
+        // Silently ignore polling errors (directory may have been removed)
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [batchState.active, batchState.isRunning, batchState.directoryPath, batchState.recursive, batchState.results]);
 
   // ── Launch mode + first-run detection ────────────────────────────────────────
   const [launchMode, setLaunchMode] = useState<"normal" | "uninstall" | null>(null);
@@ -192,15 +335,108 @@ export default function App() {
     }
   }, [teacherEnabled, focus, result]);
 
+  // ── Batch handlers ──────────────────────────────────────────────────────
+  const handleBatchAnalysis = useCallback(async () => {
+    const folder = await openFolderPicker();
+    if (!folder) return;
+    reset();
+    const id = Date.now();
+    setBatchState({
+      ...INITIAL_BATCH,
+      active: true,
+      directoryPath: folder,
+      isRunning: true,
+      batchId: id,
+    });
+    setActiveTab("overview");
+    await analyzeDirectory(folder, false, id);
+  }, [reset]);
+
+  const handleToggleRecursive = useCallback(() => {
+    if (!batchState.directoryPath) return;
+    const newRecursive = !batchState.recursive;
+
+    if (!newRecursive) {
+      // Turning OFF recursive: filter results to top-level only (no re-analysis)
+      const dirPrefix = batchState.directoryPath.endsWith("/")
+        ? batchState.directoryPath
+        : batchState.directoryPath + "/";
+      const topLevel = batchState.results.filter((r) => {
+        const rel = r.filePath.slice(dirPrefix.length);
+        return !rel.includes("/");
+      });
+      setBatchState((prev) => ({
+        ...prev,
+        recursive: false,
+        results: topLevel,
+        totalFiles: topLevel.length,
+        selectedIndex: null,
+      }));
+    } else {
+      // Turning ON recursive: re-scan, backend finds new files
+      // Frontend will deduplicate by filePath
+      const id = Date.now();
+      setBatchState((prev) => ({
+        ...prev,
+        recursive: true,
+        isRunning: true,
+        batchId: id,
+      }));
+      analyzeDirectory(batchState.directoryPath, true, id);
+    }
+  }, [batchState.directoryPath, batchState.recursive, batchState.results]);
+
+  // ── Derived values ─────────────────────────────────────────────────────
+  const batchSelectedResult = batchState.active && batchState.selectedIndex !== null
+    ? batchState.results.find((r) => r.index === batchState.selectedIndex) ?? null
+    : null;
+
+  const activeResult = batchSelectedResult?.result ?? result;
+  const activeRiskScore = batchSelectedResult?.riskScore ?? riskScore;
+
   const fileLoaded = !!result && !isLoading;
 
   React.useEffect(() => {
-    if (result) setActiveTab("overview");
+    if (result) {
+      setActiveTab("overview");
+      setPinnedFindings([]);  // Clear pinned findings on new analysis
+    }
   }, [result?.file_info.path]);
 
   const fileName = result?.file_info.path
     ? result.file_info.path.split(/[\\/]/).pop() ?? ""
     : "";
+
+  // ── C7: Keyboard shortcuts ──────────────────────────────────────────────
+  const TAB_NAMES: TabName[] = tabOrder;
+
+  const shortcutActions = useMemo(() => ({
+    openFile: () => {
+      openFilePicker().then((picked) => {
+        const path = Array.isArray(picked) ? picked[0] : picked;
+        if (path) analyse(path);
+      });
+    },
+    batchAnalysis: () => void handleBatchAnalysis(),
+    switchTab: (index: number) => {
+      if (index >= 0 && index < TAB_NAMES.length) setActiveTab(TAB_NAMES[index]);
+    },
+    toggleTeacher: () => setEnabled(!teacherEnabled),
+    exportJson: () => {
+      if (fileLoaded && result) {
+        saveJsonPicker().then((path) => {
+          if (path) exportJson(result, path);
+        });
+      }
+    },
+    closeModal: () => {
+      if (showShortcuts) setShowShortcuts(false);
+      else if (showSettings) setShowSettings(false);
+    },
+    showShortcuts: () => setShowShortcuts((v) => !v),
+  }), [TAB_NAMES, teacherEnabled, setEnabled, fileLoaded, result, showShortcuts, showSettings, analyse, handleBatchAnalysis]);
+
+  useKeyboardShortcuts(shortcutActions, !splashVisible && launchMode === "normal");
 
   // Launch mode / first-run gates
   if (launchMode === null) return null;
@@ -209,6 +445,7 @@ export default function App() {
   if (firstRun) return <Installer onComplete={handleInstallerComplete} />;
 
   return (
+    <ToastProvider>
     <TeacherModeContext.Provider value={teacherCtx}>
       <div
         data-theme={theme}
@@ -230,21 +467,87 @@ export default function App() {
           />
         )}
         <TopBar
-          fileName={fileName}
-          fileSize={result?.file_info.size_bytes ?? null}
+          fileName={
+            batchState.active
+              ? batchState.selectedIndex !== null && batchSelectedResult
+                ? batchSelectedResult.fileName
+                : batchState.directoryPath ?? ""
+              : fileName
+          }
+          fileSize={
+            batchState.active
+              ? batchState.selectedIndex !== null && batchSelectedResult?.result
+                ? batchSelectedResult.result.file_info.size_bytes
+                : null
+              : result?.file_info.size_bytes ?? null
+          }
           theme={theme}
           onToggleTheme={toggleTheme}
-          onNewFile={() => { reset(); setActiveTab("overview"); }}
+          onNewFile={() => { reset(); setBatchState(INITIAL_BATCH); setCompareMode(false); setActiveTab("overview"); }}
           onExport={fileLoaded ? result : null}
+          onSaveToCase={fileLoaded ? result : null}
           onSettings={() => setShowSettings(true)}
+          onBatchAnalysis={handleBatchAnalysis}
+          onCompare={() => { reset(); setBatchState(INITIAL_BATCH); setCompareMode(true); }}
         />
 
-        {fileLoaded ? (
+        {compareMode ? (
+          <CompareView onClose={() => setCompareMode(false)} />
+        ) : batchState.active ? (
           <>
             <TabNav
               active={activeTab}
               onChange={setActiveTab}
-              badges={(id) => tabHasBadge(id, result)}
+              badges={(id) => tabHasBadge(id, activeResult)}
+              disabled={batchState.selectedIndex === null}
+              tabOrder={tabOrder}
+              onTabOrderChange={setTabOrder}
+            />
+            <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+              <BatchSidebar
+                state={batchState}
+                onSelectFile={(idx) => setBatchState((prev) => ({ ...prev, selectedIndex: prev.selectedIndex === idx ? null : idx }))}
+                onToggleRecursive={handleToggleRecursive}
+                onToggleCollapse={() => setBatchState((prev) => ({ ...prev, sidebarCollapsed: !prev.sidebarCollapsed }))}
+              />
+              <main style={{ flex: 1, overflow: "auto", position: "relative" }}>
+                {batchState.selectedIndex !== null && batchSelectedResult?.result ? (
+                  <Suspense fallback={<TabFallback />}>
+                    {activeTab === "overview"  && <OverviewTab  result={activeResult!} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} />}
+                    {activeTab === "entropy"   && <EntropyTab   result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
+                    {activeTab === "imports"   && (
+                      <ImportsTab
+                        result={activeResult!}
+                        onMitreNavigate={navigateToMitre}
+                        onPin={handlePin}
+                      />
+                    )}
+                    {activeTab === "sections"  && <SectionsTab  result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} onPin={handlePin} />}
+                    {activeTab === "strings"   && <StringsTab   result={activeResult!} onPin={handlePin} />}
+                    {activeTab === "security"  && <SecurityTab  result={activeResult!} packedEntropy={thresholds.packed_entropy} />}
+                    {activeTab === "mitre"     && (
+                      <MitreTab
+                        result={activeResult!}
+                        highlightId={mitreHighlightId}
+                        onPin={handlePin}
+                      />
+                    )}
+                  </Suspense>
+                ) : (
+                  <BatchDashboard state={batchState} />
+                )}
+              </main>
+              <TeacherSidebar />
+            </div>
+          </>
+        ) : fileLoaded ? (
+          <>
+            <TabNav
+              active={activeTab}
+              onChange={setActiveTab}
+              badges={(id) => tabHasBadge(id, activeResult)}
+              tabOrder={tabOrder}
+              onTabOrderChange={setTabOrder}
             />
             {/*
               Push layout: main area is a flex row.
@@ -254,21 +557,23 @@ export default function App() {
             <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "row" }}>
               <main style={{ flex: 1, overflow: "hidden", position: "relative" }}>
                 <Suspense fallback={<TabFallback />}>
-                  {activeTab === "overview"  && <OverviewTab  result={result} riskScore={riskScore} onMitreNavigate={navigateToMitre} />}
-                  {activeTab === "entropy"   && <EntropyTab   result={result} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
+                  {activeTab === "overview"  && <OverviewTab  result={activeResult!} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} />}
+                  {activeTab === "entropy"   && <EntropyTab   result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
                   {activeTab === "imports"   && (
                     <ImportsTab
-                      result={result}
+                      result={activeResult!}
                       onMitreNavigate={navigateToMitre}
+                      onPin={handlePin}
                     />
                   )}
-                  {activeTab === "sections"  && <SectionsTab  result={result} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
-                  {activeTab === "strings"   && <StringsTab   result={result} />}
-                  {activeTab === "security"  && <SecurityTab  result={result} />}
+                  {activeTab === "sections"  && <SectionsTab  result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} onPin={handlePin} />}
+                  {activeTab === "strings"   && <StringsTab   result={activeResult!} onPin={handlePin} />}
+                  {activeTab === "security"  && <SecurityTab  result={activeResult!} packedEntropy={thresholds.packed_entropy} />}
                   {activeTab === "mitre"     && (
                     <MitreTab
-                      result={result}
+                      result={activeResult!}
                       highlightId={mitreHighlightId}
+                      onPin={handlePin}
                     />
                   )}
                 </Suspense>
@@ -300,7 +605,10 @@ export default function App() {
             onThresholdsChange={setThresholds}
           />
         )}
+
+        <KeyboardShortcutsOverlay open={showShortcuts} onClose={() => setShowShortcuts(false)} />
       </div>
     </TeacherModeContext.Provider>
+    </ToastProvider>
   );
 }

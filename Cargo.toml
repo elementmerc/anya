@@ -1,5 +1,5 @@
 [workspace]
-members = ["src-tauri"]
+members = [".", "src-tauri"]
 resolver = "2"
 
 [package]
@@ -35,6 +35,10 @@ buildflags = ["--release", "--locked"]
 anya = { path = "/usr/bin/anya" }
 
 [dependencies]
+# Internal private dependencies — stubs by default, overridden via .cargo/config.toml
+anya-scoring = { path = "anya-stubs/scoring" }
+anya-data = { path = "anya-stubs/data" }
+
 # For multi-pattern byte scanning (packer/compiler detection in one pass)
 aho-corasick = "1"
 
@@ -61,6 +65,12 @@ colored = "2.1"
 # For progress bars
 indicatif = "0.17"
 
+# For file system watching (anya watch)
+notify = "7"
+
+# For shell completion generation
+clap_complete = "4"
+
 # For JSON serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -73,6 +83,9 @@ tlsh2 = "1.1"
 
 # For parallel hash computation
 rayon = "1.10"
+
+# For memory-mapped file I/O
+memmap2 = "0.9"
 
 # For IOC pattern matching in extracted strings
 regex = "1"
@@ -92,6 +105,9 @@ chrono = { version = "0.4", features = ["serde"] }
 # For finding user's home directory
 dirs = "5.0"
 
+# For Office document (ZIP-based) macro detection
+zip = "2"
+
 [dev-dependencies]
 # For integration testing
 tempfile = "3.10"
@@ -106,3 +122,12 @@ path = "src/lib.rs"
 [[bin]]
 name = "anya"
 path = "src/main.rs"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+opt-level = 3
+
+[profile.dev]
+opt-level = 1

@@ -16,7 +16,7 @@ interface TabDef {
   Icon: React.ElementType;
 }
 
-const TABS: TabDef[] = [
+const DEFAULT_TABS: TabDef[] = [
   { id: "overview",  label: "Overview",  Icon: LayoutDashboard },
   { id: "entropy",   label: "Entropy",   Icon: Activity },
   { id: "imports",   label: "Imports",   Icon: GitBranch },
@@ -26,16 +26,28 @@ const TABS: TabDef[] = [
   { id: "mitre",     label: "MITRE",     Icon: Crosshair },
 ];
 
+const TAB_MAP = new Map(DEFAULT_TABS.map((t) => [t.id, t]));
+
 interface Props {
   active: TabName;
   onChange: (tab: TabName) => void;
   badges: (id: TabName) => boolean;
+  disabled?: boolean;
+  /** Controlled tab order — if provided, tabs render in this order */
+  tabOrder?: TabName[];
+  onTabOrderChange?: (order: TabName[]) => void;
 }
 
-export default function TabNav({ active, onChange, badges }: Props) {
+export default function TabNav({ active, onChange, badges, disabled, tabOrder, onTabOrderChange }: Props) {
   const navRef = useRef<HTMLElement>(null);
   const tabRefs = useRef<Map<TabName, HTMLButtonElement>>(new Map());
   const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+
+  const orderedTabs: TabDef[] = tabOrder
+    ? tabOrder.map((id) => TAB_MAP.get(id)).filter(Boolean) as TabDef[]
+    : DEFAULT_TABS;
 
   const updateIndicator = useCallback(() => {
     const nav = navRef.current;
@@ -51,7 +63,7 @@ export default function TabNav({ active, onChange, badges }: Props) {
 
   useEffect(() => {
     updateIndicator();
-  }, [updateIndicator]);
+  }, [updateIndicator, tabOrder]);
 
   // Update on resize in case tab widths change
   useEffect(() => {
@@ -64,6 +76,7 @@ export default function TabNav({ active, onChange, badges }: Props) {
       ref={navRef}
       role="tablist"
       aria-label="Analysis sections"
+      data-tour="tab-nav"
       style={{
         position: "relative",
         height: 40,
@@ -77,9 +90,10 @@ export default function TabNav({ active, onChange, badges }: Props) {
         overflowX: "auto",
       }}
     >
-      {TABS.map(({ id, label, Icon }) => {
+      {orderedTabs.map(({ id, label, Icon }, i) => {
         const isActive = active === id;
         const hasBadge = badges(id);
+        const isDragOver = dragOverIdx === i && dragIdx !== null && dragIdx !== i;
         return (
           <button
             key={id}
@@ -87,6 +101,35 @@ export default function TabNav({ active, onChange, badges }: Props) {
             role="tab"
             aria-selected={isActive}
             aria-controls={`panel-${id}`}
+            {...(id === "imports" ? { "data-tour": "tab-imports" } : {})}
+            draggable={disabled ? "false" : "true"}
+            onDragStart={(e) => {
+              setDragIdx(i);
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setDragOverIdx(i);
+            }}
+            onDragLeave={() => {
+              if (dragOverIdx === i) setDragOverIdx(null);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (dragIdx === null || !onTabOrderChange) { setDragIdx(null); setDragOverIdx(null); return; }
+              const currentOrder = tabOrder ?? DEFAULT_TABS.map((t) => t.id);
+              const newOrder = [...currentOrder];
+              const [moved] = newOrder.splice(dragIdx, 1);
+              newOrder.splice(i, 0, moved);
+              onTabOrderChange(newOrder);
+              setDragIdx(null);
+              setDragOverIdx(null);
+            }}
+            onDragEnd={() => {
+              setDragIdx(null);
+              setDragOverIdx(null);
+            }}
             onClick={() => onChange(id)}
             style={{
               position: "relative",
@@ -100,10 +143,13 @@ export default function TabNav({ active, onChange, badges }: Props) {
               color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
               background: "transparent",
               border: "none",
-              cursor: "pointer",
+              cursor: disabled ? "default" : dragIdx !== null ? "grabbing" : "grab",
               whiteSpace: "nowrap",
-              transition: "color 150ms ease-out",
+              transition: "color 150ms ease-out, padding-left 120ms ease, opacity 150ms ease-out",
               outline: "none",
+              paddingLeft: isDragOver ? 28 : 16,
+              ...(disabled ? { opacity: 0.35, pointerEvents: "none" as const } : {}),
+              ...(dragIdx === i ? { opacity: 0.4 } : {}),
             }}
             onMouseEnter={(e) => {
               if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = "var(--text-primary)";
@@ -136,7 +182,7 @@ export default function TabNav({ active, onChange, badges }: Props) {
       })}
 
       {/* Sliding active underline */}
-      {indicator && (
+      {indicator && !disabled && (
         <span
           style={{
             position: "absolute",

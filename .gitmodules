@@ -1,0 +1,3 @@
+[submodule "anya-proprietary"]
+	path = anya-proprietary
+	url = https://github.com/elementmerc/anya-proprietary.git

@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import { CheckCircle, XCircle, MinusCircle, ShieldCheck, AlertTriangle } from "lucide-react";
 import type { AnalysisResult, AuthenticodeInfo } from "@/types/analysis";
 import { formatBytes } from "@/lib/utils";
+import { TeacherModeContext } from "@/hooks/useTeacherMode";
 
 interface Props {
   result: AnalysisResult;
+  packedEntropy?: number;
 }
 
 type CardStatus = "enabled" | "disabled" | "na";
@@ -30,13 +32,14 @@ function AnimatedIcon({ status }: { status: CardStatus }) {
   );
 }
 
-function FeatureCard({ title, description, status, children, fullWidth }: {
+function FeatureCard({ title, description, status, children, fullWidth, onClick, clickable }: {
   title: string; description: string; status: CardStatus;
   children?: React.ReactNode; fullWidth?: boolean;
+  onClick?: () => void; clickable?: boolean;
 }) {
   const c = statusColors(status);
   return (
-    <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderLeft: `3px solid ${c.border}`, borderRadius: "var(--radius)", padding: 20, display: "flex", flexDirection: "column", gap: 12, gridColumn: fullWidth ? "1 / -1" : undefined }}>
+    <div onClick={onClick} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderLeft: `3px solid ${c.border}`, borderRadius: "var(--radius)", padding: 20, display: "flex", flexDirection: "column", gap: 12, gridColumn: fullWidth ? "1 / -1" : undefined, cursor: clickable ? "pointer" : "default" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ margin: 0, fontSize: "var(--font-size-base)", fontWeight: 500, color: "var(--text-primary)" }}>{title}</p>
@@ -63,9 +66,9 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function AuthCard({ auth }: { auth: AuthenticodeInfo }) {
+function AuthCard({ auth, onClick, clickable }: { auth: AuthenticodeInfo; onClick?: () => void; clickable?: boolean }) {
   return (
-    <FeatureCard title="Authenticode" description="Digital signature verification" status={auth.present ? "enabled" : "disabled"} fullWidth={auth.present && !!(auth.signer_cn || auth.issuer_cn)}>
+    <FeatureCard title="Authenticode" description="Digital signature verification" status={auth.present ? "enabled" : "disabled"} fullWidth={auth.present && !!(auth.signer_cn || auth.issuer_cn)} onClick={onClick} clickable={clickable}>
       {auth.present ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {auth.is_microsoft_signed && (
@@ -90,7 +93,8 @@ function AuthCard({ auth }: { auth: AuthenticodeInfo }) {
 const SECTION_HEADER: React.CSSProperties = { margin: "0 0 14px", fontSize: "var(--font-size-xs)", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "var(--text-muted)" };
 const GRID: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))", gap: 16 };
 
-export default function SecurityTab({ result }: Props) {
+export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
+  const teacherMode = useContext(TeacherModeContext);
   const pe  = result.pe_analysis;
   const elf = result.elf_analysis;
 
@@ -114,7 +118,7 @@ export default function SecurityTab({ result }: Props) {
   }
 
   const sections = pe?.sections ?? elf?.sections ?? [];
-  const hiEntropy = sections.filter((s) => s.entropy > 7.0);
+  const hiEntropy = sections.filter((s) => s.entropy > packedEntropy);
 
   return (
     <div style={{ height: "100%", overflow: "auto", padding: 24 }}>
@@ -124,11 +128,11 @@ export default function SecurityTab({ result }: Props) {
           <section>
             <h2 style={SECTION_HEADER}>Mitigations</h2>
             <div style={GRID}>
-              <FeatureCard title="ASLR"           description="Randomises memory addresses to hinder exploitation"                 status={pe.security.aslr_enabled ? "enabled" : "disabled"} />
-              <FeatureCard title="DEP / NX"        description="Prevents execution of data pages"                                   status={pe.security.dep_enabled ? "enabled" : "disabled"} />
-              <FeatureCard title="High-Entropy VA" description="64-bit ASLR with larger address range"                              status={pe.is_64bit ? "enabled" : "na"} />
-              {pe.authenticode && <AuthCard auth={pe.authenticode} />}
-              <FeatureCard title="Section Entropy" description="Sections with entropy > 7.0 may contain compressed or encrypted data" status={hiEntropy.length > 0 ? "disabled" : "enabled"}>
+              <FeatureCard title="ASLR"           description="Randomises memory addresses to hinder exploitation"                 status={pe.security.aslr_enabled ? "enabled" : "disabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "aslr" })} clickable={teacherMode?.enabled} />
+              <FeatureCard title="DEP / NX"        description="Prevents execution of data pages"                                   status={pe.security.dep_enabled ? "enabled" : "disabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "dep" })} clickable={teacherMode?.enabled} />
+              <FeatureCard title="High-Entropy VA" description="64-bit ASLR with larger address range"                              status={pe.is_64bit ? "enabled" : "na"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "aslr" })} clickable={teacherMode?.enabled} />
+              {pe.authenticode && <AuthCard auth={pe.authenticode} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "authenticode" })} clickable={teacherMode?.enabled} />}
+              <FeatureCard title="Section Entropy" description={`Sections with entropy > ${packedEntropy} may contain compressed or encrypted data`} status={hiEntropy.length > 0 ? "disabled" : "enabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "entropy" })} clickable={teacherMode?.enabled}>
                 {hiEntropy.length > 0 && hiEntropy.map((s) => (
                   <div key={s.name} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                     <AlertTriangle size={12} style={{ color: "var(--risk-high)", flexShrink: 0 }} />
@@ -137,7 +141,7 @@ export default function SecurityTab({ result }: Props) {
                 ))}
               </FeatureCard>
               {pe.overlay && (
-                <FeatureCard title="Overlay Data" description="Data appended after the last PE section" status={pe.overlay.high_entropy ? "disabled" : "na"}>
+                <FeatureCard title="Overlay Data" description="Data appended after the last PE section" status={pe.overlay.high_entropy ? "disabled" : "na"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "overlay" })} clickable={teacherMode?.enabled}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     <InfoRow label="Offset"  value={`0x${pe.overlay.offset.toString(16).toUpperCase()}`} />
                     <InfoRow label="Size"    value={formatBytes(pe.overlay.size)} />
@@ -148,7 +152,7 @@ export default function SecurityTab({ result }: Props) {
                 </FeatureCard>
               )}
               {pe.checksum?.stored_nonzero && (
-                <FeatureCard title="PE Checksum" description="Stored vs. computed checksum in the optional header" status={pe.checksum.valid ? "enabled" : "na"}>
+                <FeatureCard title="PE Checksum" description="Stored vs. computed checksum in the optional header" status={pe.checksum.valid ? "enabled" : "na"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "checksum" })} clickable={teacherMode?.enabled}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     <InfoRow label="Stored"   value={`0x${pe.checksum.stored.toString(16).padStart(8, "0").toUpperCase()}`} />
                     <InfoRow label="Computed" value={`0x${pe.checksum.computed.toString(16).padStart(8, "0").toUpperCase()}`} />
@@ -161,6 +165,8 @@ export default function SecurityTab({ result }: Props) {
                   title="Debug Artifacts"
                   description="PDB paths and timestamp anomalies that may indicate tampering"
                   status={pe.debug_artifacts.pdb_path || pe.debug_artifacts.timestamp_zeroed || pe.debug_artifacts.version_info_suspicious ? "disabled" : "enabled"}
+                  onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "debug_artifacts" })}
+                  clickable={teacherMode?.enabled}
                 >
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {pe.debug_artifacts.pdb_path && <InfoRow label="PDB path" value={pe.debug_artifacts.pdb_path} />}
@@ -172,7 +178,7 @@ export default function SecurityTab({ result }: Props) {
                 </FeatureCard>
               )}
               {pe.weak_crypto && pe.weak_crypto.length > 0 && (
-                <FeatureCard title="Weak Crypto Indicators" description="Known weak or deprecated cryptographic algorithms detected" status="disabled" fullWidth>
+                <FeatureCard title="Weak Crypto Indicators" description="Known weak or deprecated cryptographic algorithms detected" status="disabled" fullWidth onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "weak_crypto" })} clickable={teacherMode?.enabled}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {pe.weak_crypto.map((wc, i) => (
                       <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
@@ -188,7 +194,7 @@ export default function SecurityTab({ result }: Props) {
                 </FeatureCard>
               )}
               {pe.version_info && (
-                <FeatureCard title="Version Info" description="Embedded version resource from the PE file" status="na" fullWidth={versionInfoWide}>
+                <FeatureCard title="Version Info" description="Embedded version resource from the PE file" status="na" fullWidth={versionInfoWide} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "version_info" })} clickable={teacherMode?.enabled}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {pe.version_info.file_description  && <InfoRow label="Description"   value={pe.version_info.file_description} />}
                     {pe.version_info.product_name      && <InfoRow label="Product"       value={pe.version_info.product_name} />}
@@ -207,9 +213,9 @@ export default function SecurityTab({ result }: Props) {
           <section>
             <h2 style={SECTION_HEADER}>ELF Mitigations</h2>
             <div style={GRID}>
-              <FeatureCard title="PIE"      description="Position Independent Executable — enables ASLR for the main binary"  status={elf.is_pie ? "enabled" : "disabled"} />
-              <FeatureCard title="NX Stack" description="Non-executable stack — prevents stack-based shellcode execution"      status={elf.has_nx_stack ? "enabled" : "disabled"} />
-              <FeatureCard title="RELRO"    description="Relocation Read-Only — protects GOT/PLT from overwrite attacks"       status={elf.has_relro ? "enabled" : "disabled"} />
+              <FeatureCard title="PIE"      description="Position Independent Executable — enables ASLR for the main binary"  status={elf.is_pie ? "enabled" : "disabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "pie" })} clickable={teacherMode?.enabled} />
+              <FeatureCard title="NX Stack" description="Non-executable stack — prevents stack-based shellcode execution"      status={elf.has_nx_stack ? "enabled" : "disabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "nx" })} clickable={teacherMode?.enabled} />
+              <FeatureCard title="RELRO"    description="Relocation Read-Only — protects GOT/PLT from overwrite attacks"       status={elf.has_relro ? "enabled" : "disabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "relro" })} clickable={teacherMode?.enabled} />
               <FeatureCard title="Stripped" description="Symbol table stripped — fewer debug artefacts in the binary"          status="na">
                 <span style={{ color: elf.is_stripped ? "var(--text-muted)" : "var(--text-secondary)" }}>
                   {elf.is_stripped ? "Symbols stripped" : "Symbols present"}

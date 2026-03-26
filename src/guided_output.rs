@@ -34,6 +34,7 @@ pub fn print_guided_output(
         .map(|p| p.sections.iter().map(|s| s.entropy).fold(0.0_f64, f64::max))
         .unwrap_or(0.0);
 
+    let empty_iocs: Vec<String> = Vec::new();
     let ctx = TriggerContext {
         file_format,
         max_section_entropy,
@@ -46,6 +47,11 @@ pub fn print_guided_output(
         pe_analysis: pe,
         elf_analysis: elf,
         risk_score: Some(risk_score),
+        ioc_types: &empty_iocs,
+        is_batch: false,
+        has_mismatch: false,
+        thresholds_customised: false,
+        max_confidence: None,
     };
 
     let lessons = get_triggered_lessons(&ctx);

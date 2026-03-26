@@ -50,4 +50,9 @@ ignore = [
     # Pulled in: indicatif → number_prefix (indicatif is a direct dep)
     # Safe to ignore: no CVE, purely a maintenance flag
     "RUSTSEC-2025-0119",
+
+    # instant – unmaintained, use web-time instead
+    # Pulled in: Tauri stack (transitive dep)
+    # Safe to ignore: no CVE, purely a maintenance flag
+    "RUSTSEC-2024-0384",
 ]

@@ -41,6 +41,7 @@ export const config: WebdriverIO.Config = {
         application: APPLICATION_PATH,
       },
       browserName: "",
+      webSocketUrl: true,
     } as WebdriverIO.Capabilities,
   ],
 

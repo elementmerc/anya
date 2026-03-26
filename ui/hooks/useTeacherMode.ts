@@ -21,7 +21,10 @@ export type TeacherFocusItem =
       indicators?: { source: string; confidence: string }[];
     }
   | { type: "api"; name: string; category?: string }
-  | { type: "dll"; name: string; description?: string };
+  | { type: "dll"; name: string; description?: string }
+  | { type: "ioc"; iocType: string; value: string }
+  | { type: "batch"; context: "dashboard" | "file" }
+  | { type: "security"; feature: string };
 
 // ── Context shape ───────────────────────────────────────────────────────────
 

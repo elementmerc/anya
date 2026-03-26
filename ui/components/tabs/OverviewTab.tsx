@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, Pin } from "lucide-react";
 import { formatBytes, copyToClipboard } from "@/lib/utils";
 import { getRiskLabel, getRiskColor, getDetectionTags, type DetectionTag } from "@/lib/risk";
+import CopyButton from "@/components/CopyButton";
 
 const SEVERITY_COLOR: Record<DetectionTag["severity"], string> = {
   critical: "var(--risk-critical)",
@@ -11,10 +12,19 @@ const SEVERITY_COLOR: Record<DetectionTag["severity"], string> = {
 };
 import type { AnalysisResult } from "@/types/analysis";
 
+interface PinnedFinding {
+  type: string;
+  label: string;
+  detail: string;
+}
+
 interface Props {
   result: AnalysisResult;
   riskScore: number;
   onMitreNavigate?: (techId: string) => void;
+  pinnedFindings?: PinnedFinding[];
+  onPin?: (finding: PinnedFinding) => void;
+  onUnpin?: (index: number) => void;
 }
 
 // ── SVG risk ring ─────────────────────────────────────────────────────────────
@@ -128,7 +138,7 @@ function CopyBtn({ text }: { text: string }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function OverviewTab({ result, riskScore, onMitreNavigate }: Props) {
+export default function OverviewTab({ result, riskScore, onMitreNavigate, pinnedFindings, onPin, onUnpin }: Props) {
   const label = getRiskLabel(riskScore);
   const color = getRiskColor(riskScore);
   const tags = getDetectionTags(result);
@@ -166,6 +176,32 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate }: Prop
 
   return (
     <div style={{ height: "100%", overflow: "auto", padding: 24 }}>
+      {/* ── C12: Pinned Findings ── */}
+      {pinnedFindings && pinnedFindings.length > 0 && (
+        <div style={{ maxWidth: 1600, margin: "0 auto 16px" }}>
+          <h3 style={{ fontSize: "var(--font-size-xs)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8 }}>
+            Pinned Findings
+          </h3>
+          {pinnedFindings.map((f, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 12px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius)", marginBottom: 4 }}>
+              <span style={{ fontSize: "var(--font-size-sm)", color: "var(--text-primary)", flex: 1 }}>
+                <strong>{f.label}</strong> — <span style={{ color: "var(--text-secondary)" }}>{f.detail}</span>
+              </span>
+              <CopyButton text={`${f.label} — ${f.detail}`} label="Copy finding" />
+              {onUnpin && (
+                <button
+                  onClick={() => onUnpin(i)}
+                  style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "2px 4px", fontSize: "var(--font-size-sm)", marginLeft: 4 }}
+                  title="Unpin"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div
         style={{
           maxWidth: 1600,
@@ -182,6 +218,7 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate }: Prop
 
           {/* Risk card */}
           <div
+            data-tour="risk-ring"
             className="animate-in"
             style={{
               background: "var(--bg-surface)",
@@ -222,6 +259,7 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate }: Prop
                 })}
               </div>
             )}
+
           </div>
 
           {/* File info */}
@@ -338,7 +376,7 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate }: Prop
                 >
                   {value}
                 </span>
-                <CopyBtn text={value} />
+                <CopyBtn text={`${label}: ${value}`} />
               </div>
             ))}
           </div>
@@ -356,6 +394,12 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate }: Prop
                     <div key={i} className="animate-in" style={{ background: "var(--bg-surface)", border: `1px solid ${confColor}33`, borderLeft: `3px solid ${confColor}`, borderRadius: 8, padding: "14px 16px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                         <span style={{ fontSize: "var(--font-size-sm)", fontWeight: 600, color: "var(--text-primary)", flex: 1 }}>{f.title}</span>
+                        {onPin && (
+                          <button onClick={() => onPin({ type: "finding", label: f.title, detail: `${f.confidence} — ${f.explanation.slice(0, 80)}` })} style={{ opacity: 0.4, cursor: "pointer", background: "transparent", border: "none", color: "var(--text-muted)", padding: 2, fontSize: 12, flexShrink: 0 }} title="Pin to Overview">
+                            <Pin size={12} />
+                          </button>
+                        )}
+                        <CopyButton text={`${f.title}: ${f.explanation}`} label="Copy finding" />
                         <span style={{ fontSize: "var(--font-size-xs)", padding: "1px 7px", borderRadius: 999, background: `${confColor}1a`, color: confColor, border: `1px solid ${confColor}44`, flexShrink: 0 }}>{f.confidence}</span>
                         {f.mitre_technique_id && (
                           <button

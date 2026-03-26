@@ -3,15 +3,22 @@
  * analysis, grouped by tactic in a horizontal card-column layout.
  */
 import { useState, useEffect, useRef } from "react";
-import { Shield, ExternalLink, X, ChevronDown, ChevronUp } from "lucide-react";
+import { Shield, ExternalLink, X, ChevronDown, ChevronUp, Pin } from "lucide-react";
 import type { AnalysisResult, MitreTechnique } from "@/types/analysis";
 import { useTeacherMode } from "@/hooks/useTeacherMode";
 import mitreData from "@/data/mitre_attack.json";
+
+interface PinnedFinding {
+  type: string;
+  label: string;
+  detail: string;
+}
 
 interface Props {
   result: AnalysisResult;
   /** Technique ID to highlight on mount (from cross-tab navigation). */
   highlightId?: string | null;
+  onPin?: (finding: PinnedFinding) => void;
 }
 
 // ── Data helpers ─────────────────────────────────────────────────────────────
@@ -153,10 +160,12 @@ function TechniqueCard({
   dt,
   highlighted,
   onClick,
+  onPin,
 }: {
   dt: DetectedTechnique;
   highlighted: boolean;
   onClick: () => void;
+  onPin?: (finding: PinnedFinding) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -225,6 +234,15 @@ function TechniqueCard({
         >
           {dt.indicators.length} indicator{dt.indicators.length !== 1 ? "s" : ""}
         </span>
+        {onPin && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onPin({ type: "mitre", label: `${dt.id} ${dt.name}`, detail: `${dt.tactic} — ${dt.indicators.length} indicator(s)` }); }}
+            style={{ opacity: 0.4, cursor: "pointer", background: "transparent", border: "none", color: "var(--text-muted)", padding: 2, flexShrink: 0 }}
+            title="Pin to Overview"
+          >
+            <Pin size={10} />
+          </button>
+        )}
       </div>
 
       {/* Name */}
@@ -530,7 +548,7 @@ function TechniqueModal({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function MitreTab({ result, highlightId }: Props) {
+export default function MitreTab({ result, highlightId, onPin }: Props) {
   const { enabled: teacherEnabled, focus, blur } = useTeacherMode();
   const [selectedTech, setSelectedTech] = useState<DetectedTechnique | null>(null);
   const [localHighlight, setLocalHighlight] = useState<string | null>(highlightId ?? null);
@@ -681,6 +699,7 @@ export default function MitreTab({ result, highlightId }: Props) {
                     key={dt.id}
                     dt={dt}
                     highlighted={localHighlight === dt.id || localHighlight?.startsWith(dt.id + ".") === true}
+                    onPin={onPin}
                     onClick={() => {
                       if (teacherEnabled) {
                         focus({

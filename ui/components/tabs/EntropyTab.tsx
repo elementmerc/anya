@@ -261,28 +261,6 @@ export default function EntropyTab({ result, suspiciousEntropy = 5.0, packedEntr
           </ResponsiveContainer>
         </div>
 
-        {/* Section name anomalies */}
-        {(() => {
-          const peSections = result.pe_analysis?.sections ?? [];
-          const anomalies = peSections.filter((s) => s.name_anomaly);
-          if (anomalies.length === 0) return null;
-          return (
-            <div style={{ marginTop: 24 }}>
-              <h3 style={{ margin: "0 0 10px", fontSize: "var(--font-size-sm)", fontWeight: 600, color: "var(--text-primary)" }}>
-                Section Name Anomalies
-              </h3>
-              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
-                {anomalies.map((s, i) => (
-                  <div key={s.name || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 16px", borderTop: i > 0 ? "1px solid var(--border-subtle)" : undefined }}>
-                    <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-size-sm)", color: "var(--risk-medium)", minWidth: 100, flexShrink: 0 }}>{s.name || "<unnamed>"}</span>
-                    <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>{s.name_anomaly}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })()}
-
         {/* Byte histogram */}
         {result.byte_histogram && result.byte_histogram.length === 256 && (
           <ByteHistogram data={result.byte_histogram} />

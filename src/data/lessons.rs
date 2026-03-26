@@ -5,7 +5,7 @@ use crate::output::{ELFAnalysis, MitreTechnique, PEAnalysis};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-static LESSONS_JSON: &str = include_str!("lessons_data.json");
+static LESSONS_JSON: &str = anya_data::LESSONS_JSON;
 
 // ── Serde types (1:1 with JSON schema) ────────────────────────────────────────
 
@@ -63,6 +63,16 @@ pub enum LessonTrigger {
     SecurityFlagDisabled { flag: String },
     /// Show when the risk score exceeds `threshold`.
     RiskScoreAbove { threshold: u32 },
+    /// Show when a specific IOC type is present in extracted strings.
+    IocPresent { ioc_type: String },
+    /// Show when the maximum confidence level meets or exceeds `level`.
+    ConfidenceAbove { level: String },
+    /// Show when analysis is running in batch mode.
+    BatchMode,
+    /// Show when a file-type mismatch is detected (e.g. extension vs magic bytes).
+    FileTypeMismatchDetected,
+    /// Show when the user has customised analysis thresholds.
+    ThresholdCustomised,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -150,6 +160,21 @@ pub struct TriggerContext<'a> {
     pub elf_analysis: Option<&'a ELFAnalysis>,
     /// Computed risk score (0–100), if available.
     pub risk_score: Option<u32>,
+    /// IOC types found in extracted strings (e.g. "url", "ip", "registry", "base64").
+    #[allow(dead_code)]
+    pub ioc_types: &'a [String],
+    /// Whether this analysis is running in batch mode.
+    #[allow(dead_code)]
+    pub is_batch: bool,
+    /// Whether a file-type mismatch was detected (extension vs magic bytes).
+    #[allow(dead_code)]
+    pub has_mismatch: bool,
+    /// Whether the user has customised analysis thresholds.
+    #[allow(dead_code)]
+    pub thresholds_customised: bool,
+    /// Maximum confidence level across all findings (e.g. "Critical", "High", "Medium", "Low").
+    #[allow(dead_code)]
+    pub max_confidence: Option<&'a str>,
 }
 
 /// Evaluate a single lesson trigger against the provided context.
@@ -229,6 +254,33 @@ fn trigger_matches(trigger: &LessonTrigger, ctx: &TriggerContext<'_>) -> bool {
             // or pass a pre-computed score. Default: do not trigger.
             ctx.risk_score.map(|s| s >= *threshold).unwrap_or(false)
         }
+
+        LessonTrigger::IocPresent { ioc_type } => {
+            let needle = ioc_type.to_lowercase();
+            ctx.ioc_types.iter().any(|t| t.to_lowercase() == needle)
+        }
+
+        LessonTrigger::ConfidenceAbove { level } => {
+            fn confidence_rank(s: &str) -> u8 {
+                match s.to_lowercase().as_str() {
+                    "critical" => 4,
+                    "high" => 3,
+                    "medium" => 2,
+                    "low" => 1,
+                    _ => 0,
+                }
+            }
+            let required = confidence_rank(level);
+            ctx.max_confidence
+                .map(|c| confidence_rank(c) >= required)
+                .unwrap_or(false)
+        }
+
+        LessonTrigger::BatchMode => ctx.is_batch,
+
+        LessonTrigger::FileTypeMismatchDetected => ctx.has_mismatch,
+
+        LessonTrigger::ThresholdCustomised => ctx.thresholds_customised,
     }
 }
 
@@ -329,6 +381,11 @@ mod tests {
             pe_analysis: None,
             elf_analysis: None,
             risk_score: None,
+            ioc_types: &[],
+            is_batch: false,
+            has_mismatch: false,
+            thresholds_customised: false,
+            max_confidence: None,
         };
         let trigger = LessonTrigger::Always;
         assert!(trigger_matches(&trigger, &ctx));
@@ -348,6 +405,11 @@ mod tests {
             pe_analysis: None,
             elf_analysis: None,
             risk_score: None,
+            ioc_types: &[],
+            is_batch: false,
+            has_mismatch: false,
+            thresholds_customised: false,
+            max_confidence: None,
         };
         assert!(trigger_matches(
             &LessonTrigger::FileFormat {
@@ -377,6 +439,11 @@ mod tests {
             pe_analysis: None,
             elf_analysis: None,
             risk_score: None,
+            ioc_types: &[],
+            is_batch: false,
+            has_mismatch: false,
+            thresholds_customised: false,
+            max_confidence: None,
         };
         assert!(!trigger_matches(
             &LessonTrigger::HighEntropy { threshold: 6.5 },
@@ -404,6 +471,11 @@ mod tests {
             pe_analysis: None,
             elf_analysis: None,
             risk_score: None,
+            ioc_types: &[],
+            is_batch: false,
+            has_mismatch: false,
+            thresholds_customised: false,
+            max_confidence: None,
         };
         assert!(trigger_matches(
             &LessonTrigger::PackerDetected { name: None },
@@ -442,6 +514,11 @@ mod tests {
             pe_analysis: None,
             elf_analysis: None,
             risk_score: None,
+            ioc_types: &[],
+            is_batch: false,
+            has_mismatch: false,
+            thresholds_customised: false,
+            max_confidence: None,
         };
         assert!(trigger_matches(
             &LessonTrigger::ApiComboPresent {
@@ -480,6 +557,11 @@ mod tests {
             pe_analysis: None,
             elf_analysis: None,
             risk_score: None,
+            ioc_types: &[],
+            is_batch: false,
+            has_mismatch: false,
+            thresholds_customised: false,
+            max_confidence: None,
         };
         assert!(trigger_matches(
             &LessonTrigger::MitreDetected {
@@ -509,6 +591,11 @@ mod tests {
             pe_analysis: None,
             elf_analysis: None,
             risk_score: None,
+            ioc_types: &[],
+            is_batch: false,
+            has_mismatch: false,
+            thresholds_customised: false,
+            max_confidence: None,
         };
         let lessons = get_triggered_lessons(&ctx);
         // All beginner lessons must come before any intermediate
@@ -537,6 +624,11 @@ mod tests {
             pe_analysis: None,
             elf_analysis: None,
             risk_score: None,
+            ioc_types: &[],
+            is_batch: false,
+            has_mismatch: false,
+            thresholds_customised: false,
+            max_confidence: None,
         };
         assert!(trigger_matches(&LessonTrigger::OrdinalImportsPresent, &ctx));
     }

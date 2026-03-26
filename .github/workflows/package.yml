@@ -21,6 +21,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+
+      - name: Configure Cargo for private dependencies
+        run: cp .cargo/config.toml.example .cargo/config.toml
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable

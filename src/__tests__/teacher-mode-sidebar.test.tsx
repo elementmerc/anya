@@ -116,7 +116,7 @@ describe("TeacherSidebar", () => {
         description: "Core Windows API — file I/O, memory management, process and thread creation.",
       },
     });
-    expect(screen.getByText(/Core Windows API/)).toBeInTheDocument();
+    expect(screen.getByText(/main toolbox Windows uses/)).toBeInTheDocument();
     expect(screen.getByText(/Simple explanation/i)).toBeInTheDocument();
   });
 

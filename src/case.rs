@@ -56,10 +56,18 @@ pub struct CaseFileEntry {
 // Helper functions
 // ---------------------------------------------------------------------------
 
-/// Returns the `./cases` directory relative to the current working directory.
-/// A config-based override can be added later.
-pub fn cases_dir() -> Result<PathBuf> {
-    Ok(PathBuf::from("./cases"))
+/// Returns the cases directory path.
+/// Uses config override if provided, otherwise falls back to a platform-appropriate default.
+pub fn cases_dir(configured_path: Option<&str>) -> Result<PathBuf> {
+    if let Some(path) = configured_path {
+        return Ok(PathBuf::from(path));
+    }
+    // Platform-appropriate default
+    if let Some(data_dir) = dirs::data_dir() {
+        Ok(data_dir.join("anya").join("cases"))
+    } else {
+        Ok(PathBuf::from("./cases"))
+    }
 }
 
 /// Sanitise a case name for use as a directory name.
@@ -121,9 +129,10 @@ pub fn save_to_case(
     sha256: &str,
     verdict: &str,
     json_report: &str,
+    cases_path: Option<&str>,
 ) -> Result<()> {
     let sanitised = sanitise_case_name(case_name)?;
-    let base = cases_dir()?;
+    let base = cases_dir(cases_path)?;
     let case_dir = base.join(&sanitised);
     let reports_dir = case_dir.join("reports");
 
@@ -196,8 +205,8 @@ pub fn save_to_case(
 }
 
 /// List all cases found under the cases directory.
-pub fn list_cases() -> Result<()> {
-    let base = cases_dir()?;
+pub fn list_cases(cases_path: Option<&str>) -> Result<()> {
+    let base = cases_dir(cases_path)?;
 
     if !base.exists() {
         println!("No cases found.");
@@ -266,6 +275,143 @@ pub fn list_cases() -> Result<()> {
             updated_date
         );
     }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// JSON-friendly wrappers (used by the Tauri GUI bridge)
+// ---------------------------------------------------------------------------
+
+/// Save an analysis result (as a JSON value) into a named case.
+///
+/// Extracts `file_info.path`, `hashes.sha256`, and a verdict string from the
+/// JSON, then delegates to [`save_to_case`].
+pub fn save_to_case_from_json(
+    result: &serde_json::Value,
+    case_name: &str,
+    cases_path: Option<&str>,
+) -> Result<()> {
+    let file_path_str = result
+        .pointer("/file_info/path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let sha256 = result
+        .pointer("/hashes/sha256")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+
+    // Derive a simple verdict from the JSON structure
+    let verdict = "analysed";
+
+    let json_report =
+        serde_json::to_string_pretty(result).context("Failed to serialise result to JSON")?;
+
+    save_to_case(
+        case_name,
+        Path::new(file_path_str),
+        sha256,
+        verdict,
+        &json_report,
+        cases_path,
+    )
+}
+
+/// List all cases and return them as a JSON array of summary objects.
+///
+/// Each element: `{ name, status, file_count, updated }`
+pub fn list_cases_json(cases_path: Option<&str>) -> Result<serde_json::Value> {
+    let base = cases_dir(cases_path)?;
+
+    if !base.exists() {
+        return Ok(serde_json::json!([]));
+    }
+
+    let mut entries: Vec<_> = fs::read_dir(&base)
+        .with_context(|| format!("Failed to read cases directory: {}", base.display()))?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+
+    entries.sort_by_key(|e| e.file_name());
+
+    let mut summaries = Vec::new();
+
+    for entry in &entries {
+        let case_yaml = entry.path().join("case.yaml");
+        if !case_yaml.exists() {
+            continue;
+        }
+        let contents = match fs::read_to_string(&case_yaml) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let cf: CaseFile = match serde_yaml::from_str(&contents) {
+            Ok(cf) => cf,
+            Err(_) => continue,
+        };
+        summaries.push(serde_json::json!({
+            "name": cf.case.name,
+            "status": cf.case.status,
+            "file_count": cf.files.len(),
+            "updated": cf.case.updated,
+        }));
+    }
+
+    Ok(serde_json::Value::Array(summaries))
+}
+
+/// Load a single case by name and return it as a JSON object.
+///
+/// Returns: `{ name, status, created, updated, files: [{ path, sha256, verdict, analysed_at }] }`
+pub fn get_case_json(name: &str, cases_path: Option<&str>) -> Result<serde_json::Value> {
+    let sanitised = sanitise_case_name(name)?;
+    let base = cases_dir(cases_path)?;
+    let case_yaml = base.join(&sanitised).join("case.yaml");
+
+    if !case_yaml.exists() {
+        bail!("Case '{}' not found", sanitised);
+    }
+
+    let contents = fs::read_to_string(&case_yaml)
+        .with_context(|| format!("Failed to read {}", case_yaml.display()))?;
+    let cf: CaseFile = serde_yaml::from_str(&contents)
+        .with_context(|| format!("Failed to parse {}", case_yaml.display()))?;
+
+    let files: Vec<serde_json::Value> = cf
+        .files
+        .iter()
+        .map(|f| {
+            serde_json::json!({
+                "path": f.path,
+                "sha256": f.sha256,
+                "verdict": f.verdict,
+                "analysed_at": f.analysed_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "name": cf.case.name,
+        "status": cf.case.status,
+        "created": cf.case.created,
+        "updated": cf.case.updated,
+        "files": files,
+    }))
+}
+
+/// Delete a case directory entirely.
+pub fn delete_case(name: &str, cases_path: Option<&str>) -> Result<()> {
+    let sanitised = sanitise_case_name(name)?;
+    let base = cases_dir(cases_path)?;
+    let case_dir = base.join(&sanitised);
+
+    if !case_dir.exists() {
+        bail!("Case '{}' not found", sanitised);
+    }
+
+    fs::remove_dir_all(&case_dir)
+        .with_context(|| format!("Failed to delete case directory: {}", case_dir.display()))?;
 
     Ok(())
 }

@@ -1,12 +1,20 @@
 import { useState, useMemo } from "react";
-import { AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown, Pin } from "lucide-react";
 import { formatBytes } from "@/lib/utils";
+import CopyButton from "@/components/CopyButton";
 import type { AnalysisResult, SectionInfo } from "@/types/analysis";
+
+interface PinnedFinding {
+  type: string;
+  label: string;
+  detail: string;
+}
 
 interface Props {
   result: AnalysisResult;
   suspiciousEntropy?: number;
   packedEntropy?: number;
+  onPin?: (finding: PinnedFinding) => void;
 }
 
 type SortKey = "name" | "virtual_size" | "raw_size" | "entropy";
@@ -43,7 +51,7 @@ function PermBadge({ label, color, bg }: { label: string; color: string; bg: str
   );
 }
 
-export default function SectionsTab({ result, suspiciousEntropy = 5.0, packedEntropy = 7.0 }: Props) {
+export default function SectionsTab({ result, suspiciousEntropy = 5.0, packedEntropy = 7.0, onPin }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>(null);
 
@@ -136,6 +144,7 @@ export default function SectionsTab({ result, suspiciousEntropy = 5.0, packedEnt
                 <th style={{ ...HEADER_STYLE }}>Anomaly</th>
                 <th style={{ ...HEADER_STYLE }}>Permissions</th>
                 <th style={{ ...HEADER_STYLE }}>Flags</th>
+                <th style={{ ...HEADER_STYLE, width: 40 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -261,6 +270,18 @@ export default function SectionsTab({ result, suspiciousEntropy = 5.0, packedEnt
                         </span>
                       ) : (
                         <span style={{ color: "var(--text-muted)" }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ padding: "10px 4px", borderBottom: "1px solid var(--border-subtle)", display: "flex", gap: 2, alignItems: "center" }}>
+                      <CopyButton text={`${sec.name}: VSize=${formatBytes(sec.virtual_size)} Raw=${formatBytes(sec.raw_size)} Entropy=${sec.entropy.toFixed(4)}${isWX ? " [W+X]" : ""}`} label="Copy section summary" />
+                      {isWX && onPin && (
+                        <button
+                          onClick={() => onPin({ type: "section", label: sec.name || "<unnamed>", detail: `W+X section — entropy ${sec.entropy.toFixed(2)}` })}
+                          style={{ opacity: 0.4, cursor: "pointer", background: "transparent", border: "none", color: "var(--text-muted)", padding: 2 }}
+                          title="Pin to Overview"
+                        >
+                          <Pin size={11} />
+                        </button>
                       )}
                     </td>
                   </tr>

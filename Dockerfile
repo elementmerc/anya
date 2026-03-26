@@ -1,6 +1,11 @@
 # ── Stage 1: builder ───────────────────────────────────────────────────────
 # edition = "2024" requires rustc ≥ 1.85; the crate also uses let_chains
 # and is_multiple_of which need a recent stable toolchain.
+#
+# NOTE: This build requires the anya-proprietary submodule to be populated
+# and .cargo/config.toml to be present (path override for stubs → real crates).
+# Without these, the build will fail with a "missing private scoring engine" error.
+# See README.md § "Building from source" for details.
 FROM rust:slim-bookworm AS builder
 
 ARG VERSION

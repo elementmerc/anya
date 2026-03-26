@@ -35,6 +35,9 @@ anya --file malware.exe --json | jq '.hashes.sha256'
   "elf_analysis": { ... },        // ELF-specific analysis (optional)
   "file_type_mismatch": { ... },  // Extension vs magic bytes (optional)
   "ioc_summary": { ... },         // IOC indicators found (optional)
+  "mach_analysis": { ... },       // Mach-O-specific analysis (optional)
+  "pdf_analysis": { ... },        // PDF dangerous object detection (optional)
+  "office_analysis": { ... },     // Office macro/embedded object detection (optional)
   "verdict_summary": "string",    // e.g. "MALICIOUS — 2 critical, 1 high"
   "top_findings": [ ... ]         // Top N findings by confidence
 }
@@ -56,7 +59,7 @@ anya --file malware.exe --json | jq '.hashes.sha256'
     "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "entropy": {
-    "value": 7.8,
+    "value": "<value> (above internal packed threshold)",
     "category": "Very high - likely encrypted or packed",
     "is_suspicious": true
   },
@@ -91,7 +94,7 @@ anya --file malware.exe --json | jq '.hashes.sha256'
     "imports": {
       "dll_count": 5,
       "total_imports": 42,
-      "suspicious_api_count": 3,
+      "suspicious_api_count": "<count>",
       "suspicious_apis": [
         {
           "name": "CreateRemoteThread",
@@ -165,6 +168,31 @@ anya --file *.dll --json | \
   jq 'select(.pe_analysis.security.aslr_enabled == false)'
 ```
 
+> **Note:** Example values are illustrative. Actual detection thresholds and scoring logic are determined internally.
+
+## Case YAML Schema
+
+When using `--case <name>` or the GUI "Save to Case" feature, results are
+saved to a case directory:
+
+```yaml
+case:
+  name: "operation-nightfall"
+  created: "2026-03-16T14:32:00Z"
+  updated: "2026-03-16T15:10:00Z"
+  status: "open"
+
+files:
+  - path: "/samples/suspicious.exe"
+    sha256: "abc123..."
+    verdict: "MALICIOUS"
+    analysed_at: "2026-03-16T14:32:00Z"
+    report: "reports/suspicious.exe_2026-03-16T14-32-00.json"
+```
+
+Each file's `report` field points to a full JSON analysis result stored
+in the `reports/` subdirectory.
+
 ## Field Descriptions
 
 | Field | Type | Description |
@@ -181,3 +209,14 @@ anya --file *.dll --json | \
 | `pe_analysis.security.aslr_enabled` | boolean | ASLR status |
 | `pe_analysis.security.dep_enabled` | boolean | DEP/NX status |
 | `pe_analysis.imports.suspicious_api_count` | integer | Suspicious API count |
+| `mach_analysis.architecture` | string | CPU architecture (x86_64, arm64, etc.) |
+| `mach_analysis.dylib_imports` | string[] | Imported dynamic libraries |
+| `mach_analysis.has_code_signature` | boolean | Code signature present |
+| `mach_analysis.pie_enabled` | boolean | Position-independent executable |
+| `mach_analysis.nx_enabled` | boolean | Non-executable stack |
+| `pdf_analysis.dangerous_objects` | string[] | Dangerous PDF objects found (/JS, /Launch, etc.) |
+| `pdf_analysis.risk_indicators` | string[] | Plain-English risk descriptions |
+| `office_analysis.has_macros` | boolean | VBA macros present |
+| `office_analysis.has_embedded_objects` | boolean | Embedded objects found |
+| `office_analysis.has_external_links` | boolean | External URL references |
+| `strings.suppressed_reason` | string? | Why string extraction was skipped (e.g. image files) |
