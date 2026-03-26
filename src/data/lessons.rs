@@ -79,6 +79,7 @@ pub enum LessonTrigger {
 pub enum FileFormat {
     Pe,
     Elf,
+    Macho,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -184,7 +185,9 @@ fn trigger_matches(trigger: &LessonTrigger, ctx: &TriggerContext<'_>) -> bool {
 
         LessonTrigger::FileFormat { format } => matches!(
             (format, &ctx.file_format),
-            (FileFormat::Pe, Some(FileFormat::Pe)) | (FileFormat::Elf, Some(FileFormat::Elf))
+            (FileFormat::Pe, Some(FileFormat::Pe))
+                | (FileFormat::Elf, Some(FileFormat::Elf))
+                | (FileFormat::Macho, Some(FileFormat::Macho))
         ),
 
         LessonTrigger::HighEntropy { threshold } => ctx.max_section_entropy >= *threshold,
@@ -305,6 +308,7 @@ pub fn get_triggered_lessons(ctx: &TriggerContext<'_>) -> Vec<&'static Lesson> {
 pub fn context_from_analysis(
     pe: Option<&PEAnalysis>,
     elf: Option<&ELFAnalysis>,
+    has_mach: bool,
     mitre: &[MitreTechnique],
 ) -> (
     Option<FileFormat>,
@@ -316,6 +320,8 @@ pub fn context_from_analysis(
         Some(FileFormat::Pe)
     } else if elf.is_some() {
         Some(FileFormat::Elf)
+    } else if has_mach {
+        Some(FileFormat::Macho)
     } else {
         None
     };

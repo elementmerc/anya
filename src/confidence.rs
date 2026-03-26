@@ -8,9 +8,11 @@
 // higher-level functions that depend on core output types (PEAnalysis, etc.).
 
 use crate::output::{
-    AnalysisResult, AntiAnalysisFinding, ConfidenceLevel, ELFAnalysis, MitreTechnique,
-    OrdinalImport, OverlayInfo, PEAnalysis, PackerFinding, SectionInfo,
+    AnalysisResult, AntiAnalysisFinding, ConfidenceLevel, ELFAnalysis, FileTypeMismatch,
+    MachoAnalysis, MitreTechnique, OfficeAnalysis, OrdinalImport, OverlayInfo, PEAnalysis,
+    PackerFinding, PdfAnalysis, SectionInfo,
 };
+use anya_scoring::types::{IocSummary, MismatchSeverity};
 use std::collections::HashMap;
 
 // Re-export scoring constants from anya-scoring so existing downstream code still compiles.
@@ -26,32 +28,31 @@ pub use anya_scoring::confidence::{
     assign_overlay_confidence as assign_overlay_confidence_raw, confidence_from_str,
 };
 
-/// Compute a 0–100 risk score from an analysis result.
+/// Compute a 0–100 risk score from all analysis findings.
 ///
-/// Scoring rules (additive, capped at 100):
-/// - Each suspicious API finding adds points weighted by its severity tier
-/// - Packer detection adds 20 (High) or 10 (Medium/Low)
-/// - TLS callbacks detected: +10
-/// - High-entropy overlay: +15
-/// - W+X section: +15
-/// - Ordinal imports from ntdll/kernel32: +12/+10
-/// - Anti-analysis indicators: +8 per unique category (max 4 categories)
-/// - ELF: missing PIE +5, missing NX +8, missing RELRO +5, W+X section +15, packer +20
-pub fn calculate_risk_score(pe: Option<&PEAnalysis>, elf: Option<&ELFAnalysis>) -> u32 {
+/// Every detection type contributes: PE, ELF, Mach-O, PDF, Office, IOCs, and
+/// file type mismatches. The total is capped at 100.
+pub fn calculate_risk_score(
+    pe: Option<&PEAnalysis>,
+    elf: Option<&ELFAnalysis>,
+    mach: Option<&MachoAnalysis>,
+    pdf: Option<&PdfAnalysis>,
+    office: Option<&OfficeAnalysis>,
+    ioc: Option<&IocSummary>,
+    mismatch: Option<&FileTypeMismatch>,
+) -> u32 {
     let mut score: u32 = 0;
 
+    // ── PE ────────────────────────────────────────────────────────────────────
     if let Some(pe) = pe {
-        // Suspicious API count contribution
         let api_count = pe.imports.suspicious_api_count;
-        let tiers = (api_count / 5) as u32; // +5 per group of 5 suspicious APIs, capped at 4 tiers
+        let tiers = (api_count / 5) as u32;
         score += BONUS_SUSPICIOUS_API_COUNT * tiers.min(4);
 
-        // W+X sections
         if pe.sections.iter().any(|s| s.is_wx) {
             score += BONUS_WX_SECTION;
         }
 
-        // Packer detection
         let best_packer = pe.packers.iter().max_by_key(|p| packer_confidence_ord(p));
         if let Some(pk) = best_packer {
             score += match pk.confidence.as_str() {
@@ -60,26 +61,21 @@ pub fn calculate_risk_score(pe: Option<&PEAnalysis>, elf: Option<&ELFAnalysis>) 
             };
         }
 
-        // TLS callbacks
         if let Some(tls) = &pe.tls
             && tls.callback_count > 0
         {
             score += BONUS_TLS_CALLBACKS;
         }
 
-        // High-entropy overlay
         if pe.overlay.as_ref().is_some_and(|o| o.high_entropy) {
             score += BONUS_HIGH_ENTROPY_OVERLAY;
         }
 
-        // Ordinal imports from sensitive DLLs
         score += ordinal_import_bonus(&pe.ordinal_imports);
 
-        // Anti-analysis categories
         let unique_categories = unique_anti_analysis_categories(&pe.anti_analysis);
         score += BONUS_ANTI_ANALYSIS_PER_CATEGORY * (unique_categories as u32).min(4);
 
-        // Checksum mismatch (stored non-zero but doesn't match computed)
         if let Some(cs) = &pe.checksum
             && cs.stored_nonzero
             && !cs.valid
@@ -88,6 +84,7 @@ pub fn calculate_risk_score(pe: Option<&PEAnalysis>, elf: Option<&ELFAnalysis>) 
         }
     }
 
+    // ── ELF ──────────────────────────────────────────────────────────────────
     if let Some(elf) = elf {
         if !elf.is_pie {
             score += BONUS_ELF_NO_PIE;
@@ -104,9 +101,103 @@ pub fn calculate_risk_score(pe: Option<&PEAnalysis>, elf: Option<&ELFAnalysis>) 
         if !elf.packer_indicators.is_empty() {
             score += BONUS_ELF_PACKER;
         }
-        // Suspicious function imports
         let sus_count = elf.imports.suspicious_functions.len() as u32;
         score += WEIGHT_HIGH * sus_count.min(3);
+
+        // New ELF fields
+        if !elf.rpath_anomalies.is_empty() {
+            score += WEIGHT_MEDIUM; // +8
+        }
+        if !elf.got_plt_suspicious.is_empty() {
+            score += 10;
+        }
+        if elf.interpreter_suspicious {
+            score += 10;
+        }
+    }
+
+    // ── Mach-O ───────────────────────────────────────────────────────────────
+    if let Some(mach) = mach {
+        if !mach.has_code_signature {
+            score += 15;
+        }
+        if !mach.pie_enabled {
+            score += BONUS_ELF_NO_PIE; // 5 — same weight as ELF
+        }
+        if !mach.nx_enabled {
+            score += BONUS_ELF_NO_NX; // 8
+        }
+    }
+
+    // ── PDF ──────────────────────────────────────────────────────────────────
+    if let Some(pdf) = pdf {
+        for obj in &pdf.dangerous_objects {
+            let lower = obj.to_lowercase();
+            if lower.contains("launch") {
+                score += 25; // Critical — can execute commands
+            } else if lower.contains("javascript") {
+                score += 15; // High — code execution
+            } else if lower.contains("embedded") {
+                score += 10;
+            } else {
+                score += 8; // OpenAction, AA, etc.
+            }
+        }
+    }
+
+    // ── Office ───────────────────────────────────────────────────────────────
+    if let Some(office) = office {
+        if office.has_macros {
+            score += 20;
+        }
+        if office.has_embedded_objects {
+            score += 10;
+        }
+        if office.has_external_links {
+            score += 8;
+        }
+    }
+
+    // ── IOC indicators ───────────────────────────────────────────────────────
+    if let Some(ioc) = ioc {
+        // .onion domains are critical
+        let onion_count = ioc
+            .ioc_strings
+            .iter()
+            .filter(|s| s.value.ends_with(".onion"))
+            .count();
+        if onion_count > 0 {
+            score += 20;
+        }
+
+        // Script obfuscation patterns
+        let script_count = ioc
+            .ioc_counts
+            .get("script_obfuscation")
+            .copied()
+            .unwrap_or(0);
+        if script_count >= 2 {
+            score += 15;
+        } else if script_count == 1 {
+            score += 8;
+        }
+
+        // Network IOCs (URLs, domains, IPs)
+        let net_count = ioc.ioc_counts.get("url").copied().unwrap_or(0)
+            + ioc.ioc_counts.get("domain").copied().unwrap_or(0)
+            + ioc.ioc_counts.get("ipv4").copied().unwrap_or(0);
+        if net_count >= 3 {
+            score += 10;
+        }
+    }
+
+    // ── File type mismatch ───────────────────────────────────────────────────
+    if let Some(mm) = mismatch {
+        score += match mm.severity {
+            MismatchSeverity::High => 20,
+            MismatchSeverity::Medium => 10,
+            MismatchSeverity::Low => 5,
+        };
     }
 
     score.min(100)
@@ -276,6 +367,61 @@ pub fn top_detections(result: &AnalysisResult, n: usize) -> Vec<RankedDetection>
         }
     }
 
+    // PDF dangerous objects
+    if let Some(ref pdf) = result.pdf_analysis {
+        for obj in &pdf.dangerous_objects {
+            let conf = if obj.to_lowercase().contains("launch") {
+                ConfidenceLevel::Critical
+            } else if obj.to_lowercase().contains("javascript") {
+                ConfidenceLevel::High
+            } else {
+                ConfidenceLevel::Medium
+            };
+            all.push(RankedDetection {
+                description: format!("PDF: {}", obj),
+                confidence: conf,
+            });
+        }
+    }
+
+    // Office macro/embedded objects
+    if let Some(ref office) = result.office_analysis {
+        if office.has_macros {
+            all.push(RankedDetection {
+                description: "Office document contains VBA macros".to_string(),
+                confidence: ConfidenceLevel::High,
+            });
+        }
+        if office.has_embedded_objects {
+            all.push(RankedDetection {
+                description: "Office document has embedded objects".to_string(),
+                confidence: ConfidenceLevel::Medium,
+            });
+        }
+        if office.has_external_links {
+            all.push(RankedDetection {
+                description: "Office document references external URLs".to_string(),
+                confidence: ConfidenceLevel::Medium,
+            });
+        }
+    }
+
+    // Mach-O security features
+    if let Some(ref mach) = result.mach_analysis {
+        if !mach.has_code_signature {
+            all.push(RankedDetection {
+                description: "Mach-O binary has no code signature".to_string(),
+                confidence: ConfidenceLevel::Medium,
+            });
+        }
+        if !mach.pie_enabled {
+            all.push(RankedDetection {
+                description: "Mach-O binary is not position-independent (no PIE)".to_string(),
+                confidence: ConfidenceLevel::Low,
+            });
+        }
+    }
+
     // Sort descending by confidence
     all.sort_by(|a, b| b.confidence.cmp(&a.confidence));
     all.truncate(n);
@@ -329,7 +475,10 @@ mod tests {
     #[test]
     fn test_clean_pe_scores_zero() {
         let pe = empty_pe();
-        assert_eq!(calculate_risk_score(Some(&pe), None), 0);
+        assert_eq!(
+            calculate_risk_score(Some(&pe), None, None, None, None, None, None),
+            0
+        );
     }
 
     #[test]
@@ -346,7 +495,7 @@ mod tests {
             name_anomaly: None,
             confidence: None,
         });
-        let score = calculate_risk_score(Some(&pe), None);
+        let score = calculate_risk_score(Some(&pe), None, None, None, None, None, None);
         assert!(score >= BONUS_WX_SECTION);
     }
 
@@ -358,7 +507,7 @@ mod tests {
             confidence: "High".to_string(),
             detection_method: "String".to_string(),
         });
-        let score = calculate_risk_score(Some(&pe), None);
+        let score = calculate_risk_score(Some(&pe), None, None, None, None, None, None);
         assert!(score >= BONUS_PACKER_HIGH);
     }
 
@@ -370,7 +519,7 @@ mod tests {
             confidence: "Medium".to_string(),
             detection_method: "Entropy".to_string(),
         });
-        let score = calculate_risk_score(Some(&pe), None);
+        let score = calculate_risk_score(Some(&pe), None, None, None, None, None, None);
         assert!(score >= BONUS_PACKER_MEDIUM);
         assert!(score < BONUS_PACKER_HIGH); // medium should not add 20
     }
@@ -382,7 +531,7 @@ mod tests {
             callback_count: 2,
             callback_rvas: vec!["0x1234".to_string(), "0x5678".to_string()],
         });
-        let score = calculate_risk_score(Some(&pe), None);
+        let score = calculate_risk_score(Some(&pe), None, None, None, None, None, None);
         assert!(score >= BONUS_TLS_CALLBACKS);
     }
 
@@ -398,7 +547,7 @@ mod tests {
             overlay_characterisation: None,
             confidence: None,
         });
-        let score = calculate_risk_score(Some(&pe), None);
+        let score = calculate_risk_score(Some(&pe), None, None, None, None, None, None);
         assert!(score >= BONUS_HIGH_ENTROPY_OVERLAY);
     }
 
@@ -414,7 +563,10 @@ mod tests {
             overlay_characterisation: None,
             confidence: None,
         });
-        assert_eq!(calculate_risk_score(Some(&pe), None), 0);
+        assert_eq!(
+            calculate_risk_score(Some(&pe), None, None, None, None, None, None),
+            0
+        );
     }
 
     #[test]
@@ -424,7 +576,7 @@ mod tests {
             dll: "ntdll.dll".to_string(),
             ordinal: 12,
         });
-        let score = calculate_risk_score(Some(&pe), None);
+        let score = calculate_risk_score(Some(&pe), None, None, None, None, None, None);
         assert!(score >= BONUS_ORDINAL_NTDLL);
     }
 
@@ -435,7 +587,10 @@ mod tests {
             dll: "user32.dll".to_string(),
             ordinal: 5,
         });
-        assert_eq!(calculate_risk_score(Some(&pe), None), 0);
+        assert_eq!(
+            calculate_risk_score(Some(&pe), None, None, None, None, None, None),
+            0
+        );
     }
 
     #[test]
@@ -449,7 +604,7 @@ mod tests {
             category: "VmDetection".to_string(),
             indicator: "GetSystemFirmwareTable".to_string(),
         });
-        let score = calculate_risk_score(Some(&pe), None);
+        let score = calculate_risk_score(Some(&pe), None, None, None, None, None, None);
         assert!(score >= 2 * BONUS_ANTI_ANALYSIS_PER_CATEGORY);
     }
 
@@ -509,7 +664,10 @@ mod tests {
             dll: "ntdll.dll".to_string(),
             ordinal: 12,
         });
-        assert_eq!(calculate_risk_score(Some(&pe), None), 100);
+        assert_eq!(
+            calculate_risk_score(Some(&pe), None, None, None, None, None, None),
+            100
+        );
     }
 
     #[test]

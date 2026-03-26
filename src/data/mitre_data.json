@@ -193,5 +193,68 @@
   ],
   "copyfile": [
     {"technique_id": "T1005", "sub_technique_id": null, "technique_name": "Data from Local System", "tactic": "Collection", "confidence": "Low"}
+  ],
+  "createprocess": [
+    {"technique_id": "T1059", "sub_technique_id": "003", "technique_name": "Windows Command Shell", "tactic": "Execution", "confidence": "Low"}
+  ],
+  "createprocessa": [
+    {"technique_id": "T1059", "sub_technique_id": "003", "technique_name": "Windows Command Shell", "tactic": "Execution", "confidence": "Low"}
+  ],
+  "createprocessw": [
+    {"technique_id": "T1059", "sub_technique_id": "003", "technique_name": "Windows Command Shell", "tactic": "Execution", "confidence": "Low"}
+  ],
+  "winexec": [
+    {"technique_id": "T1059", "sub_technique_id": "003", "technique_name": "Windows Command Shell", "tactic": "Execution", "confidence": "Medium"}
+  ],
+  "shellexecute": [
+    {"technique_id": "T1059", "sub_technique_id": "003", "technique_name": "Windows Command Shell", "tactic": "Execution", "confidence": "Low"}
+  ],
+  "shellexecuteex": [
+    {"technique_id": "T1059", "sub_technique_id": "003", "technique_name": "Windows Command Shell", "tactic": "Execution", "confidence": "Medium"}
+  ],
+  "getsysteminfo": [
+    {"technique_id": "T1082", "sub_technique_id": null, "technique_name": "System Information Discovery", "tactic": "Discovery", "confidence": "Low"}
+  ],
+  "getcomputername": [
+    {"technique_id": "T1082", "sub_technique_id": null, "technique_name": "System Information Discovery", "tactic": "Discovery", "confidence": "Low"}
+  ],
+  "getcomputernamex": [
+    {"technique_id": "T1082", "sub_technique_id": null, "technique_name": "System Information Discovery", "tactic": "Discovery", "confidence": "Low"}
+  ],
+  "getusername": [
+    {"technique_id": "T1082", "sub_technique_id": null, "technique_name": "System Information Discovery", "tactic": "Discovery", "confidence": "Low"}
+  ],
+  "findfirstfile": [
+    {"technique_id": "T1083", "sub_technique_id": null, "technique_name": "File and Directory Discovery", "tactic": "Discovery", "confidence": "Low"}
+  ],
+  "findfirstfilea": [
+    {"technique_id": "T1083", "sub_technique_id": null, "technique_name": "File and Directory Discovery", "tactic": "Discovery", "confidence": "Low"}
+  ],
+  "findfirstfilew": [
+    {"technique_id": "T1083", "sub_technique_id": null, "technique_name": "File and Directory Discovery", "tactic": "Discovery", "confidence": "Low"}
+  ],
+  "bitblt": [
+    {"technique_id": "T1113", "sub_technique_id": null, "technique_name": "Screen Capture", "tactic": "Collection", "confidence": "Medium"}
+  ],
+  "getdc": [
+    {"technique_id": "T1113", "sub_technique_id": null, "technique_name": "Screen Capture", "tactic": "Collection", "confidence": "Low"}
+  ],
+  "getdesktopwindow": [
+    {"technique_id": "T1113", "sub_technique_id": null, "technique_name": "Screen Capture", "tactic": "Collection", "confidence": "Low"}
+  ],
+  "ntmapviewofsection": [
+    {"technique_id": "T1106", "sub_technique_id": null, "technique_name": "Native API", "tactic": "Execution", "confidence": "High"}
+  ],
+  "createprocessasuser": [
+    {"technique_id": "T1134", "sub_technique_id": "002", "technique_name": "Create Process with Token", "tactic": "Privilege Escalation", "confidence": "High"}
+  ],
+  "cleareventlog": [
+    {"technique_id": "T1070", "sub_technique_id": "001", "technique_name": "Clear Windows Event Logs", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "cleareventloga": [
+    {"technique_id": "T1070", "sub_technique_id": "001", "technique_name": "Clear Windows Event Logs", "tactic": "Defense Evasion", "confidence": "High"}
+  ],
+  "cleareventlogw": [
+    {"technique_id": "T1070", "sub_technique_id": "001", "technique_name": "Clear Windows Event Logs", "tactic": "Defense Evasion", "confidence": "High"}
   ]
 }

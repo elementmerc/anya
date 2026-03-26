@@ -107,6 +107,75 @@ pub fn compute_risk_score(result: &anya_security_core::output::AnalysisResult) -
         }
     }
 
+    // ── Mach-O ───────────────────────────────────────────────────────────────
+    if let Some(mach) = &result.mach_analysis {
+        if !mach.has_code_signature {
+            score += 15;
+        }
+        if !mach.pie_enabled {
+            score += 5;
+        }
+        if !mach.nx_enabled {
+            score += 8;
+        }
+    }
+
+    // ── PDF ──────────────────────────────────────────────────────────────────
+    if let Some(pdf) = &result.pdf_analysis {
+        for obj in &pdf.dangerous_objects {
+            let lower = obj.to_lowercase();
+            if lower.contains("launch") {
+                score += 25;
+            } else if lower.contains("javascript") {
+                score += 15;
+            } else if lower.contains("embedded") {
+                score += 10;
+            } else {
+                score += 8;
+            }
+        }
+    }
+
+    // ── Office ───────────────────────────────────────────────────────────────
+    if let Some(office) = &result.office_analysis {
+        if office.has_macros {
+            score += 20;
+        }
+        if office.has_embedded_objects {
+            score += 10;
+        }
+        if office.has_external_links {
+            score += 8;
+        }
+    }
+
+    // ── IOC indicators ───────────────────────────────────────────────────────
+    if let Some(ioc) = &result.ioc_summary {
+        let onion = ioc.ioc_strings.iter().any(|s| s.value.ends_with(".onion"));
+        if onion {
+            score += 20;
+        }
+        let script_count = ioc
+            .ioc_counts
+            .get("script_obfuscation")
+            .copied()
+            .unwrap_or(0);
+        if script_count >= 2 {
+            score += 15;
+        } else if script_count == 1 {
+            score += 8;
+        }
+    }
+
+    // ── File type mismatch ───────────────────────────────────────────────────
+    if let Some(mm) = &result.file_type_mismatch {
+        score += match mm.severity.to_string().as_str() {
+            "High" => 20,
+            "Medium" => 10,
+            _ => 5,
+        };
+    }
+
     score.clamp(0, 100)
 }
 
@@ -285,7 +354,7 @@ pub mod commands {
         let mitre = &analysis.mitre_techniques;
 
         let (file_format, packer_names, import_names, mitre_ids) =
-            context_from_analysis(pe, elf, mitre);
+            context_from_analysis(pe, elf, analysis.mach_analysis.is_some(), mitre);
 
         // Compute auxiliary booleans
         let has_ordinal_imports = pe.is_some_and(|p| !p.ordinal_imports.is_empty());

@@ -827,10 +827,16 @@ fn analyse_single_file(
         let risk = calculate_risk_score(
             analysis.pe_analysis.as_ref(),
             analysis.elf_analysis.as_ref(),
+            analysis.mach_analysis.as_ref(),
+            analysis.pdf_analysis.as_ref(),
+            analysis.office_analysis.as_ref(),
+            analysis.ioc_summary.as_ref(),
+            analysis.file_type_mismatch.as_ref(),
         );
         print_guided_output(
             analysis.pe_analysis.as_ref(),
             analysis.elf_analysis.as_ref(),
+            analysis.mach_analysis.is_some(),
             &techniques,
             risk,
         );

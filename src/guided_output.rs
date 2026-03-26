@@ -17,11 +17,12 @@ use colored::Colorize;
 pub fn print_guided_output(
     pe: Option<&PEAnalysis>,
     elf: Option<&ELFAnalysis>,
+    has_mach: bool,
     mitre: &[MitreTechnique],
     risk_score: u32,
 ) {
     let (file_format, packer_names, import_names, mitre_ids) =
-        context_from_analysis(pe, elf, mitre);
+        context_from_analysis(pe, elf, has_mach, mitre);
 
     let has_ordinal_imports = pe.is_some_and(|p| !p.ordinal_imports.is_empty());
     let has_tls_callbacks = pe
