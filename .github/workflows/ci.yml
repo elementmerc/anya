@@ -4,7 +4,7 @@ on:
   push:
     branches: [dev]         # CI runs on dev pushes only
   pull_request:
-    branches: [master]      # safety net: CI runs on PRs to master
+    branches: [main]        # safety net: CI runs on PRs to main
 
 concurrency:
   group: ci-${{ github.ref }}

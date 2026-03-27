@@ -20,7 +20,7 @@
 - Dockerfile: fixed missing anya-stubs/proprietary COPY, sed pattern, env var
 - Release workflow: trimmed from 17 to 11 assets (removed linux-gnu, arch-specific macOS, NSIS exe, app.tar.gz)
 - CI: added Docker build validation and musl cross-compile jobs
-- CI: runs on dev pushes only (not master) to reduce redundant builds
+- CI: runs on dev pushes only (not main) to reduce redundant builds
 - Tauri targets: appimage, deb, rpm, dmg, msi (removed NSIS and app.tar.gz)
 
 ### Install Script

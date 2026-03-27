@@ -42,7 +42,7 @@ Also available on **[SourceForge](https://sourceforge.net/projects/anya/)**.
 ### One-liner
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/main/install.sh | bash
 ```
 
 Prompts for CLI, GUI, or both. Or specify directly:

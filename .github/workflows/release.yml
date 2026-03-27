@@ -103,10 +103,10 @@ jobs:
 
             ### One-line install
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/main/install.sh | bash
             ```
 
-            See [CHANGELOG](https://github.com/${{ github.repository }}/blob/master/docs/CHANGELOG.md) for full details.
+            See [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/docs/CHANGELOG.md) for full details.
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}

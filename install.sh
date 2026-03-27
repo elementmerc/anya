@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Anya — one-line installer
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash -s -- --both
-#   curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash -s -- --gui
+#   curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/main/install.sh | bash -s -- --both
+#   curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/main/install.sh | bash -s -- --gui
 #   bash install.sh --cli
 #
 # Platform support:
@@ -118,7 +118,7 @@ show_help() {
 Anya — one-line installer
 
 Usage:
-  curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/main/install.sh | bash
   curl -fsSL ...install.sh | bash -s -- --both
   bash install.sh [--cli | --gui | --both] [--help]
 
