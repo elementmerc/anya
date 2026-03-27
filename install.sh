@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 # Anya — one-line installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash
+# Usage:
+#   curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash -s -- --both
+#   curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash -s -- --gui
+#   bash install.sh --cli
 #
 # Platform support:
 #   CLI  : macOS (x86_64, arm64), Linux (x86_64, arm64), Windows (via WSL/Git-Bash)
 #   GUI  : macOS (.dmg), Linux (.AppImage / .deb), Windows (.msi)
 #
-# Environment variables:
+# Flags:
+#   --cli          Install CLI only (skip prompt)
+#   --gui          Install GUI only (skip prompt)
+#   --both         Install CLI and GUI (skip prompt)
+#   --help         Show this help message
+#
+# Environment variables (override flags):
 #   ANYA_VERSION     — install a specific tag, e.g. ANYA_VERSION=v0.4.0
 #   ANYA_NO_COLOR    — set to any non-empty value to disable colour output
 #   ANYA_INSTALL_DIR — override CLI install directory (default: $HOME/.local/bin)
@@ -15,31 +25,57 @@
 set -uo pipefail
 
 INSTALLED_FILES=()
+_CLEANUP_DIRS=()
 track_install() { INSTALLED_FILES+=("$1"); }
-rollback_on_error() {
+track_tmpdir()  { _CLEANUP_DIRS+=("$1"); }
+
+cleanup_on_exit() {
   local exit_code=$?
-  # Clean up temp dir
-  rm -rf "${TMPDIR_TESTS:-}" 2>/dev/null
-  # Rollback installed files if error
+  # Always clean up temp dirs
+  for d in "${_CLEANUP_DIRS[@]}"; do
+    rm -rf "$d" 2>/dev/null
+  done
+  # Rollback installed files on error
   if [ $exit_code -ne 0 ] && [ ${#INSTALLED_FILES[@]} -gt 0 ]; then
     warn "Installation failed — rolling back…"
     for f in "${INSTALLED_FILES[@]}"; do
-      rm -f "$f" 2>/dev/null && info "  Removed $f"
+      rm -rf "$f" 2>/dev/null && info "  Removed $f"
     done
   fi
 }
-trap rollback_on_error EXIT
+trap cleanup_on_exit EXIT
 
-# ─── Colours ─────────────────────────────────────────────────────────────────
+# ─── TTY detection ────────────────────────────────────────────────────────────
+# When piped (curl ... | bash), stdin is the pipe, not the terminal.
+# We can still prompt the user via /dev/tty if it exists.
 
-if [ -z "${ANYA_NO_COLOR:-}" ] && [ -t 1 ]; then
+CAN_PROMPT=false
+if [ -e /dev/tty ]; then
+  CAN_PROMPT=true
+fi
+
+# Read from the user's terminal, even when the script is piped
+prompt_read() {
+  local prompt="$1" varname="$2" default="${3:-}"
+  if [ "$CAN_PROMPT" = true ]; then
+    printf "%s" "$prompt"
+    read -r "$varname" </dev/tty 2>/dev/null || eval "$varname='$default'"
+  else
+    eval "$varname='$default'"
+  fi
+}
+
+# ─── Colours ──────────────────────────────────────────────────────────────────
+# Check if the terminal (stdout) supports colour — even when stdin is piped
+
+if [ -z "${ANYA_NO_COLOR:-}" ] && { [ -t 1 ] || [ -t 2 ]; }; then
   RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
   CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
 else
   RED=''; YELLOW=''; GREEN=''; CYAN=''; BOLD=''; RESET=''
 fi
 
-# ─── Helpers ─────────────────────────────────────────────────────────────────
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
 info()    { printf "${CYAN}  →${RESET} %s\n" "$*"; }
 success() { printf "${GREEN}  ✓${RESET} %s\n" "$*"; }
@@ -70,7 +106,55 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Required command '$1' not found. Please install it and retry."
 }
 
-# ─── Pre-flight checks ──────────────────────────────────────────────────────
+make_tmpdir() {
+  local d
+  d=$(mktemp -d 2>/dev/null) || { d="/tmp/anya-install-$$-$RANDOM"; mkdir -p "$d"; }
+  track_tmpdir "$d"
+  echo "$d"
+}
+
+show_help() {
+  cat <<'HELP'
+Anya — one-line installer
+
+Usage:
+  curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash
+  curl -fsSL ...install.sh | bash -s -- --both
+  bash install.sh [--cli | --gui | --both] [--help]
+
+Flags:
+  --cli     Install CLI only (command-line tool)
+  --gui     Install GUI only (desktop application)
+  --both    Install CLI and GUI
+  --help    Show this help message
+
+Environment variables:
+  ANYA_VERSION      Install a specific version (e.g. ANYA_VERSION=v1.1.0)
+  ANYA_NO_COLOR     Disable coloured output
+  ANYA_INSTALL_DIR  Override CLI install directory (default: ~/.local/bin)
+  ANYA_MODE         Same as flags: "cli", "gui", or "both"
+HELP
+  exit 0
+}
+
+# ─── Argument parsing ─────────────────────────────────────────────────────────
+
+parse_args() {
+  for arg in "$@"; do
+    case "$arg" in
+      --cli)   ANYA_MODE="cli"  ;;
+      --gui)   ANYA_MODE="gui"  ;;
+      --both)  ANYA_MODE="both" ;;
+      --help|-h) show_help      ;;
+      *)
+        warn "Unknown argument: $arg"
+        info "Run with --help for usage"
+        ;;
+    esac
+  done
+}
+
+# ─── Pre-flight checks ───────────────────────────────────────────────────────
 
 preflight() {
   # Ensure we have a download tool
@@ -95,6 +179,7 @@ preflight() {
 
   # WSL detection — users may expect Windows binaries
   if [ "$(uname -s)" = "Linux" ] && grep -qi microsoft /proc/version 2>/dev/null; then
+    IS_WSL=true
     info "WSL detected. Installing Linux binaries."
     info "For the Windows GUI (.msi), download from:"
     info "  https://github.com/elementmerc/anya/releases"
@@ -105,17 +190,29 @@ preflight() {
     info "Proxy detected: ${https_proxy:-${http_proxy:-${HTTPS_PROXY:-${HTTP_PROXY}}}}"
   fi
 
-  # Network connectivity check
+  # Network connectivity check (with timeout so we don't hang)
+  local _net_ok=false
   if command -v curl >/dev/null 2>&1; then
-    if ! curl -fsS --connect-timeout 5 "https://api.github.com" >/dev/null 2>&1; then
-      error "No internet connection detected."
-      info  "Download Anya manually from: https://github.com/elementmerc/anya/releases"
-      die   "Cannot proceed without network access."
+    if curl -fsS --connect-timeout 10 --max-time 15 "https://api.github.com" >/dev/null 2>&1; then
+      _net_ok=true
     fi
+  elif command -v wget >/dev/null 2>&1; then
+    if wget -q --timeout=15 --spider "https://api.github.com" 2>/dev/null; then
+      _net_ok=true
+    fi
+  fi
+
+  if [ "$_net_ok" = false ]; then
+    error "Cannot reach GitHub."
+    info  "Check your internet connection or proxy settings."
+    info  "Download Anya manually from: https://github.com/elementmerc/anya/releases"
+    die   "Cannot proceed without network access."
   fi
 }
 
-# ─── Platform detection ───────────────────────────────────────────────────────
+# ─── Platform detection ──────────────────────────────────────────────────────
+
+IS_WSL=false
 
 detect_platform() {
   _OS="$(uname -s)"
@@ -140,7 +237,7 @@ detect_platform() {
       ARCH="x86_64"
       ;;
     FreeBSD)
-      die "FreeBSD is not yet supported. Check https://github.com/elementmerc/anya/releases for available platforms."
+      die "FreeBSD is not yet supported. Check https://github.com/elementmerc/anya/releases"
       ;;
     *)
       die "Unsupported OS: $_OS"
@@ -148,7 +245,7 @@ detect_platform() {
   esac
 }
 
-# ─── Version resolution ───────────────────────────────────────────────────────
+# ─── Version resolution ─────────────────────────────────────────────────────
 
 resolve_version() {
   if [ -n "${ANYA_VERSION:-}" ]; then
@@ -158,29 +255,35 @@ resolve_version() {
 
   info "Fetching latest release version…"
 
+  local _api_response=""
   if command -v curl >/dev/null 2>&1; then
-    VERSION="$(curl -fsSL "https://api.github.com/repos/elementmerc/anya/releases/latest" \
-      | grep '"tag_name"' \
-      | head -1 \
-      | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')" || VERSION=""
+    _api_response="$(curl -fsSL --connect-timeout 10 --max-time 15 \
+      "https://api.github.com/repos/elementmerc/anya/releases/latest" 2>/dev/null)" || _api_response=""
   elif command -v wget >/dev/null 2>&1; then
-    VERSION="$(wget -qO- "https://api.github.com/repos/elementmerc/anya/releases/latest" \
-      | grep '"tag_name"' \
-      | head -1 \
-      | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')" || VERSION=""
+    _api_response="$(wget -qO- --timeout=15 \
+      "https://api.github.com/repos/elementmerc/anya/releases/latest" 2>/dev/null)" || _api_response=""
   fi
 
-  [ -n "$VERSION" ] || die "Could not determine latest release. Set ANYA_VERSION manually (e.g. ANYA_VERSION=v1.0.2)."
+  if [ -z "$_api_response" ]; then
+    die "Could not fetch release info from GitHub. Set ANYA_VERSION manually (e.g. ANYA_VERSION=v1.1.0)."
+  fi
+
+  VERSION="$(echo "$_api_response" \
+    | grep '"tag_name"' \
+    | head -1 \
+    | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')" || VERSION=""
+
+  [ -n "$VERSION" ] || die "Could not parse release version. Set ANYA_VERSION manually (e.g. ANYA_VERSION=v1.1.0)."
 }
 
-# ─── Download helper ──────────────────────────────────────────────────────────
+# ─── Download helper ─────────────────────────────────────────────────────────
 
 download() {
   local url="$1" dest="$2"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --retry 3 --retry-delay 2 -o "$dest" "$url"
+    curl -fsSL --connect-timeout 15 --max-time 300 --retry 3 --retry-delay 2 -o "$dest" "$url"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q --tries=3 -O "$dest" "$url"
+    wget -q --timeout=300 --tries=3 -O "$dest" "$url"
   else
     die "Neither curl nor wget found. Install one and retry."
   fi
@@ -192,7 +295,7 @@ download() {
   fi
 }
 
-# ─── Upgrade detection ────────────────────────────────────────────────────────
+# ─── Upgrade detection ───────────────────────────────────────────────────────
 
 detect_existing() {
   if command -v anya >/dev/null 2>&1; then
@@ -201,9 +304,12 @@ detect_existing() {
     if [ -n "$current" ]; then
       if [ "$current" = "${VERSION#v}" ]; then
         info "Anya ${current} is already installed and up to date."
-        if [ -t 0 ]; then
-          read -rp "  Reinstall? [y/N] " choice </dev/tty 2>/dev/null || choice="y"
+        if [ "$CAN_PROMPT" = true ]; then
+          local choice=""
+          prompt_read "  Reinstall? [y/N] " choice "n"
           [[ "$choice" =~ ^[Yy] ]] || { success "Nothing to do."; exit 0; }
+        else
+          info "Reinstalling (non-interactive)."
         fi
       else
         info "Upgrading Anya: ${current} → ${VERSION#v}"
@@ -212,7 +318,7 @@ detect_existing() {
   fi
 }
 
-# ─── Checksum verification ───────────────────────────────────────────────────
+# ─── Checksum verification ──────────────────────────────────────────────────
 
 verify_checksum() {
   local file="$1" checksum_url="$2"
@@ -220,9 +326,9 @@ verify_checksum() {
 
   # Try to download checksum file
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$checksum_file" "$checksum_url" 2>/dev/null
+    curl -fsSL --connect-timeout 10 --max-time 30 -o "$checksum_file" "$checksum_url" 2>/dev/null
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$checksum_file" "$checksum_url" 2>/dev/null
+    wget -q --timeout=30 -O "$checksum_file" "$checksum_url" 2>/dev/null
   fi
 
   if [ ! -s "$checksum_file" ]; then
@@ -256,7 +362,7 @@ verify_checksum() {
   fi
 }
 
-# ─── CLI install ──────────────────────────────────────────────────────────────
+# ─── CLI install ─────────────────────────────────────────────────────────────
 
 install_cli() {
   header "Installing Anya CLI"
@@ -284,7 +390,7 @@ install_cli() {
 
   local DOWNLOAD_URL="https://github.com/elementmerc/anya/releases/download/${VERSION}/${ASSET}"
   local TMP_DIR
-  TMP_DIR=$(mktemp -d 2>/dev/null) || { TMP_DIR="/tmp/anya-install-$$"; mkdir -p "$TMP_DIR"; }
+  TMP_DIR=$(make_tmpdir)
   local TMP_FILE="$TMP_DIR/$ASSET"
 
   info "Downloading $ASSET…"
@@ -292,9 +398,8 @@ install_cli() {
 
   if ! download "$DOWNLOAD_URL" "$TMP_FILE" 2>/dev/null; then
     spinner_stop
-    warn "Pre-built binary not found for $OS/$ARCH — falling back to cargo install"
-    install_cli_cargo
-    rm -rf "$TMP_DIR"
+    warn "Pre-built binary not found for $OS/$ARCH"
+    install_cli_fallback
     return
   fi
   spinner_stop
@@ -314,12 +419,11 @@ install_cli() {
   esac
 
   local EXTRACTED_BINARY
-  EXTRACTED_BINARY="$(find "$TMP_DIR" -name "$BINARY_NAME" -not -name "*.tar.gz" | head -1)"
+  EXTRACTED_BINARY="$(find "$TMP_DIR" -name "$BINARY_NAME" -not -name "*.tar.gz" -not -name "*.zip" | head -1)"
   [ -n "$EXTRACTED_BINARY" ] || die "Could not find binary '$BINARY_NAME' in the downloaded archive."
 
   install -m 755 "$EXTRACTED_BINARY" "$INSTALL_DIR/$BINARY_NAME"
   track_install "$INSTALL_DIR/$BINARY_NAME"
-  rm -rf "$TMP_DIR"
 
   success "CLI installed to $INSTALL_DIR/$BINARY_NAME"
   ensure_in_path "$INSTALL_DIR"
@@ -328,18 +432,32 @@ install_cli() {
   verify_cli
 }
 
-install_cli_cargo() {
+install_cli_fallback() {
   # Tier 2: Try musl static binary (works on any Linux)
   if [ "$OS" = "linux" ]; then
-    info "Trying statically-linked binary (works on any Linux)…"
+    info "Trying statically-linked musl binary…"
     local musl_asset="anya-${VERSION}-${ARCH}-unknown-linux-musl.tar.gz"
     local musl_url="https://github.com/elementmerc/anya/releases/download/${VERSION}/${musl_asset}"
-    local musl_file="${TMPDIR_TESTS:-/tmp}/${musl_asset}"
+    local TMP_DIR
+    TMP_DIR=$(make_tmpdir)
+    local musl_file="$TMP_DIR/$musl_asset"
 
     if download "$musl_url" "$musl_file" 2>/dev/null && [ -s "$musl_file" ]; then
       verify_checksum "$musl_file" "${musl_url}.sha256"
-      extract_and_install "$musl_file"
-      return 0
+
+      local INSTALL_DIR="${ANYA_INSTALL_DIR:-$HOME/.local/bin}"
+      mkdir -p "$INSTALL_DIR"
+      tar -xzf "$musl_file" -C "$TMP_DIR"
+      local EXTRACTED
+      EXTRACTED="$(find "$TMP_DIR" -name "anya" -not -name "*.tar.gz" | head -1)"
+      if [ -n "$EXTRACTED" ]; then
+        install -m 755 "$EXTRACTED" "$INSTALL_DIR/anya"
+        track_install "$INSTALL_DIR/anya"
+        success "CLI installed to $INSTALL_DIR/anya (static musl)"
+        ensure_in_path "$INSTALL_DIR"
+        verify_cli
+        return 0
+      fi
     fi
     warn "No static binary available for ${ARCH}"
   fi
@@ -348,7 +466,8 @@ install_cli_cargo() {
   if command -v docker >/dev/null 2>&1; then
     info "Falling back to Docker image…"
     if docker pull "elementmerc/anya:${VERSION#v}" 2>/dev/null || docker pull "elementmerc/anya:latest" 2>/dev/null; then
-      local wrapper="${ANYA_INSTALL_DIR:-/usr/local/bin}/anya"
+      local wrapper="${ANYA_INSTALL_DIR:-$HOME/.local/bin}/anya"
+      mkdir -p "$(dirname "$wrapper")"
       cat > "$wrapper" << 'DOCKERWRAPPER'
 #!/bin/sh
 exec docker run --rm -v "$(pwd):/work:ro" -w /work elementmerc/anya:latest "$@"
@@ -371,17 +490,19 @@ DOCKERWRAPPER
 
 verify_cli() {
   # Quick smoke test — verify the binary actually runs
+  local bin_path="${ANYA_INSTALL_DIR:-$HOME/.local/bin}/anya"
+
   if command -v anya >/dev/null 2>&1; then
+    bin_path="$(command -v anya)"
+  fi
+
+  if [ -x "$bin_path" ]; then
     local installed_ver
-    installed_ver=$(anya --version 2>/dev/null | head -1)
+    installed_ver=$("$bin_path" --version 2>/dev/null | head -1) || installed_ver=""
     if [ -n "$installed_ver" ]; then
       success "Verified: $installed_ver"
-    fi
-  elif [ -x "${ANYA_INSTALL_DIR:-$HOME/.local/bin}/anya" ]; then
-    local installed_ver
-    installed_ver=$("${ANYA_INSTALL_DIR:-$HOME/.local/bin}/anya" --version 2>/dev/null | head -1)
-    if [ -n "$installed_ver" ]; then
-      success "Verified: $installed_ver"
+    else
+      warn "Binary installed but --version returned nothing. It may still work."
     fi
   fi
 }
@@ -392,13 +513,26 @@ ensure_in_path() {
     *":$dir:"*) ;;
     *)
       warn "$dir is not in your PATH."
-      warn "Add the following to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
+      info "Add to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
       printf "\n    export PATH=\"%s:\$PATH\"\n\n" "$dir"
       ;;
   esac
 }
 
-# ─── Linux GUI dependency check ──────────────────────────────────────────────
+# ─── Linux GUI availability check ───────────────────────────────────────────
+
+# Determine what GUI format is available for this Linux system
+detect_linux_gui_format() {
+  # .deb requires WebKitGTK 4.1 (Ubuntu 22.04+ / Debian 12+)
+  if command -v dpkg >/dev/null 2>&1; then
+    if command -v apt-cache >/dev/null 2>&1 && apt-cache show libwebkit2gtk-4.1-0 >/dev/null 2>&1; then
+      LINUX_GUI_FORMAT="deb"
+      return
+    fi
+  fi
+  # AppImage works everywhere (bundles dependencies)
+  LINUX_GUI_FORMAT="appimage"
+}
 
 check_linux_gui_deps() {
   local missing=""
@@ -409,7 +543,6 @@ check_linux_gui_deps() {
   done
   if [ -n "$missing" ]; then
     warn "Missing GUI libraries:$missing"
-    # Check if WebKitGTK 4.1 is even available on this system
     if command -v apt-cache >/dev/null 2>&1 && ! apt-cache show libwebkit2gtk-4.1-0 >/dev/null 2>&1; then
       warn "Your system does not have WebKitGTK 4.1 available (requires Ubuntu 22.04+ / Debian 12+)."
       info "Use the AppImage instead — it bundles all dependencies."
@@ -427,7 +560,7 @@ check_linux_gui_deps() {
   fi
 }
 
-# ─── GUI install ──────────────────────────────────────────────────────────────
+# ─── GUI install ─────────────────────────────────────────────────────────────
 
 install_gui() {
   header "Installing Anya GUI"
@@ -442,18 +575,21 @@ install_gui() {
       if [ -n "$mac_ver" ] && [ "$mac_ver" -lt 11 ] 2>/dev/null; then
         warn "Anya GUI requires macOS 11.0 (Big Sur) or newer."
         warn "You have macOS $(sw_vers -productVersion 2>/dev/null). The CLI will still work."
+        return 1
       fi
 
       ASSET="Anya_${VERSION#v}_universal.dmg"
       DOWNLOAD_URL="https://github.com/elementmerc/anya/releases/download/${VERSION}/${ASSET}"
-      TMP_DIR=$(mktemp -d 2>/dev/null) || { TMP_DIR="/tmp/anya-install-$$"; mkdir -p "$TMP_DIR"; }
+      TMP_DIR=$(make_tmpdir)
       TMP_FILE="$TMP_DIR/$ASSET"
 
       info "Downloading $ASSET…"
       spinner_start "Downloading"
       if ! download "$DOWNLOAD_URL" "$TMP_FILE" 2>/dev/null; then
         spinner_stop
-        die "Could not download GUI package. Check https://github.com/elementmerc/anya/releases for available assets."
+        error "Could not download GUI package."
+        info  "Check https://github.com/elementmerc/anya/releases for available assets."
+        return 1
       fi
       spinner_stop
       verify_checksum "$TMP_FILE" "${DOWNLOAD_URL}.sha256"
@@ -468,7 +604,6 @@ install_gui() {
         die "Failed to copy Anya.app to /Applications. Check permissions."
       }
       hdiutil detach -quiet /Volumes/AnyaInstall 2>/dev/null
-      rm -rf "$TMP_DIR"
       # Strip macOS quarantine flag to avoid Gatekeeper block (app is unsigned)
       xattr -cr /Applications/Anya.app 2>/dev/null || true
       track_install "/Applications/Anya.app"
@@ -477,154 +612,178 @@ install_gui() {
       ;;
 
     linux)
-      # Prefer .deb on Debian/Ubuntu 22.04+; fall back to AppImage for older systems.
-      # Tauri v2 requires WebKitGTK 4.1, which is only in Ubuntu 22.04+ / Debian 12+.
-      # Older distros (REMnux, older Kali/Parrot) only have 4.0 — the .deb won't work.
-      local _use_deb=false
-      if command -v dpkg >/dev/null 2>&1; then
-        if command -v apt-cache >/dev/null 2>&1 && apt-cache show libwebkit2gtk-4.1-0 >/dev/null 2>&1; then
-          _use_deb=true
-        else
-          warn "libwebkit2gtk-4.1 not available in your repos (needs Ubuntu 22.04+ / Debian 12+)"
-          info "Using AppImage instead — it bundles all dependencies."
-        fi
+      detect_linux_gui_format
+
+      if [ "$LINUX_GUI_FORMAT" = "deb" ]; then
+        _install_gui_deb && return 0
+        warn ".deb install failed — trying AppImage instead"
       fi
 
-      if [ "$_use_deb" = "true" ]; then
-        ASSET="anya_${VERSION#v}_amd64.deb"
-        DOWNLOAD_URL="https://github.com/elementmerc/anya/releases/download/${VERSION}/${ASSET}"
-        TMP_DIR=$(mktemp -d 2>/dev/null) || { TMP_DIR="/tmp/anya-install-$$"; mkdir -p "$TMP_DIR"; }
-        TMP_FILE="$TMP_DIR/$ASSET"
-
-        info "Downloading $ASSET…"
-        spinner_start "Downloading"
-        if download "$DOWNLOAD_URL" "$TMP_FILE" 2>/dev/null; then
-          spinner_stop
-          verify_checksum "$TMP_FILE" "${DOWNLOAD_URL}.sha256"
-          info "Installing .deb package (may prompt for sudo)…"
-
-          # Use apt-get install if available (auto-resolves dependencies)
-          # Fall back to dpkg -i + apt-get install -f
-          if command -v apt-get >/dev/null 2>&1; then
-            if command -v sudo >/dev/null 2>&1; then
-              sudo apt-get install -y "$TMP_FILE" 2>/dev/null || {
-                sudo dpkg -i "$TMP_FILE" 2>/dev/null
-                sudo apt-get install -f -y 2>/dev/null || warn "Some dependencies may be missing. See above."
-              }
-            elif command -v pkexec >/dev/null 2>&1; then
-              pkexec apt-get install -y "$TMP_FILE" 2>/dev/null || {
-                pkexec dpkg -i "$TMP_FILE" 2>/dev/null
-                pkexec apt-get install -f -y 2>/dev/null || warn "Some dependencies may be missing."
-              }
-            else
-              warn "Neither sudo nor pkexec found."
-              warn "Install manually: dpkg -i $TMP_FILE && apt-get install -f -y"
-              rm -rf "$TMP_DIR"
-              return
-            fi
-          else
-            # No apt-get (maybe a non-Debian system with dpkg?)
-            if command -v sudo >/dev/null 2>&1; then
-              sudo dpkg -i "$TMP_FILE" 2>/dev/null
-            else
-              warn "sudo not available. Install manually: dpkg -i $TMP_FILE"
-              rm -rf "$TMP_DIR"
-              return
-            fi
-            warn "apt-get not found — cannot auto-resolve dependencies."
-            warn "If the GUI fails to start, install: libwebkit2gtk-4.1-0 libgtk-3-0"
-          fi
-
-          rm -rf "$TMP_DIR"
-          success ".deb installed"
-          check_linux_gui_deps
-          return
-        fi
-        spinner_stop
-        warn ".deb not available — falling back to AppImage"
-      fi
-
-      # AppImage fallback
-      # Check FUSE availability
-      if ! command -v fusermount >/dev/null 2>&1 && ! command -v fusermount3 >/dev/null 2>&1; then
-        warn "FUSE is not installed — AppImage may not run."
-        if command -v apt-get >/dev/null 2>&1; then
-          info "Install with: sudo apt install fuse libfuse2"
-        elif command -v dnf >/dev/null 2>&1; then
-          info "Install with: sudo dnf install fuse"
-        fi
-        info "Or extract manually: ./anya-gui --appimage-extract"
-      fi
-
-      ASSET="anya_${VERSION#v}_amd64.AppImage"
-      DOWNLOAD_URL="https://github.com/elementmerc/anya/releases/download/${VERSION}/${ASSET}"
-      local APPIMAGE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-      local APPIMAGE_BIN="${ANYA_INSTALL_DIR:-$HOME/.local/bin}/anya-gui"
-      TMP_DIR=$(mktemp -d 2>/dev/null) || { TMP_DIR="/tmp/anya-install-$$"; mkdir -p "$TMP_DIR"; }
-      TMP_FILE="$TMP_DIR/$ASSET"
-
-      info "Downloading $ASSET…"
-      spinner_start "Downloading"
-      if ! download "$DOWNLOAD_URL" "$TMP_FILE" 2>/dev/null; then
-        spinner_stop
-        die "Could not download AppImage. Check https://github.com/elementmerc/anya/releases"
-      fi
-      spinner_stop
-      verify_checksum "$TMP_FILE" "${DOWNLOAD_URL}.sha256"
-
-      mkdir -p "$(dirname "$APPIMAGE_BIN")"
-      install -m 755 "$TMP_FILE" "$APPIMAGE_BIN"
-      track_install "$APPIMAGE_BIN"
-      rm -rf "$TMP_DIR"
-      success "AppImage installed to $APPIMAGE_BIN"
-      ensure_in_path "$(dirname "$APPIMAGE_BIN")"
-      check_linux_gui_deps
+      _install_gui_appimage
       ;;
 
     windows)
       ASSET="Anya_${VERSION#v}_x64_en-US.msi"
       DOWNLOAD_URL="https://github.com/elementmerc/anya/releases/download/${VERSION}/${ASSET}"
-      local DEST="$TEMP\\AnyaInstaller.msi"
+      TMP_DIR=$(make_tmpdir)
+      TMP_FILE="$TMP_DIR/AnyaInstaller.msi"
 
       info "Downloading $ASSET…"
       spinner_start "Downloading"
-      if ! download "$DOWNLOAD_URL" "$DEST" 2>/dev/null; then
+      if ! download "$DOWNLOAD_URL" "$TMP_FILE" 2>/dev/null; then
         spinner_stop
-        die "Could not download installer. Visit https://github.com/elementmerc/anya/releases"
+        error "Could not download installer."
+        info  "Visit https://github.com/elementmerc/anya/releases"
+        return 1
       fi
       spinner_stop
-      verify_checksum "$DEST" "${DOWNLOAD_URL}.sha256"
+      verify_checksum "$TMP_FILE" "${DOWNLOAD_URL}.sha256"
 
       info "Launching installer…"
-      msiexec //i "$DEST" //passive || die "Installer failed"
+      msiexec //i "$TMP_FILE" //passive || die "Installer failed"
       success "Anya GUI installed"
       ;;
   esac
 }
 
-# ─── Mode selection ───────────────────────────────────────────────────────────
+_install_gui_deb() {
+  local ASSET="anya_${VERSION#v}_amd64.deb"
+  local DOWNLOAD_URL="https://github.com/elementmerc/anya/releases/download/${VERSION}/${ASSET}"
+  local TMP_DIR
+  TMP_DIR=$(make_tmpdir)
+  local TMP_FILE="$TMP_DIR/$ASSET"
+
+  info "Downloading $ASSET…"
+  spinner_start "Downloading"
+  if ! download "$DOWNLOAD_URL" "$TMP_FILE" 2>/dev/null; then
+    spinner_stop
+    return 1
+  fi
+  spinner_stop
+  verify_checksum "$TMP_FILE" "${DOWNLOAD_URL}.sha256"
+
+  info "Installing .deb package (may prompt for sudo)…"
+
+  local _installed=false
+  if command -v apt-get >/dev/null 2>&1; then
+    if command -v sudo >/dev/null 2>&1; then
+      if sudo apt-get install -y "$TMP_FILE" 2>/dev/null; then
+        _installed=true
+      elif sudo dpkg -i "$TMP_FILE" 2>/dev/null; then
+        sudo apt-get install -f -y 2>/dev/null || warn "Some dependencies may be missing."
+        _installed=true
+      fi
+    elif command -v pkexec >/dev/null 2>&1; then
+      if pkexec apt-get install -y "$TMP_FILE" 2>/dev/null; then
+        _installed=true
+      fi
+    fi
+  fi
+
+  if [ "$_installed" = false ]; then
+    warn "Could not install .deb automatically."
+    info "Install manually: sudo dpkg -i $TMP_FILE && sudo apt-get install -f -y"
+    return 1
+  fi
+
+  success ".deb installed"
+  check_linux_gui_deps
+  return 0
+}
+
+_install_gui_appimage() {
+  # Check FUSE availability
+  if ! command -v fusermount >/dev/null 2>&1 && ! command -v fusermount3 >/dev/null 2>&1; then
+    warn "FUSE is not installed — AppImage may not run without it."
+    if command -v apt-get >/dev/null 2>&1; then
+      info "Install with: sudo apt install fuse libfuse2"
+    elif command -v dnf >/dev/null 2>&1; then
+      info "Install with: sudo dnf install fuse"
+    fi
+    info "Or extract manually: ./anya-gui --appimage-extract"
+  fi
+
+  local ASSET="anya_${VERSION#v}_amd64.AppImage"
+  local DOWNLOAD_URL="https://github.com/elementmerc/anya/releases/download/${VERSION}/${ASSET}"
+  local APPIMAGE_BIN="${ANYA_INSTALL_DIR:-$HOME/.local/bin}/anya-gui"
+  local TMP_DIR
+  TMP_DIR=$(make_tmpdir)
+  local TMP_FILE="$TMP_DIR/$ASSET"
+
+  info "Downloading $ASSET…"
+  spinner_start "Downloading"
+  if ! download "$DOWNLOAD_URL" "$TMP_FILE" 2>/dev/null; then
+    spinner_stop
+    error "Could not download AppImage."
+    info  "Download manually: https://github.com/elementmerc/anya/releases"
+    return 1
+  fi
+  spinner_stop
+  verify_checksum "$TMP_FILE" "${DOWNLOAD_URL}.sha256"
+
+  mkdir -p "$(dirname "$APPIMAGE_BIN")"
+  install -m 755 "$TMP_FILE" "$APPIMAGE_BIN"
+  track_install "$APPIMAGE_BIN"
+  success "AppImage installed to $APPIMAGE_BIN"
+  ensure_in_path "$(dirname "$APPIMAGE_BIN")"
+  check_linux_gui_deps
+}
+
+# ─── Mode selection ──────────────────────────────────────────────────────────
 
 prompt_mode() {
   header "Anya — installer"
-  printf "  What would you like to install?\n\n"
-  printf "    ${BOLD}1)${RESET} CLI only   (command-line tool)\n"
-  printf "    ${BOLD}2)${RESET} GUI only   (desktop application)\n"
-  printf "    ${BOLD}3)${RESET} Both\n\n"
-  printf "  Choice [1/2/3, default=1]: "
-  read -r _CHOICE </dev/tty
-  _CHOICE="${_CHOICE:-1}"
 
-  case "$_CHOICE" in
-    1) MODE="cli"  ;;
-    2) MODE="gui"  ;;
-    3) MODE="both" ;;
-    *) warn "Invalid choice '$_CHOICE' — defaulting to CLI only."; MODE="cli" ;;
+  # Show platform-specific context
+  printf "  Platform: ${BOLD}%s/%s${RESET}" "$OS" "$ARCH"
+  if [ "$IS_WSL" = true ]; then
+    printf " (WSL)"
+  fi
+  printf "\n"
+
+  # Show what GUI format will be used
+  local gui_note=""
+  case "$OS" in
+    linux)
+      detect_linux_gui_format
+      if [ "$LINUX_GUI_FORMAT" = "deb" ]; then
+        gui_note="(.deb package)"
+      else
+        gui_note="(.AppImage — bundles all deps)"
+      fi
+      ;;
+    macos)   gui_note="(.dmg)" ;;
+    windows) gui_note="(.msi)" ;;
+  esac
+
+  printf "\n  What would you like to install?\n\n"
+  printf "    ${BOLD}1)${RESET} CLI only   — command-line tool\n"
+  printf "    ${BOLD}2)${RESET} GUI only   — desktop application %s\n" "$gui_note"
+  printf "    ${BOLD}3)${RESET} Both       — CLI + GUI (recommended)\n\n"
+
+  if [ "$CAN_PROMPT" = false ]; then
+    # Truly no way to prompt — default to both
+    info "No terminal available for prompt — installing both CLI and GUI."
+    info "Use --cli, --gui, or --both to choose a specific mode."
+    MODE="both"
+    return
+  fi
+
+  local _choice=""
+  prompt_read "  Choice [1/2/3, default=3]: " _choice "3"
+
+  case "$_choice" in
+    1|cli)   MODE="cli"  ;;
+    2|gui)   MODE="gui"  ;;
+    3|both)  MODE="both" ;;
+    *)       warn "Invalid choice '$_choice' — installing both."; MODE="both" ;;
   esac
 }
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
+# ─── Main ────────────────────────────────────────────────────────────────────
 
 main() {
+  parse_args "$@"
   detect_platform
   preflight
   resolve_version
@@ -632,15 +791,10 @@ main() {
 
   printf "\n${BOLD}Anya${RESET} ${CYAN}${VERSION}${RESET} — ${OS}/${ARCH}\n"
 
-  # Default to CLI in non-interactive shells
-  if [ ! -t 0 ] && [ -z "${ANYA_MODE:-}" ]; then
-    ANYA_MODE="cli"
-    info "Non-interactive shell detected — installing CLI only"
-  fi
-
-  # Allow non-interactive mode via ANYA_MODE env var
+  # Determine installation mode: flag/env > prompt
   if [ -n "${ANYA_MODE:-}" ]; then
     MODE="$ANYA_MODE"
+    info "Installing: $MODE"
   else
     prompt_mode
   fi
@@ -656,6 +810,13 @@ main() {
   if [ "$MODE" = "cli" ] || [ "$MODE" = "both" ]; then
     printf "  Run ${BOLD}anya --help${RESET} to get started.\n"
     printf "  Run ${BOLD}anya verse${RESET} for a word of encouragement.\n"
+  fi
+  if [ "$MODE" = "gui" ] || [ "$MODE" = "both" ]; then
+    case "$OS" in
+      macos)   printf "  Open ${BOLD}Anya${RESET} from Applications or Spotlight.\n" ;;
+      linux)   printf "  Run ${BOLD}anya-gui${RESET} to launch the desktop app.\n" ;;
+      windows) printf "  Launch ${BOLD}Anya${RESET} from the Start Menu.\n" ;;
+    esac
   fi
   printf "\n"
 }
