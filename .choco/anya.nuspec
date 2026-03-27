@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>anya</id>
+    <!-- Version is stamped at pack time via: choco pack --version X.Y.Z -->
+    <version>0.0.0</version>
+    <title>Anya</title>
+    <authors>Daniel Iwugo</authors>
+    <owners>elementmerc</owners>
+    <projectUrl>https://github.com/elementmerc/anya</projectUrl>
+    <projectSourceUrl>https://github.com/elementmerc/anya</projectSourceUrl>
+    <bugTrackerUrl>https://github.com/elementmerc/anya/issues</bugTrackerUrl>
+    <docsUrl>https://github.com/elementmerc/anya/blob/master/README.md</docsUrl>
+    <licenseUrl>https://github.com/elementmerc/anya/blob/master/LICENSE.TXT</licenseUrl>
+    <iconUrl>https://raw.githubusercontent.com/elementmerc/anya/master/icon.svg</iconUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <summary>Privacy-first static malware analysis tool with MITRE ATT&amp;CK mapping and Teacher Mode.</summary>
+    <description><![CDATA[## Anya
+
+Anya is a privacy-first static malware analysis tool for Windows, Linux, and macOS.
+
+### Features
+- **Multi-format analysis** — PE, ELF, Mach-O, PDF, Office docs, scripts, and more
+- **MITRE ATT&CK mapping** — 298 technique explanations with real-world attack examples
+- **Teacher Mode** — 39 lessons that explain findings in plain English
+- **Privacy-first / fully offline** — zero outbound network calls, ever
+- **Risk scoring with verdict** — confidence-calibrated scoring across all file types
+- **CLI + GUI** — every feature available in both terminal and desktop app
+
+### What gets installed
+- **CLI**: `anya.exe` added to your PATH
+- **GUI**: Anya desktop app installed via MSI
+
+### Usage
+```
+anya --file suspicious.exe
+anya --file suspicious.exe --json
+anya --file suspicious.exe --explain
+anya batch --dir samples/
+```
+
+### Links
+- [GitHub](https://github.com/elementmerc/anya)
+- [Releases](https://github.com/elementmerc/anya/releases)
+- [SourceForge](https://sourceforge.net/projects/anya/)
+]]></description>
+    <tags>malware-analysis security forensics static-analysis mitre pe elf reverse-engineering cli desktop offline</tags>
+    <releaseNotes>https://github.com/elementmerc/anya/blob/master/docs/CHANGELOG.md</releaseNotes>
+    <copyright>Copyright 2026 Daniel Iwugo</copyright>
+    <dependencies>
+      <!-- No dependencies required -->
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

@@ -54,22 +54,16 @@ jobs:
           ./target/debug/anya --help
           ./target/debug/anya --file tests/fixtures/simple.exe --json --no-color | jq .file_format
 
-      - name: Install cargo-tarpaulin
-        run: |
-          curl -fsSL https://github.com/xd009642/tarpaulin/releases/latest/download/cargo-tarpaulin-x86_64-unknown-linux-musl.tar.gz \
-            | tar xz -C /usr/local/bin
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Measure coverage
-        run: |
-          rm -f Cargo.lock
-          mv anya-proprietary/Cargo.toml anya-proprietary/Cargo.toml.bak
-          cargo tarpaulin -p anya-security-core --out Xml --output-dir coverage/ || true
-          mv anya-proprietary/Cargo.toml.bak anya-proprietary/Cargo.toml
+        run: ANYA_VERSION_SUFFIX="" cargo llvm-cov --lib --lcov --output-path coverage/lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: coverage/cobertura.xml
+          files: coverage/lcov.info
           fail_ci_if_error: false
 
   # ── Frontend: tsc + build + Vitest (single job) ────────────────────────────

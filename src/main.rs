@@ -824,15 +824,7 @@ fn analyse_single_file(
             })
             .unwrap_or_default();
         let techniques = map_techniques_from_imports(&import_names);
-        let risk = calculate_risk_score(
-            analysis.pe_analysis.as_ref(),
-            analysis.elf_analysis.as_ref(),
-            analysis.mach_analysis.as_ref(),
-            analysis.pdf_analysis.as_ref(),
-            analysis.office_analysis.as_ref(),
-            analysis.ioc_summary.as_ref(),
-            analysis.file_type_mismatch.as_ref(),
-        );
+        let risk = calculate_risk_score(&json_result);
         print_guided_output(
             analysis.pe_analysis.as_ref(),
             analysis.elf_analysis.as_ref(),
@@ -1798,12 +1790,13 @@ mod tests {
 
     #[test]
     fn test_string_detection_logic() {
-        // Test printable ASCII detection
-        assert!(32u8 >= 32 && 32u8 <= 126); // Space
-        assert!(65u8 >= 32 && 65u8 <= 126); // 'A'
-        assert!(126u8 >= 32 && 126u8 <= 126); // '~'
-        assert!(!(31u8 >= 32 && 31u8 <= 126)); // Below range
-        assert!(!(127u8 >= 32 && 127u8 <= 126)); // Above range
+        // Test printable ASCII detection via runtime function
+        let is_printable = |b: u8| (32..=126).contains(&b);
+        assert!(is_printable(32)); // Space
+        assert!(is_printable(65)); // 'A'
+        assert!(is_printable(126)); // '~'
+        assert!(!is_printable(31)); // Below range
+        assert!(!is_printable(127)); // Above range
     }
 
     #[test]
@@ -1816,7 +1809,7 @@ mod tests {
         let mut valid_strings = Vec::new();
 
         for &byte in data.iter() {
-            if byte >= 32 && byte <= 126 {
+            if (32..=126).contains(&byte) {
                 current_string.push(byte as char);
             } else {
                 if current_string.len() >= min_length {

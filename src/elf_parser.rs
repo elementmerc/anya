@@ -149,25 +149,10 @@ fn analyse_elf_sections(elf: &Elf, data: &[u8]) -> Vec<output::ElfSectionInfo> {
         .collect()
 }
 
-// ─── Suspicious Linux function list ──────────────────────────────────────────
-
-const SUSPICIOUS_LINUX_FUNCTIONS: &[&str] = &[
-    "ptrace",
-    "mprotect",
-    "mmap",
-    "system",
-    "execve",
-    "execvp",
-    "dlopen",
-    "dlsym",
-    "fork",
-    "popen",
-    "prctl",
-    "__libc_dlopen_mode",
-];
+// Suspicious ELF function detection.
 
 fn is_suspicious_elf_function(name: &str) -> bool {
-    SUSPICIOUS_LINUX_FUNCTIONS.contains(&name) || is_suspicious_api(name) // reuse the PE suspicious API list for common names
+    anya_scoring::detection_patterns::is_elf_suspicious_function(name) || is_suspicious_api(name)
 }
 
 // ─── Import analysis ──────────────────────────────────────────────────────────
@@ -266,13 +251,7 @@ pub fn analyse_elf_data(data: &[u8]) -> Result<output::ELFAnalysis> {
                 if let Some(path_str) = elf.dynstrtab.get_at(entry.d_val as usize) {
                     for path in path_str.split(':') {
                         let p = path.trim();
-                        if p.starts_with("/tmp")
-                            || p.starts_with("/var/tmp")
-                            || p.starts_with("/dev/shm")
-                            || p == "."
-                            || p.starts_with("./")
-                            || !p.starts_with('/')
-                        {
+                        if anya_scoring::detection_patterns::is_suspicious_rpath(p) {
                             rpath_anomalies.push(format!("{}: writable or relative path", p));
                         }
                     }
@@ -283,13 +262,13 @@ pub fn analyse_elf_data(data: &[u8]) -> Result<output::ELFAnalysis> {
 
     // Check GOT/PLT for exploitation-relevant symbols
     let got_plt_suspicious: Vec<String> = {
-        let exploit_functions = ["system", "execve", "execvp", "dlopen", "popen"];
+        use anya_scoring::detection_patterns::is_elf_exploit_function;
         elf.dynsyms
             .iter()
             .filter(|sym| sym.st_shndx == 0 && sym.st_name != 0)
             .filter_map(|sym| {
                 elf.dynstrtab.get_at(sym.st_name).and_then(|name| {
-                    if exploit_functions.contains(&name) {
+                    if is_elf_exploit_function(name) {
                         Some(name.to_string())
                     } else {
                         None
@@ -301,8 +280,7 @@ pub fn analyse_elf_data(data: &[u8]) -> Result<output::ELFAnalysis> {
 
     // Check interpreter path for anomalies
     let interpreter_suspicious = interpreter.as_ref().is_some_and(|interp| {
-        let standard_prefixes = ["/lib/", "/lib64/", "/usr/lib/", "/usr/lib64/"];
-        !standard_prefixes.iter().any(|p| interp.starts_with(p))
+        !anya_scoring::detection_patterns::is_standard_elf_interpreter(interp)
     });
 
     // Check for DWARF debug info
@@ -314,54 +292,20 @@ pub fn analyse_elf_data(data: &[u8]) -> Result<output::ELFAnalysis> {
     });
 
     // Check for suspicious section names
+    // Flag non-standard section names
     let suspicious_section_names: Vec<String> = elf
         .section_headers
         .iter()
         .filter_map(|sh| {
             elf.shdr_strtab.get_at(sh.sh_name).and_then(|name| {
-                if name.starts_with(".") && name.len() > 1 {
-                    // Flag non-standard section names that could indicate packing or injection
-                    let standard = [
-                        ".text",
-                        ".data",
-                        ".bss",
-                        ".rodata",
-                        ".symtab",
-                        ".strtab",
-                        ".shstrtab",
-                        ".rel",
-                        ".rela",
-                        ".plt",
-                        ".got",
-                        ".got.plt",
-                        ".dynamic",
-                        ".dynsym",
-                        ".dynstr",
-                        ".init",
-                        ".fini",
-                        ".init_array",
-                        ".fini_array",
-                        ".interp",
-                        ".note",
-                        ".eh_frame",
-                        ".eh_frame_hdr",
-                        ".gcc_except_table",
-                        ".tbss",
-                        ".tdata",
-                        ".comment",
-                        ".gnu",
-                        ".hash",
-                    ];
-                    if !standard.iter().any(|s| name.starts_with(s))
-                        && !name.starts_with(".debug_")
-                        && !name.starts_with(".rela.")
-                        && !name.starts_with(".rel.")
-                        && !name.starts_with(".note.")
-                    {
-                        return Some(name.to_string());
-                    }
+                if name.starts_with('.')
+                    && name.len() > 1
+                    && !anya_scoring::detection_patterns::is_standard_elf_section(name)
+                {
+                    Some(name.to_string())
+                } else {
+                    None
                 }
-                None
             })
         })
         .collect();
@@ -386,6 +330,109 @@ pub fn analyse_elf_data(data: &[u8]) -> Result<output::ELFAnalysis> {
         suspicious_section_names,
         suspicious_libc_calls: vec![], // populated from string analysis if needed
     })
+}
+
+/// Pretty-print ELF analysis to stdout.
+pub fn analyse_elf(data: &[u8], output_level: OutputLevel) -> Result<()> {
+    let analysis = analyse_elf_data(data)?;
+
+    println!("{}", "=== ELF File Analysis ===".bold().cyan());
+
+    println!("\n{}", "ELF Header Information:".bold());
+    println!("  Architecture:  {}", analysis.architecture);
+    println!("  Type:          {}", analysis.file_type);
+    println!("  Entry Point:   {}", analysis.entry_point);
+    if let Some(ref interp) = analysis.interpreter {
+        println!("  Interpreter:   {}", interp);
+    }
+
+    println!("\n  Security Features:");
+    if analysis.is_pie {
+        println!("    {} PIE (Position Independent Executable)", "✓".green());
+    } else {
+        println!("    {} PIE not enabled", "✗".red());
+    }
+    if analysis.has_nx_stack {
+        println!("    {} NX stack enabled", "✓".green());
+    } else {
+        println!("    {} NX stack NOT enabled (suspicious)", "✗".red());
+    }
+    if analysis.has_relro {
+        println!("    {} RELRO enabled", "✓".green());
+    } else {
+        println!("    {} RELRO not enabled", "✗".yellow());
+    }
+    if analysis.is_stripped {
+        println!("    {} Symbol table stripped", "⚠".yellow());
+    }
+
+    println!(
+        "\n{} ({} sections)",
+        "Section Analysis:".bold(),
+        analysis.sections.len()
+    );
+    for section in &analysis.sections {
+        if section.size == 0 {
+            continue;
+        }
+        let entropy_str = if section.entropy > 7.5 {
+            format!("{:.2} ⚠", section.entropy).red().to_string()
+        } else if section.entropy > 6.5 {
+            format!("{:.2}", section.entropy).yellow().to_string()
+        } else {
+            format!("{:.2}", section.entropy).green().to_string()
+        };
+        println!(
+            "  {:<20} {:<12} size={:<10} entropy={}",
+            section.name, section.section_type, section.size, entropy_str
+        );
+        if section.is_wx {
+            println!(
+                "    {} Section is both writable and executable (highly suspicious!)",
+                "⚠".red().bold()
+            );
+        }
+    }
+
+    println!("\n{}", "Import Analysis:".bold());
+    println!("  Libraries:       {}", analysis.imports.library_count);
+    println!(
+        "  Dynamic Symbols: {}",
+        analysis.imports.dynamic_symbol_count
+    );
+    if !analysis.imports.suspicious_functions.is_empty() {
+        println!("\n  {} Suspicious Functions Detected:", "⚠".red().bold());
+        for f in &analysis.imports.suspicious_functions {
+            println!(
+                "    {} {} - {}",
+                "•".red(),
+                f.name.red(),
+                f.category.yellow()
+            );
+        }
+    }
+
+    if output_level.should_print_verbose() {
+        println!("\n  Linked Libraries:");
+        for lib in &analysis.imports.libraries {
+            println!("    • {}", lib);
+        }
+    }
+
+    if !analysis.packer_indicators.is_empty() {
+        println!("\n{}", "Packer Indicators:".bold().red());
+        for packer in &analysis.packer_indicators {
+            println!(
+                "  {} {} ({} confidence, via {})",
+                "⚠".red(),
+                packer.name.red().bold(),
+                packer.confidence,
+                packer.detection_method
+            );
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -558,107 +605,4 @@ mod tests {
         assert!(is_suspicious_elf_function("CreateRemoteThread"));
         assert!(is_suspicious_elf_function("WriteProcessMemory"));
     }
-}
-
-/// Pretty-print ELF analysis to stdout.
-pub fn analyse_elf(data: &[u8], output_level: OutputLevel) -> Result<()> {
-    let analysis = analyse_elf_data(data)?;
-
-    println!("{}", "=== ELF File Analysis ===".bold().cyan());
-
-    println!("\n{}", "ELF Header Information:".bold());
-    println!("  Architecture:  {}", analysis.architecture);
-    println!("  Type:          {}", analysis.file_type);
-    println!("  Entry Point:   {}", analysis.entry_point);
-    if let Some(ref interp) = analysis.interpreter {
-        println!("  Interpreter:   {}", interp);
-    }
-
-    println!("\n  Security Features:");
-    if analysis.is_pie {
-        println!("    {} PIE (Position Independent Executable)", "✓".green());
-    } else {
-        println!("    {} PIE not enabled", "✗".red());
-    }
-    if analysis.has_nx_stack {
-        println!("    {} NX stack enabled", "✓".green());
-    } else {
-        println!("    {} NX stack NOT enabled (suspicious)", "✗".red());
-    }
-    if analysis.has_relro {
-        println!("    {} RELRO enabled", "✓".green());
-    } else {
-        println!("    {} RELRO not enabled", "✗".yellow());
-    }
-    if analysis.is_stripped {
-        println!("    {} Symbol table stripped", "⚠".yellow());
-    }
-
-    println!(
-        "\n{} ({} sections)",
-        "Section Analysis:".bold(),
-        analysis.sections.len()
-    );
-    for section in &analysis.sections {
-        if section.size == 0 {
-            continue;
-        }
-        let entropy_str = if section.entropy > 7.5 {
-            format!("{:.2} ⚠", section.entropy).red().to_string()
-        } else if section.entropy > 6.5 {
-            format!("{:.2}", section.entropy).yellow().to_string()
-        } else {
-            format!("{:.2}", section.entropy).green().to_string()
-        };
-        println!(
-            "  {:<20} {:<12} size={:<10} entropy={}",
-            section.name, section.section_type, section.size, entropy_str
-        );
-        if section.is_wx {
-            println!(
-                "    {} Section is both writable and executable (highly suspicious!)",
-                "⚠".red().bold()
-            );
-        }
-    }
-
-    println!("\n{}", "Import Analysis:".bold());
-    println!("  Libraries:       {}", analysis.imports.library_count);
-    println!(
-        "  Dynamic Symbols: {}",
-        analysis.imports.dynamic_symbol_count
-    );
-    if !analysis.imports.suspicious_functions.is_empty() {
-        println!("\n  {} Suspicious Functions Detected:", "⚠".red().bold());
-        for f in &analysis.imports.suspicious_functions {
-            println!(
-                "    {} {} - {}",
-                "•".red(),
-                f.name.red(),
-                f.category.yellow()
-            );
-        }
-    }
-
-    if output_level.should_print_verbose() {
-        println!("\n  Linked Libraries:");
-        for lib in &analysis.imports.libraries {
-            println!("    • {}", lib);
-        }
-    }
-
-    if !analysis.packer_indicators.is_empty() {
-        println!("\n{}", "Packer Indicators:".bold().red());
-        for packer in &analysis.packer_indicators {
-            println!(
-                "  {} {} ({} confidence, via {})",
-                "⚠".red(),
-                packer.name.red().bold(),
-                packer.confidence,
-                packer.detection_method
-            );
-        }
-    }
-
-    Ok(())
 }

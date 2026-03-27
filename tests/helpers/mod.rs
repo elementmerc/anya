@@ -8,7 +8,6 @@
 ///   0x058  PE32+ optional header (240 bytes)
 ///   0x148  Section table: 1 × .text (40 bytes)
 ///   0x200  Section data: 512 bytes of zeros
-
 fn write_u16(data: &mut [u8], offset: usize, value: u16) {
     data[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
 }

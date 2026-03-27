@@ -247,3 +247,64 @@ jobs:
           files: |
             ${{ env.ASSET }}
             ${{ env.ASSET }}.sha256
+
+  # ── Publish to Chocolatey ────────────────────────────────────────────────────
+  chocolatey:
+    name: Chocolatey — publish
+    runs-on: windows-latest
+    needs: [tauri-build, build-cli]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: meta
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download checksums from release
+        shell: pwsh
+        run: |
+          $version = "${{ steps.meta.outputs.version }}"
+          $tag = "${{ github.ref_name }}"
+          $base = "https://github.com/elementmerc/anya/releases/download/${tag}"
+
+          # Download the .sha256 files
+          Invoke-WebRequest -Uri "${base}/Anya_${version}_x64_en-US.msi.sha256" -OutFile msi.sha256 -ErrorAction Stop
+          Invoke-WebRequest -Uri "${base}/anya-${tag}-x86_64-pc-windows-msvc.zip.sha256" -OutFile cli.sha256 -ErrorAction Stop
+
+          # Extract just the hash (first field)
+          $msiHash = (Get-Content msi.sha256).Split(' ')[0].Trim()
+          $cliHash = (Get-Content cli.sha256).Split(' ')[0].Trim()
+
+          Write-Host "MSI SHA256: $msiHash"
+          Write-Host "CLI SHA256: $cliHash"
+
+          echo "MSI_CHECKSUM=$msiHash" >> $env:GITHUB_ENV
+          echo "CLI_CHECKSUM=$cliHash" >> $env:GITHUB_ENV
+
+      - name: Stamp checksums and version into package files
+        shell: pwsh
+        run: |
+          $version = "${{ steps.meta.outputs.version }}"
+
+          # Stamp chocolateyinstall.ps1
+          $install = Get-Content .choco/tools/chocolateyinstall.ps1 -Raw
+          $install = $install -replace '@@MSI_CHECKSUM@@', $env:MSI_CHECKSUM
+          $install = $install -replace '@@CLI_CHECKSUM@@', $env:CLI_CHECKSUM
+          Set-Content .choco/tools/chocolateyinstall.ps1 $install
+
+          # Stamp VERIFICATION.txt
+          $verify = Get-Content .choco/tools/VERIFICATION.txt -Raw
+          $verify = $verify -replace '@@VERSION@@', $version
+          $verify = $verify -replace '@@MSI_CHECKSUM@@', $env:MSI_CHECKSUM
+          $verify = $verify -replace '@@CLI_CHECKSUM@@', $env:CLI_CHECKSUM
+          Set-Content .choco/tools/VERIFICATION.txt $verify
+
+      - name: Pack and push to Chocolatey
+        shell: pwsh
+        run: |
+          $version = "${{ steps.meta.outputs.version }}"
+          choco pack .choco/anya.nuspec --version $version
+          choco push anya.${version}.nupkg --source https://push.chocolatey.org/ --api-key ${{ secrets.CHOCO_API_KEY }}
+        env:
+          CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}

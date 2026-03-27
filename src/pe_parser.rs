@@ -252,8 +252,30 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
         }
     }
 
+    // Fallback: when goblin fails to parse imports (common with packed/malformed PEs),
+    // scan raw bytes for known suspicious API name strings using Aho-Corasick.
+    // Hits are marked Low confidence since we can't confirm they're actual imports.
+    let mut raw_scan_used = false;
+    if pe.imports.is_empty() {
+        let raw_hits = scan_raw_api_strings(data);
+        if !raw_hits.is_empty() {
+            raw_scan_used = true;
+            let mut seen = HashSet::new();
+            for name in &raw_hits {
+                if seen.insert(name.clone()) && is_suspicious_api(name) {
+                    suspicious_apis.push(output::SuspiciousAPI {
+                        name: name.clone(),
+                        category: categorize_api(name).to_string(),
+                        confidence: Some(output::ConfidenceLevel::Low),
+                    });
+                }
+            }
+        }
+    }
+
     // Assign confidence to each suspicious API based on combination rules
-    {
+    // (skip for raw-scan hits — they already have Low confidence assigned)
+    if !raw_scan_used {
         let all_names: Vec<String> = suspicious_apis.iter().map(|a| a.name.clone()).collect();
         let all_cats: Vec<String> = suspicious_apis.iter().map(|a| a.category.clone()).collect();
         let name_refs: Vec<&str> = all_names.iter().map(|s| s.as_str()).collect();
@@ -266,7 +288,11 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
         }
     }
 
-    let total_imports = pe.imports.len();
+    let total_imports = if pe.imports.is_empty() && !suspicious_apis.is_empty() {
+        suspicious_apis.len() // report raw-scan hits as the import count
+    } else {
+        pe.imports.len()
+    };
     let file_size_bytes = data.len();
     let imports_per_kb = if file_size_bytes > 0 {
         Some(((total_imports as f64 / (file_size_bytes as f64 / 1024.0)) * 100.0).round() / 100.0)
@@ -870,7 +896,7 @@ fn print_anti_analysis_info(findings: &[output::AntiAnalysisFinding], output_lev
     }
 }
 
-/// Collect all suspicious indicators and render a calibrated verdict summary.
+/// Collect all suspicious indicators and render a verdict summary.
 ///
 /// Scoring thresholds:
 ///   Critical ≥ 1                          → SUSPICIOUS
@@ -979,7 +1005,7 @@ fn print_pe_summary(
         }
     }
 
-    // Anti-analysis (high-signal APIs only after recalibration)
+    // Anti-analysis (high-signal APIs only)
     let anti_cats: std::collections::HashSet<&str> =
         anti_analysis.iter().map(|f| f.category.as_str()).collect();
     if anti_cats.len() >= 2 {
@@ -1127,6 +1153,41 @@ fn print_pe_summary(
     }
 
     println!("  Verdict: {}", verdict);
+}
+
+// ─── Raw API string scanning ────────────────────────────────────────────────
+// Fallback for packed/malformed PEs where goblin can't parse the import table.
+// Scans raw bytes for known suspicious API name strings using Aho-Corasick.
+
+/// Scan raw PE bytes for known API name strings.
+/// Returns a vec of matched API names found in the binary.
+fn scan_raw_api_strings(data: &[u8]) -> Vec<String> {
+    use anya_scoring::api_lists::{NOTEWORTHY_APIS, SUSPICIOUS_APIS_TIER1};
+
+    let patterns: Vec<&str> = SUSPICIOUS_APIS_TIER1
+        .iter()
+        .chain(NOTEWORTHY_APIS.iter())
+        .copied()
+        .collect();
+
+    if patterns.is_empty() {
+        return Vec::new();
+    }
+
+    let ac = match AhoCorasick::new(&patterns) {
+        Ok(ac) => ac,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut found = Vec::new();
+    let mut seen = HashSet::new();
+    for mat in ac.find_iter(data) {
+        let name = patterns[mat.pattern().as_usize()];
+        if seen.insert(name) {
+            found.push(name.to_string());
+        }
+    }
+    found
 }
 
 // ─── Phase 1: new PE analysis helpers ────────────────────────────────────────
@@ -1512,42 +1573,24 @@ fn detect_tls_callbacks(data: &[u8], pe: &PE) -> Option<output::TlsInfo> {
 // ── Aho-Corasick single-pass signature scanner ──────────────────────────────
 // Instead of ~11 separate full-file scans, we scan once with all patterns.
 
-// Pattern indices — keep in sync with SIGNATURE_PATTERNS below.
-const SIG_UPX0: usize = 0;
-const SIG_UPX1: usize = 1;
-const SIG_UPX_BANG: usize = 2;
-const SIG_ASPACK: usize = 3;
-const SIG_THEMIDA: usize = 4;
-const SIG_VMPROTECT: usize = 5;
-const SIG_GO_BUILDID: usize = 6;
-const SIG_RUST_UNWIND: usize = 7;
-const SIG_RUST_UNWIND2: usize = 8;
-const SIG_MEIPASS2: usize = 9;
-const SIG_PYINSTALLER: usize = 10;
-const SIG_EMBARCADERO: usize = 11;
-const SIG_BORLAND: usize = 12;
-const SIG_GCC: usize = 13;
-
-const SIGNATURE_PATTERNS: &[&[u8]] = &[
-    b"UPX0",                // 0
-    b"UPX1",                // 1
-    b"UPX!",                // 2
-    b"ASPack",              // 3
-    b"Themida",             // 4
-    b"VMProtect",           // 5
-    b"go.buildid",          // 6
-    b"__rust_begin_unwind", // 7
-    b"rust_begin_unwind",   // 8
-    b"_MEIPASS2",           // 9
-    b"PyInstaller",         // 10
-    b"Embarcadero",         // 11
-    b"Borland",             // 12
-    b"GCC: (",              // 13
-];
+// Pattern indices and signature patterns from the scoring crate.
+use anya_scoring::detection_patterns::{
+    PACKER_SIGNATURE_PATTERNS, SIG_ASPACK, SIG_BORLAND, SIG_EMBARCADERO, SIG_GCC, SIG_GO_BUILDID,
+    SIG_MEIPASS2, SIG_PYINSTALLER, SIG_RUST_UNWIND, SIG_RUST_UNWIND2, SIG_THEMIDA, SIG_UPX_BANG,
+    SIG_UPX0, SIG_UPX1, SIG_VMPROTECT,
+};
 
 /// Scan file data once and return the set of matched pattern indices.
 fn scan_signatures(data: &[u8]) -> HashSet<usize> {
-    let ac = AhoCorasick::new(SIGNATURE_PATTERNS).expect("valid patterns");
+    let patterns = &*PACKER_SIGNATURE_PATTERNS;
+    if patterns.is_empty() {
+        return HashSet::new();
+    }
+    let pattern_refs: Vec<&[u8]> = patterns.iter().map(|p| p.as_slice()).collect();
+    let ac = match AhoCorasick::new(&pattern_refs) {
+        Ok(ac) => ac,
+        Err(_) => return HashSet::new(),
+    };
     ac.find_overlapping_iter(data)
         .map(|m| m.pattern().as_usize())
         .collect()
@@ -1791,74 +1834,33 @@ fn detect_packer(pe: &PE, data: &[u8], sigs: &HashSet<usize>) -> Vec<output::Pac
 }
 
 /// Detect anti-analysis techniques via import names.
-///
-/// String-based VM/sandbox detection requires the extracted strings to be passed in.
-/// TODO: string-based anti-analysis detection requires string extraction pass to be passed into detect_anti_analysis
 fn detect_anti_analysis(pe: &PE) -> Vec<output::AntiAnalysisFinding> {
+    use anya_scoring::detection_patterns::{
+        is_debugger_detection_api, is_timing_api, is_vm_detection_api,
+    };
+
     let mut findings = Vec::new();
-
-    // VM / environment detection APIs.
-    // GetSystemFirmwareTable is removed to Tier 2 (noteworthy) — too common in legitimate software.
-    let vm_detection_apis: &[&str] = &[
-        "NtQuerySystemInformation",
-        "SetupDiGetClassDevs",
-        "SetupDiGetClassDevsA",
-        "SetupDiGetClassDevsW",
-        "EnumDisplayDevices",
-        "EnumDisplayDevicesA",
-        "EnumDisplayDevicesW",
-    ];
-
-    // High-signal debugger detection APIs only.
-    // IsDebuggerPresent, CheckRemoteDebuggerPresent, OutputDebugString, DebugBreak
-    // are in Tier 2 (noteworthy) because they appear in many legitimate binaries.
-    // Only escalate to anti-analysis when combined with the high-signal APIs below.
-    let debugger_detection_apis: &[&str] = &[
-        "NtQueryInformationProcess",
-        "ZwSetInformationThread",
-        "NtSetInformationThread",
-    ];
-
-    // Timing-based anti-debug/sandbox evasion.
-    // QueryPerformanceCounter removed (Tier 3 — ubiquitous performance counter, no signal).
-    let timing_apis: &[&str] = &[
-        "GetTickCount",
-        "GetTickCount64",
-        "NtDelayExecution",
-        "timeGetTime",
-    ];
 
     for import in &pe.imports {
         let name = import.name.as_ref();
 
-        if vm_detection_apis
-            .iter()
-            .any(|&api| api.eq_ignore_ascii_case(name))
-        {
+        if is_vm_detection_api(name) {
             findings.push(output::AntiAnalysisFinding {
                 category: "VmDetection".to_string(),
                 indicator: name.to_string(),
             });
-        } else if debugger_detection_apis
-            .iter()
-            .any(|&api| api.eq_ignore_ascii_case(name))
-        {
+        } else if is_debugger_detection_api(name) {
             findings.push(output::AntiAnalysisFinding {
                 category: "DebuggerDetection".to_string(),
                 indicator: name.to_string(),
             });
-        } else if timing_apis
-            .iter()
-            .any(|&api| api.eq_ignore_ascii_case(name))
-        {
+        } else if is_timing_api(name) {
             findings.push(output::AntiAnalysisFinding {
                 category: "TimingCheck".to_string(),
                 indicator: name.to_string(),
             });
         }
     }
-
-    // TODO: sleep loop detection requires disassembler integration (e.g. capstone-rs)
 
     findings
 }

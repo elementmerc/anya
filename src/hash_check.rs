@@ -219,7 +219,7 @@ mod tests {
     fn test_load_hash_list() {
         let mut tmp = tempfile::NamedTempFile::new().unwrap();
         writeln!(tmp, "# This is a comment").unwrap();
-        writeln!(tmp, "").unwrap();
+        writeln!(tmp,).unwrap();
         writeln!(tmp, "D41D8CD98F00B204E9800998ECF8427E").unwrap();
         writeln!(tmp, "  da39a3ee5e6b4b0d3255bfef95601890afd80709  ").unwrap();
         writeln!(tmp, "# another comment").unwrap();

@@ -31,7 +31,7 @@ pub mod output;
 pub mod pe_parser;
 pub mod yara;
 
-// Scoring engine (private crate)
+// Scoring engine
 pub use anya_scoring;
 
 // Output verbosity level
@@ -207,13 +207,16 @@ pub fn calculate_file_entropy(data: &[u8]) -> output::EntropyInfo {
 
 /// Categorize entropy value
 pub fn categorize_entropy(entropy: f64) -> (&'static str, bool) {
-    if entropy > 7.5 {
+    use anya_scoring::detection_patterns::{
+        ENTROPY_HIGH, ENTROPY_MODERATE, ENTROPY_MODERATE_HIGH, ENTROPY_VERY_HIGH,
+    };
+    if entropy > ENTROPY_VERY_HIGH {
         ("Very High", true)
-    } else if entropy > 7.0 {
+    } else if entropy > ENTROPY_HIGH {
         ("High", true)
-    } else if entropy > 6.0 {
+    } else if entropy > ENTROPY_MODERATE_HIGH {
         ("Moderate-High", false)
-    } else if entropy > 4.0 {
+    } else if entropy > ENTROPY_MODERATE {
         ("Moderate", false)
     } else {
         ("Low", false)
@@ -333,44 +336,25 @@ fn classify_strings(strings: &[(String, usize)]) -> Vec<output::ClassifiedString
 }
 
 /// Aho-Corasick automaton for command/suspicious keyword detection.
-/// Matches all patterns in a single pass over the string instead of
-/// calling `str::contains()` once per keyword.
+/// Keywords are defined in the anya-scoring crate.
 static COMMAND_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    let keywords = &*anya_scoring::detection_patterns::COMMAND_KEYWORDS;
+    let kw_refs: Vec<&str> = keywords.iter().map(|s| s.as_str()).collect();
     AhoCorasick::builder()
         .ascii_case_insensitive(true)
-        .build([
-            "cmd.exe",
-            "powershell",
-            "/c ",
-            "wget ",
-            "curl ",
-            "bash -c",
-            "sh -c",
-            "mshta",
-            "wscript",
-            "cscript",
-            "regsvr32",
-            "rundll32",
-            "schtasks",
-            "certutil",
-            "bitsadmin",
-        ])
-        .unwrap()
+        .build(&kw_refs)
+        .unwrap_or_else(|_| AhoCorasick::new([""; 0]).unwrap())
 });
 
 /// Aho-Corasick automaton for registry key prefix detection.
+/// Keywords are defined in the anya-scoring crate.
 static REGISTRY_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    let keywords = &*anya_scoring::detection_patterns::REGISTRY_KEYWORDS;
+    let kw_refs: Vec<&str> = keywords.iter().map(|s| s.as_str()).collect();
     AhoCorasick::builder()
         .ascii_case_insensitive(true)
-        .build([
-            "HKEY_",
-            "HKLM\\",
-            "HKCU\\",
-            "SOFTWARE\\",
-            "SYSTEM\\",
-            "CurrentVersion",
-        ])
-        .unwrap()
+        .build(&kw_refs)
+        .unwrap_or_else(|_| AhoCorasick::new([""; 0]).unwrap())
 });
 
 fn classify_single_string(s: &str) -> String {
@@ -849,66 +833,11 @@ pub fn find_executable_files(dir_path: &Path, recursive: bool) -> Result<Vec<Pat
 
 /// Compute a verdict string from analysis results.
 /// Returns (verdict_word, full_summary) e.g. ("MALICIOUS", "MALICIOUS — 4 critical indicators, 2 high")
+///
+/// Delegates to the scoring crate's `score_analysis()`.
 pub fn compute_verdict(result: &output::AnalysisResult) -> (String, String) {
-    let detections = confidence::top_detections(result, 100);
-
-    // Check for unknown format first
-    if result.file_format == "Unrecognized" || result.file_format == "Unknown" {
-        return (
-            "UNKNOWN".to_string(),
-            "UNKNOWN — file format not recognised".to_string(),
-        );
-    }
-
-    let mut critical = 0usize;
-    let mut high = 0usize;
-    let mut medium = 0usize;
-
-    for d in &detections {
-        match d.confidence {
-            output::ConfidenceLevel::Critical => critical += 1,
-            output::ConfidenceLevel::High => high += 1,
-            output::ConfidenceLevel::Medium => medium += 1,
-            output::ConfidenceLevel::Low => {}
-        }
-    }
-
-    let verdict = if critical > 0 || high >= 2 {
-        "MALICIOUS"
-    } else if high > 0 || medium >= 2 {
-        "SUSPICIOUS"
-    } else {
-        "CLEAN"
-    };
-
-    // Build detail string
-    let mut parts = Vec::new();
-    if critical > 0 {
-        parts.push(format!("{} critical", critical));
-    }
-    if high > 0 {
-        parts.push(format!("{} high", high));
-    }
-    if medium > 0 {
-        parts.push(format!("{} medium", medium));
-    }
-
-    let summary = if parts.is_empty() {
-        format!("{} — no significant indicators found", verdict)
-    } else {
-        format!(
-            "{} — {} indicator{}",
-            verdict,
-            parts.join(", "),
-            if critical + high + medium == 1 {
-                ""
-            } else {
-                "s"
-            }
-        )
-    };
-
-    (verdict.to_string(), summary)
+    let scoring = confidence::score_analysis(result);
+    (scoring.verdict, scoring.verdict_summary)
 }
 
 /// Check if a file is suspicious based on analysis
@@ -1291,11 +1220,13 @@ mod tests {
 
     #[test]
     fn test_batch_summary() {
-        let mut summary = BatchSummary::default();
-        summary.total_files = 10;
-        summary.analysed = 8;
-        summary.failed = 2;
-        summary.duration = 4.0;
+        let summary = BatchSummary {
+            total_files: 10,
+            analysed: 8,
+            failed: 2,
+            duration: 4.0,
+            ..Default::default()
+        };
 
         assert_eq!(summary.success_rate(), 80.0);
         assert_eq!(summary.analysis_rate(), 2.0); // 8 files / 4 seconds

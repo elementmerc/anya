@@ -225,7 +225,7 @@ mod tests {
         let has_t1055 = get_map().values().any(|f| {
             f.mitre_technique_id
                 .as_deref()
-                .map_or(false, |id| id.starts_with("T1055"))
+                .is_some_and(|id| id.starts_with("T1055"))
         });
         assert!(
             has_t1055,

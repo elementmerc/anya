@@ -934,8 +934,8 @@ mod tests {
 
         // Parse back to verify structure
         let parsed: SecurityFeatures = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.aslr_enabled, true);
-        assert_eq!(parsed.dep_enabled, false);
+        assert!(parsed.aslr_enabled);
+        assert!(!parsed.dep_enabled);
     }
 
     #[test]

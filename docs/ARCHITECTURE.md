@@ -31,7 +31,7 @@ anya/
 │   ├── hash_check.rs           # Hash list lookup subcommand
 │   ├── yara.rs                 # YARA combine + from-strings subcommands
 │   ├── case.rs                 # Case management (YAML persistence)
-│   ├── confidence.rs           # Confidence scoring logic
+│   ├── confidence.rs           # Scoring bridge (extracts signals → delegates to anya-scoring)
 │   ├── watch.rs              # Directory watch mode (anya watch)
 │   ├── compare.rs            # File comparison (anya compare)
 │   ├── report.rs             # HTML report generation
@@ -92,8 +92,8 @@ anya/
 │   ├── data/
 │   │   ├── mitre_attack.json           # MITRE ATT&CK techniques
 │   │   ├── technique_explanations.json # Simple explanations for Teacher Mode (includes real_world_example field)
-│   │   ├── dll_explanations.json       # One-line DLL descriptions (40 entries)
-│   │   └── function_explanations.json  # Suspicious API explanations (112 entries)
+│   │   ├── dll_explanations.json       # One-line DLL descriptions (140 entries)
+│   │   └── function_explanations.json  # Suspicious API explanations (324 entries)
 │   └── lib/
 │       ├── db.ts               # SQLite access via plugin-sql
 │       ├── risk.ts             # Risk score calculation
@@ -128,12 +128,17 @@ anya/
 │   └── data/                   # anya-data stub (empty JSON strings)
 ├── anya-proprietary/           # Git submodule → private repo (authorised only)
 │   ├── scoring/                # Real scoring engine
+│   │   ├── api_lists.rs        #   Suspicious API name lists
+│   │   ├── confidence.rs       #   Scoring logic and score_signals()
+│   │   ├── detection_patterns.rs # Detection pattern definitions
+│   │   ├── ioc.rs              #   IOC regex patterns
+│   │   ├── thresholds.rs       #   Default thresholds
+│   │   └── types.rs            #   SignalSet, ScoringResult, shared types
 │   └── data/                   # Real educational content
 ├── .cargo/
 │   ├── config.toml             # Path override: stubs → submodule (gitignored)
 │   └── config.toml.example     # Template for authorised developers
 ├── private/                    # Internal (gitignored)
-│   └── scripts/                # Build check, integration tests, icon generation
 ├── Dockerfile
 ├── docker-compose.yml
 ├── Makefile
@@ -144,14 +149,20 @@ anya/
 
 ### Modular Architecture
 
-Anya's analysis engine is split into modular crates. The scoring engine
-and educational data live in a private repository (`anya-proprietary`),
-included as a git submodule. The public repo ships stub crates in
-`anya-stubs/` that mirror the API surface but contain no real weights,
-patterns, or content. A `.cargo/config.toml` path override (gitignored)
-redirects Cargo from stubs to the submodule when present. Pre-built
-binaries include all modules. Building from source requires authorised
-access — see README for installation options.
+Anya's analysis engine is split into modular crates. All scoring logic,
+detection patterns, verdict thresholds, and API lists live in a private
+repository (`anya-proprietary`), included as a git submodule. The public
+repo ships stub crates in `anya-stubs/` that mirror the API surface but
+contain no real weights, patterns, or content.
+
+The public `confidence.rs` extracts signals from `AnalysisResult` into a
+`SignalSet` struct (defined in the scoring crate), passes it to
+`score_signals()`, and returns results. This keeps scoring logic cleanly
+separated from the analysis output layer.
+
+A `.cargo/config.toml` path override (gitignored) redirects Cargo from
+stubs to the submodule when present. Pre-built binaries include all
+modules. Building from source requires authorised access — see README.
 
 ---
 

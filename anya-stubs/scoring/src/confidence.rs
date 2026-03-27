@@ -66,3 +66,14 @@ pub struct RankedDetection {
     pub description: String,
     pub confidence: ConfidenceLevel,
 }
+
+use crate::types::{ScoringResult, SignalSet};
+
+pub fn score_signals(_signals: &SignalSet) -> ScoringResult {
+    ScoringResult {
+        verdict: "CLEAN".to_string(),
+        verdict_summary: "CLEAN — stub scoring engine (no real analysis)".to_string(),
+        risk_score: 0,
+        detections: vec![],
+    }
+}

@@ -1,0 +1,23 @@
+VERIFICATION
+
+Anya binaries are downloaded directly from the official GitHub releases page.
+This package installs two components:
+
+  GUI (MSI):
+    URL: https://github.com/elementmerc/anya/releases/download/v@@VERSION@@/Anya_@@VERSION@@_x64_en-US.msi
+    SHA256: @@MSI_CHECKSUM@@
+
+  CLI (ZIP):
+    URL: https://github.com/elementmerc/anya/releases/download/v@@VERSION@@/anya-v@@VERSION@@-x86_64-pc-windows-msvc.zip
+    SHA256: @@CLI_CHECKSUM@@
+
+To verify manually:
+
+  1. Download the files from the URLs above
+  2. Run in PowerShell:
+       (Get-FileHash Anya_@@VERSION@@_x64_en-US.msi -Algorithm SHA256).Hash
+       (Get-FileHash anya-v@@VERSION@@-x86_64-pc-windows-msvc.zip -Algorithm SHA256).Hash
+  3. Compare with the SHA256 values listed above
+
+Source code: https://github.com/elementmerc/anya
+License: AGPL-3.0 — https://github.com/elementmerc/anya/blob/master/LICENSE.TXT
