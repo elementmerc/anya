@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.2.2] - 2026-03-27
 
 ### Scoring Engine
 - Improved detection accuracy across PE, ELF, and Mach-O formats

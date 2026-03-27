@@ -1,6 +1,6 @@
 [package]
 name = "anya-gui"
-version = "1.1.0"
+version = "1.2.2"
 edition = "2021"
 description = "Anya — PE malware analysis desktop app (Tauri GUI)"
 

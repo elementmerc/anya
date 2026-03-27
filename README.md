@@ -9,7 +9,7 @@
 [![CI](https://github.com/elementmerc/anya/actions/workflows/ci.yml/badge.svg)](https://github.com/elementmerc/anya/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/elementmerc/anya)](https://github.com/elementmerc/anya/releases/latest)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE.TXT)
-[![crates.io](https://img.shields.io/crates/v/anya-security-core)](https://crates.io/crates/anya-security-core)
+[![Docker](https://img.shields.io/docker/pulls/elementmerc/anya)](https://hub.docker.com/r/elementmerc/anya)
 
 <img src="docs/demo.gif" alt="Anya GUI demo" width="720">
 
@@ -17,7 +17,7 @@
 
 ---
 
-Anya analyses binary files without executing them. Drop a PE or ELF onto the GUI, or pipe files through the CLI. Get hashes, entropy, imports, sections, IOC indicators, MITRE ATT&CK mappings, a confidence-scored verdict, and a risk score. All in under seconds, all locally.
+Anya analyses files without executing them. Drop a PE, ELF, Mach-O, PDF, Office doc, or any file onto the GUI, or pipe files through the CLI. Get hashes, entropy, imports, sections, IOC indicators, MITRE ATT&CK mappings, a confidence-scored verdict, and a risk score. 200+ files per minute, entirely offline.
 
 **Anya** (AHN-yah) means "eye" in Igbo.
 
@@ -34,16 +34,24 @@ Grab the latest release for your platform:
 | Platform | GUI | CLI |
 |---|---|---|
 | **Windows** | `.msi` installer | `.zip` |
-| **macOS** | `.dmg` (Intel + Apple Silicon) | Universal binary |
-| **Linux** | `.AppImage` / `.deb` | `.tar.gz` (x86_64 + arm64) |
+| **macOS** | `.dmg` (Intel + Apple Silicon) | Universal binary (`.tar.gz`) |
+| **Linux** | `.AppImage` / `.deb` / `.rpm` | Static musl binary (`.tar.gz`) |
 
-### One-liner (CLI)
+Also available on **[SourceForge](https://sourceforge.net/projects/anya/)**.
+
+### One-liner
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash
 ```
 
-Prompts for CLI, GUI, or both. No root required for CLI.
+Prompts for CLI, GUI, or both. Or specify directly:
+
+```bash
+curl -fsSL .../install.sh | bash -s -- --both   # CLI + GUI
+curl -fsSL .../install.sh | bash -s -- --cli    # CLI only
+curl -fsSL .../install.sh | bash -s -- --gui    # GUI only
+```
 
 ### Docker
 

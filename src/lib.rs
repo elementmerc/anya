@@ -296,6 +296,219 @@ fn detect_mime_type(data: &[u8]) -> Option<String> {
     infer::get(data).map(|t| t.mime_type().to_string())
 }
 
+/// Map a MIME type to a human-readable format label for files goblin can't parse.
+/// Covers 150+ MIME types across archives, documents, images, audio, video,
+/// executables, scripts, fonts, ebooks, and more.
+fn mime_to_format_label(mime: &str) -> String {
+    match mime {
+        // ── Archives & Compressed ───────────────────────────────────────
+        "application/zip" => "ZIP Archive",
+        "application/gzip" | "application/x-gzip" => "GZIP Archive",
+        "application/x-bzip2" => "BZIP2 Archive",
+        "application/x-xz" => "XZ Archive",
+        "application/x-7z-compressed" => "7-Zip Archive",
+        "application/x-rar-compressed" | "application/vnd.rar" => "RAR Archive",
+        "application/x-tar" => "TAR Archive",
+        "application/zstd" | "application/x-zstd" => "Zstandard Archive",
+        "application/x-compress" => "Unix Compress Archive",
+        "application/x-lzip" => "LZIP Archive",
+        "application/x-lzma" => "LZMA Archive",
+        "application/x-lz4" => "LZ4 Archive",
+        "application/x-cpio" => "CPIO Archive",
+        "application/x-unix-archive" => "Unix AR Archive",
+        "application/x-arj" => "ARJ Archive",
+        "application/x-ace-compressed" => "ACE Archive",
+        "application/x-alz-compressed" => "ALZ Archive",
+        "application/x-stuffit" => "StuffIt Archive",
+        // ── Mobile / JVM / Android ──────────────────────────────────────
+        "application/vnd.android.package-archive" => "Android APK",
+        "application/java-archive" => "Java JAR",
+        "application/java" | "application/x-java-applet" => "Java Class",
+        "application/vnd.android.dex" => "Android DEX (Dalvik)",
+        "application/vnd.android.dey" => "Android ODEX",
+        // ── Documents ───────────────────────────────────────────────────
+        "application/pdf" => "PDF Document",
+        "application/msword" => "MS Word Document (DOC)",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
+            "DOCX Document"
+        }
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => "XLSX Spreadsheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" => {
+            "PPTX Presentation"
+        }
+        "application/vnd.ms-excel" => "MS Excel Spreadsheet (XLS)",
+        "application/vnd.ms-powerpoint" => "MS PowerPoint (PPT)",
+        "application/rtf" => "RTF Document",
+        "application/vnd.oasis.opendocument.text" => "OpenDocument Text (ODT)",
+        "application/vnd.oasis.opendocument.spreadsheet" => "OpenDocument Spreadsheet (ODS)",
+        "application/vnd.oasis.opendocument.presentation" => "OpenDocument Presentation (ODP)",
+        "application/epub+zip" => "EPUB Ebook",
+        "application/x-mobipocket-ebook" => "MOBI Ebook",
+        "application/vnd.amazon.ebook" => "Kindle Ebook",
+        "application/postscript" => "PostScript Document",
+        "application/x-latex" | "application/x-tex" => "LaTeX Document",
+        "application/x-ole-storage" => "OLE Compound Document",
+        "application/dicom" => "DICOM Medical Image",
+        // ── Images ──────────────────────────────────────────────────────
+        "image/jpeg" | "image/jpg" => "JPEG Image",
+        "image/png" => "PNG Image",
+        "image/gif" => "GIF Image",
+        "image/bmp" | "image/x-bmp" => "BMP Image",
+        "image/webp" => "WebP Image",
+        "image/tiff" => "TIFF Image",
+        "image/svg+xml" => "SVG Image",
+        "image/vnd.adobe.photoshop" => "Photoshop Document (PSD)",
+        "image/vnd.microsoft.icon" | "image/x-icon" => "ICO Icon",
+        "image/vnd.ms-photo" | "image/jxr" => "JPEG XR Image",
+        "image/avif" => "AVIF Image",
+        "image/heif" | "image/heic" => "HEIF/HEIC Image",
+        "image/jp2" | "image/jpeg2000" => "JPEG 2000 Image",
+        "image/jxl" => "JPEG XL Image",
+        "image/x-canon-cr2" => "Canon RAW (CR2)",
+        "image/x-canon-cr3" => "Canon RAW (CR3)",
+        "image/x-nikon-nef" => "Nikon RAW (NEF)",
+        "image/x-sony-arw" => "Sony RAW (ARW)",
+        "image/x-fuji-raf" => "Fuji RAW (RAF)",
+        "image/x-panasonic-rw2" => "Panasonic RAW (RW2)",
+        "image/x-olympus-orf" => "Olympus RAW (ORF)",
+        "image/x-adobe-dng" => "Adobe DNG RAW",
+        "image/vnd.djvu" | "image/x-djvu" => "DjVu Document",
+        "image/openraster" => "OpenRaster Image",
+        "image/x-pcx" => "PCX Image",
+        "image/x-tga" | "image/x-targa" => "TGA Image",
+        "image/x-portable-pixmap" | "image/x-portable-anymap" => "PPM/PNM Image",
+        "image/x-exr" => "OpenEXR Image",
+        // ── Audio ───────────────────────────────────────────────────────
+        "audio/mpeg" | "audio/mp3" => "MP3 Audio",
+        "audio/ogg" | "audio/vorbis" => "OGG Audio",
+        "audio/x-flac" | "audio/flac" => "FLAC Audio",
+        "audio/x-wav" | "audio/wav" => "WAV Audio",
+        "audio/aac" => "AAC Audio",
+        "audio/m4a" | "audio/x-m4a" => "M4A Audio",
+        "audio/opus" => "Opus Audio",
+        "audio/x-aiff" | "audio/aiff" => "AIFF Audio",
+        "audio/midi" | "audio/x-midi" => "MIDI Audio",
+        "audio/x-ape" => "APE Audio (Monkey's Audio)",
+        "audio/x-dsf" => "DSF Audio (DSD)",
+        "audio/x-musepack" | "audio/musepack" => "Musepack Audio",
+        "audio/amr" => "AMR Audio",
+        "audio/x-wma" | "audio/x-ms-wma" => "WMA Audio",
+        "audio/webm" => "WebM Audio",
+        // ── Video ───────────────────────────────────────────────────────
+        "video/mp4" => "MP4 Video",
+        "video/x-matroska" => "MKV Video (Matroska)",
+        "video/webm" => "WebM Video",
+        "video/x-msvideo" | "video/avi" => "AVI Video",
+        "video/quicktime" => "QuickTime Video (MOV)",
+        "video/x-ms-wmv" => "WMV Video",
+        "video/x-flv" => "FLV Video (Flash)",
+        "video/mpeg" => "MPEG Video",
+        "video/x-m4v" => "M4V Video",
+        "video/3gpp" | "video/3gpp2" => "3GP Video",
+        "video/x-ms-asf" => "ASF Video",
+        "video/ogg" => "OGG Video",
+        "video/mp2t" => "MPEG Transport Stream",
+        "video/x-f4v" => "F4V Video (Flash)",
+        // ── Executables / Libraries ─────────────────────────────────────
+        "application/x-executable" => "Executable",
+        "application/x-sharedlib" | "application/x-shared-library-elf" => "Shared Library",
+        "application/x-mach-binary" => "macOS Mach-O",
+        "application/vnd.microsoft.portable-executable" | "application/x-dosexec" => "Windows PE",
+        "application/x-msdownload" => "Windows Executable",
+        "application/x-msi" => "Windows Installer (MSI)",
+        "application/x-elf" => "Linux ELF",
+        "application/x-object" => "Object File",
+        "application/x-coredump" => "Core Dump",
+        "application/wasm" => "WebAssembly (WASM)",
+        "application/x-llvm" => "LLVM Bitcode",
+        // ── Package Formats ─────────────────────────────────────────────
+        "application/vnd.debian.binary-package" => "Debian Package (DEB)",
+        "application/x-rpm" => "RPM Package",
+        "application/x-apple-diskimage" => "macOS DMG Image",
+        "application/vnd.ms-cab-compressed" => "Windows CAB Archive",
+        "application/vnd.snap" => "Snap Package",
+        "application/vnd.flatpak" | "application/vnd.flatpak.repo" => "Flatpak Package",
+        "application/vnd.appimage" => "AppImage",
+        "application/x-xar" => "XAR Archive (macOS pkg)",
+        "application/x-chrome-extension" | "application/x-google-chrome-extension" => {
+            "Chrome Extension (CRX)"
+        }
+        // ── Disk Images / Firmware ──────────────────────────────────────
+        "application/x-iso9660-image" => "ISO Disk Image",
+        "application/x-raw-disk-image" => "Raw Disk Image",
+        "application/x-qemu-disk" | "application/x-qcow2" => "QEMU Disk Image",
+        "application/x-vmdk" => "VMware Disk Image (VMDK)",
+        "application/x-vhd" | "application/x-vhdx" => "Hyper-V Disk Image (VHD)",
+        "application/x-virtualbox-vdi" => "VirtualBox Disk Image (VDI)",
+        // ── Scripts / Source Code ────────────────────────────────────────
+        "text/x-python" | "text/x-script.python" | "application/x-python-code" => "Python Script",
+        "text/x-shellscript" | "application/x-shellscript" => "Shell Script",
+        "text/x-perl" | "application/x-perl" => "Perl Script",
+        "text/x-ruby" | "application/x-ruby" => "Ruby Script",
+        "application/javascript" | "text/javascript" => "JavaScript",
+        "application/typescript" => "TypeScript",
+        "text/x-lua" => "Lua Script",
+        "text/x-php" | "application/x-php" => "PHP Script",
+        "text/x-java-source" => "Java Source",
+        "text/x-c" | "text/x-csrc" => "C Source",
+        "text/x-c++" | "text/x-c++src" => "C++ Source",
+        "text/x-rust" => "Rust Source",
+        "text/x-go" | "text/x-gosrc" => "Go Source",
+        "text/x-swift" => "Swift Source",
+        "text/x-powershell" | "application/x-powershell" => "PowerShell Script",
+        "application/x-bat" | "application/x-msdos-program" => "Batch Script",
+        "text/x-asm" | "text/x-nasm" => "Assembly Source",
+        // ── Markup / Data ───────────────────────────────────────────────
+        "text/html" | "application/xhtml+xml" => "HTML Document",
+        "text/xml" | "application/xml" => "XML Document",
+        "application/json" => "JSON",
+        "application/x-yaml" | "text/yaml" | "text/x-yaml" => "YAML",
+        "text/csv" => "CSV Data",
+        "text/markdown" | "text/x-markdown" => "Markdown Document",
+        "application/x-ndjson" => "NDJSON (Newline-delimited JSON)",
+        "application/toml" | "text/x-toml" => "TOML Configuration",
+        "application/x-protobuf" => "Protocol Buffers",
+        "application/x-plist" => "Apple Property List",
+        // ── Fonts ───────────────────────────────────────────────────────
+        "font/ttf" | "application/x-font-ttf" => "TrueType Font (TTF)",
+        "font/otf" | "application/x-font-otf" | "application/font-sfnt" => "OpenType Font (OTF)",
+        "font/woff" | "application/font-woff" => "WOFF Font",
+        "font/woff2" | "application/font-woff2" => "WOFF2 Font",
+        "application/vnd.ms-fontobject" => "Embedded OpenType Font (EOT)",
+        // ── Certificates / Security ─────────────────────────────────────
+        "application/x-x509-ca-cert" | "application/x-x509-user-cert" => "X.509 Certificate",
+        "application/pkcs7-mime" | "application/x-pkcs7-mime" => "PKCS#7 Signed Data",
+        "application/pkcs8" | "application/x-pkcs8" => "PKCS#8 Private Key",
+        "application/pkix-cert" => "PKIX Certificate",
+        "application/x-pem-file" => "PEM Certificate/Key",
+        "application/pgp-signature" => "PGP Signature",
+        "application/pgp-keys" => "PGP Public Key",
+        "application/pgp-encrypted" => "PGP Encrypted Data",
+        // ── Databases ───────────────────────────────────────────────────
+        "application/x-sqlite3" | "application/vnd.sqlite3" => "SQLite Database",
+        "application/x-dbf" => "dBASE Database",
+        // ── Misc / Specialised ──────────────────────────────────────────
+        "application/x-shockwave-flash" | "application/x-swf" => "Flash (SWF)",
+        "application/x-nintendo-nes-rom" => "NES ROM",
+        "application/x-gameboy-rom" => "Game Boy ROM",
+        "application/x-sega-genesis-rom" => "Sega Genesis ROM",
+        "application/octet-stream" => "Binary Data",
+        "application/x-pcap" | "application/vnd.tcpdump.pcap" => "PCAP Network Capture",
+        "application/x-pcapng" => "PCAPNG Network Capture",
+        "application/x-lnk" | "application/x-ms-shortcut" => "Windows Shortcut (LNK)",
+        "application/x-ms-registry" => "Windows Registry Hive",
+        // ── Wildcard matches for broad categories ───────────────────────
+        m if m.starts_with("image/") => return format!("Image ({})", &m[6..]),
+        m if m.starts_with("audio/") => return format!("Audio ({})", &m[6..]),
+        m if m.starts_with("video/") => return format!("Video ({})", &m[6..]),
+        m if m.starts_with("text/") => return "Text File".to_string(),
+        m if m.starts_with("font/") => return format!("Font ({})", &m[5..]),
+        // ── Catch-all ───────────────────────────────────────────────────
+        other => return format!("Unknown ({})", other),
+    }
+    .to_string()
+}
+
 /// Calculate TLSH fuzzy hash (returns None if file < 50 bytes)
 fn calculate_tlsh(data: &[u8]) -> Option<String> {
     if data.len() < 50 {
@@ -758,8 +971,14 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
             let macho = macho_parser::analyse_macho_data(&data);
             ("macOS Mach-O".to_string(), None, None, macho)
         }
-        Ok(_) => ("Unknown".to_string(), None, None, None),
-        Err(_) => ("Unrecognized".to_string(), None, None, None),
+        Ok(_) | Err(_) => {
+            // goblin didn't recognise it — use MIME type for a better format label
+            let format_label = mime_type
+                .as_deref()
+                .map(mime_to_format_label)
+                .unwrap_or_else(|| "Unrecognized".to_string());
+            (format_label, None, None, None)
+        }
     };
 
     // File type mismatch detection
