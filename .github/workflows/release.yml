@@ -152,6 +152,8 @@ jobs:
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          sbom: true
+          provenance: mode=max
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
 

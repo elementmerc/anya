@@ -58,7 +58,9 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Measure coverage
-        run: ANYA_VERSION_SUFFIX="" cargo llvm-cov --lib --lcov --output-path coverage/lcov.info
+        run: |
+          mkdir -p coverage
+          ANYA_VERSION_SUFFIX="" cargo llvm-cov --lib --lcov --output-path coverage/lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
