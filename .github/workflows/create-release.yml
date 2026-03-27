@@ -56,8 +56,8 @@ jobs:
       - name: Commit and tag
         run: |
           VERSION="${{ github.event.inputs.version }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "Daniel Iwugo"
+          git config user.email "daniel@themalwarefiles.com"
           git add Cargo.toml src-tauri/Cargo.toml src-tauri/tauri.conf.json package.json
           git commit -m "Bump version to ${VERSION}"
           git tag "v${VERSION}"
