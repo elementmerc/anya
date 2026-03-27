@@ -251,19 +251,11 @@ jobs:
           build-args: |
             VERSION=ci-${{ github.sha }}
 
-  # ── CLI cross-compilation: validate release targets build ────────────────
-  # Catches cross-compile failures before they hit release.
-  cli-cross-compile:
-    name: CLI cross — ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-22.04
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-22.04
+  # ── CLI cross-compilation: validate musl build ──────────────────────────
+  # Catches musl cross-compile failures before they hit release.
+  cli-musl-build:
+    name: CLI — x86_64-musl
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -276,24 +268,14 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-unknown-linux-musl
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: musl
 
-      - name: Install musl tools (x86_64)
-        if: contains(matrix.target, 'x86_64') && contains(matrix.target, 'musl')
-        run: sudo apt-get install -y musl-tools
-
-      - name: Install cross (aarch64)
-        if: contains(matrix.target, 'aarch64')
-        run: cargo install cross --locked
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Build CLI binary
-        run: |
-          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
-            cross build --release --target ${{ matrix.target }} -p anya-security-core
-          else
-            cargo build --release --target ${{ matrix.target }} -p anya-security-core
-          fi
+        run: cargo build --release --target x86_64-unknown-linux-musl -p anya-security-core

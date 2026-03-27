@@ -87,15 +87,23 @@ jobs:
           releaseBody: |
             ## Anya ${{ github.ref_name }}
 
-            ### Installation
-            - **Linux**: Download the `.AppImage` or `.deb` package
-            - **macOS**: Download the `.dmg` (universal binary, runs on both Intel and Apple Silicon)
-            - **Windows**: Download the `.msi` installer
+            ### GUI (desktop app)
+            | Platform | Download |
+            |---|---|
+            | **Linux** | `.AppImage` (universal) · `.deb` (Ubuntu 22.04+) · `.rpm` (Fedora/RHEL) |
+            | **macOS** | `.dmg` (Intel + Apple Silicon) |
+            | **Windows** | `.msi` |
 
-            ### CLI (Docker)
+            ### CLI (command-line)
+            | Platform | Download |
+            |---|---|
+            | **Linux** | `x86_64-unknown-linux-musl.tar.gz` (static, works on any distro) |
+            | **macOS** | `universal-apple-darwin.tar.gz` (Intel + Apple Silicon) |
+            | **Windows** | `x86_64-pc-windows-msvc.zip` |
+
+            ### One-line install
             ```bash
-            docker pull ${{ secrets.DOCKER_HUB_USER }}/anya:${{ github.ref_name }}
-            docker run --rm -v /path/to/samples:/samples ${{ secrets.DOCKER_HUB_USER }}/anya:${{ github.ref_name }} /samples/file.exe
+            curl -fsSL https://raw.githubusercontent.com/elementmerc/anya/master/install.sh | bash
             ```
 
             See [CHANGELOG](https://github.com/${{ github.repository }}/blob/master/docs/CHANGELOG.md) for full details.
@@ -152,7 +160,11 @@ jobs:
           docker run --rm ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }} --version
           docker run --rm ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }} --help
 
-  # ── Build standalone CLI binaries for all platforms ──────────────────────────
+  # ── Build standalone CLI binaries ────────────────────────────────────────────
+  # Trimmed to essentials:
+  #   Linux:   x86_64-musl (static, works on any distro)
+  #   macOS:   universal (Intel + Apple Silicon in one binary)
+  #   Windows: x86_64-msvc
   build-cli:
     name: CLI — ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
@@ -161,21 +173,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-22.04
-            asset_suffix: x86_64-unknown-linux-gnu
           - target: x86_64-unknown-linux-musl
             os: ubuntu-22.04
             asset_suffix: x86_64-unknown-linux-musl
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-22.04
-            asset_suffix: aarch64-unknown-linux-musl
-          - target: x86_64-apple-darwin
+          - target: universal-apple-darwin
             os: macos-latest
-            asset_suffix: x86_64-apple-darwin
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            asset_suffix: aarch64-apple-darwin
+            asset_suffix: universal-apple-darwin
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             asset_suffix: x86_64-pc-windows-msvc
@@ -191,23 +194,22 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.target == 'universal-apple-darwin' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.target }}
 
       - name: Install musl tools
-        if: contains(matrix.target, 'musl') && !contains(matrix.target, 'aarch64')
-        run: sudo apt-get install -y musl-tools
-
-      - name: Install cross-compilation tools (aarch64-musl)
-        if: contains(matrix.target, 'aarch64') && contains(matrix.target, 'musl')
-        run: |
-          # cross handles cross-compilation via Docker containers —
-          # no host gcc-aarch64-linux-gnu needed (and it 404s on GH runners).
-          cargo install cross --locked
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Build CLI binary
         run: |
-          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
-            cross build --release --target ${{ matrix.target }} -p anya-security-core
+          if [[ "${{ matrix.target }}" == "universal-apple-darwin" ]]; then
+            cargo build --release --target aarch64-apple-darwin -p anya-security-core
+            cargo build --release --target x86_64-apple-darwin -p anya-security-core
+            mkdir -p target/universal-apple-darwin/release
+            lipo -create \
+              target/aarch64-apple-darwin/release/anya \
+              target/x86_64-apple-darwin/release/anya \
+              -output target/universal-apple-darwin/release/anya
           else
             cargo build --release --target ${{ matrix.target }} -p anya-security-core
           fi
@@ -218,10 +220,14 @@ jobs:
         run: |
           VERSION=${GITHUB_REF_NAME}
           ASSET="anya-${VERSION}-${{ matrix.asset_suffix }}.tar.gz"
-          cd target/${{ matrix.target }}/release
+          if [[ "${{ matrix.target }}" == "universal-apple-darwin" ]]; then
+            cd target/universal-apple-darwin/release
+          else
+            cd target/${{ matrix.target }}/release
+          fi
           tar czf "../../../${ASSET}" anya
           cd ../../..
-          sha256sum "${ASSET}" > "${ASSET}.sha256"
+          sha256sum "${ASSET}" > "${ASSET}.sha256" 2>/dev/null || shasum -a 256 "${ASSET}" > "${ASSET}.sha256"
           echo "ASSET=${ASSET}" >> "$GITHUB_ENV"
 
       - name: Package (Windows)

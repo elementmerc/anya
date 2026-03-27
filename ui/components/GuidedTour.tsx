@@ -43,26 +43,51 @@ export default function GuidedTour({ active, onComplete }: Props) {
   const s = STEPS[step];
   const isLast = step === STEPS.length - 1;
 
-  // Position tooltip relative to target
+  // Position tooltip relative to target, clamped to viewport
+  const TOOLTIP_W = 300;
+  const GAP = 12;
+  const MARGIN = 12; // min distance from viewport edge
+
   let tooltipStyle: React.CSSProperties = {
-    position: "fixed", zIndex: 10001, width: 300, padding: "16px 20px",
+    position: "fixed", zIndex: 10001, width: TOOLTIP_W, padding: "16px 20px",
     background: "var(--bg-elevated)", border: "1px solid var(--border)",
     borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
     animation: "batch-fade-in 200ms ease-out",
   };
 
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
   if (s.position === "bottom") {
-    tooltipStyle.top = rect.bottom + 12;
-    tooltipStyle.left = rect.left + rect.width / 2 - 150;
+    tooltipStyle.top = rect.bottom + GAP;
+    tooltipStyle.left = rect.left + rect.width / 2 - TOOLTIP_W / 2;
   } else if (s.position === "right") {
     tooltipStyle.top = rect.top + rect.height / 2 - 40;
-    tooltipStyle.left = rect.right + 12;
+    tooltipStyle.left = rect.right + GAP;
   } else if (s.position === "left") {
     tooltipStyle.top = rect.top + rect.height / 2 - 40;
-    tooltipStyle.left = rect.left - 312;
+    tooltipStyle.left = rect.left - TOOLTIP_W - GAP;
   } else {
     tooltipStyle.top = rect.top - 100;
-    tooltipStyle.left = rect.left + rect.width / 2 - 150;
+    tooltipStyle.left = rect.left + rect.width / 2 - TOOLTIP_W / 2;
+  }
+
+  // Clamp horizontal: keep tooltip fully inside the viewport
+  const rawLeft = tooltipStyle.left as number;
+  if (rawLeft + TOOLTIP_W > vw - MARGIN) {
+    tooltipStyle.left = vw - TOOLTIP_W - MARGIN;
+  }
+  if ((tooltipStyle.left as number) < MARGIN) {
+    tooltipStyle.left = MARGIN;
+  }
+
+  // Clamp vertical: if tooltip would overflow below, flip to top of target
+  const rawTop = tooltipStyle.top as number;
+  if (rawTop + 120 > vh) {
+    tooltipStyle.top = rect.top - 120 - GAP;
+  }
+  if ((tooltipStyle.top as number) < MARGIN) {
+    tooltipStyle.top = MARGIN;
   }
 
   return (
@@ -96,7 +121,7 @@ export default function GuidedTour({ active, onComplete }: Props) {
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => onComplete()} style={{
               padding: "4px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
-              background: "transparent", color: "var(--text-muted)", fontSize: "var(--font-size-xs)", cursor: "pointer",
+              background: "transparent", color: "var(--text-secondary)", fontSize: "var(--font-size-xs)", cursor: "pointer",
             }}>Skip</button>
             <button onClick={() => isLast ? onComplete() : setStep(step + 1)} style={{
               padding: "4px 12px", border: "none", borderRadius: "var(--radius-sm)",

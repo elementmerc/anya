@@ -28,9 +28,11 @@ COPY anya-proprietary ./anya-proprietary
 COPY .cargo ./.cargo
 
 # The workspace Cargo.toml lists src-tauri as a member, which isn't present
-# in this build context (excluded by .dockerignore). Remove it from the
-# workspace members list so cargo can resolve the workspace cleanly.
-RUN sed -i 's/members = \["src-tauri"\]/members = []/' Cargo.toml
+# in this build context (excluded by .dockerignore). Remove it so cargo
+# can resolve the workspace cleanly.
+RUN sed -i 's/, "src-tauri"//' Cargo.toml && \
+    sed -i 's/"src-tauri", //' Cargo.toml && \
+    sed -i 's/"src-tauri"//' Cargo.toml
 
 # ── Layer caching: compile all dependencies before touching our source ──────
 # Create minimal stub sources — just enough to let cargo compile the external
