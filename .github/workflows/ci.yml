@@ -275,3 +275,69 @@ jobs:
 
       - name: Build CLI binary
         run: cargo build --release --target x86_64-unknown-linux-musl -p anya-security-core
+
+  # ── Version consistency check ────────────────────────────────────────
+  # Ensures all 4 version files are in sync before any release.
+  version-check:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check all version files match
+        run: |
+          V_CARGO=$(grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          V_TAURI_CARGO=$(grep '^version' src-tauri/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          V_TAURI_JSON=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
+          V_PACKAGE=$(grep '"version"' package.json | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
+
+          echo "Cargo.toml:           $V_CARGO"
+          echo "src-tauri/Cargo.toml: $V_TAURI_CARGO"
+          echo "tauri.conf.json:      $V_TAURI_JSON"
+          echo "package.json:         $V_PACKAGE"
+
+          if [ "$V_CARGO" != "$V_TAURI_CARGO" ] || [ "$V_CARGO" != "$V_TAURI_JSON" ] || [ "$V_CARGO" != "$V_PACKAGE" ]; then
+            echo "::error::Version mismatch! All 4 files must have the same version."
+            echo "Use: ./scripts/bump-version.sh $V_CARGO or the Create Release workflow."
+            exit 1
+          fi
+          echo "All versions match: $V_CARGO"
+
+  # ── Chocolatey package validation ────────────────────────────────────
+  # Validates the .nuspec and install scripts parse correctly (no push).
+  choco-validate:
+    name: Chocolatey — dry run
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate nuspec
+        shell: pwsh
+        run: |
+          # Verify required files exist
+          $files = @(
+            '.choco/anya.nuspec',
+            '.choco/tools/chocolateyinstall.ps1',
+            '.choco/tools/chocolateyuninstall.ps1',
+            '.choco/tools/VERIFICATION.txt',
+            '.choco/tools/LICENSE.txt'
+          )
+          foreach ($f in $files) {
+            if (!(Test-Path $f)) {
+              Write-Error "Missing: $f"
+              exit 1
+            }
+            Write-Host "OK: $f"
+          }
+
+      - name: Dry-run pack
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          Write-Host "Packing version: $version"
+          choco pack .choco/anya.nuspec --version $version
+          if (!(Test-Path "anya.${version}.nupkg")) {
+            Write-Error "choco pack failed — no .nupkg produced"
+            exit 1
+          }
+          Write-Host "Pack successful: anya.${version}.nupkg"
