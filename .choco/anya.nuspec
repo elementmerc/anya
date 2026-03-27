@@ -2,7 +2,6 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>anya</id>
-    <!-- Version is stamped at pack time via: choco pack --version X.Y.Z -->
     <version>0.0.0</version>
     <title>Anya</title>
     <authors>Daniel Iwugo</authors>
