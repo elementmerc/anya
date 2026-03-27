@@ -263,23 +263,64 @@ jobs:
         shell: bash
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Download checksums from release
+      - name: Download release assets and compute checksums
         shell: pwsh
         run: |
           $version = "${{ steps.meta.outputs.version }}"
           $tag = "${{ github.ref_name }}"
-          $base = "https://github.com/elementmerc/anya/releases/download/${tag}"
+          $base = "https://github.com/${{ github.repository }}/releases/download/${tag}"
 
-          # Download the .sha256 files
-          Invoke-WebRequest -Uri "${base}/Anya_${version}_x64_en-US.msi.sha256" -OutFile msi.sha256 -ErrorAction Stop
-          Invoke-WebRequest -Uri "${base}/anya-${tag}-x86_64-pc-windows-msvc.zip.sha256" -OutFile cli.sha256 -ErrorAction Stop
+          # Download the actual assets to compute checksums
+          # MSI name uses tauri.conf.json version — try both tag version and config version
+          $msiDownloaded = $false
+          foreach ($v in @($version)) {
+            $msiUrl = "${base}/Anya_${v}_x64_en-US.msi"
+            try {
+              Invoke-WebRequest -Uri $msiUrl -OutFile anya.msi -ErrorAction Stop
+              $msiDownloaded = $true
+              Write-Host "Downloaded MSI from: $msiUrl"
+              break
+            } catch {
+              Write-Host "MSI not found at: $msiUrl"
+            }
+          }
 
-          # Extract just the hash (first field)
-          $msiHash = (Get-Content msi.sha256).Split(' ')[0].Trim()
-          $cliHash = (Get-Content cli.sha256).Split(' ')[0].Trim()
+          # CLI zip uses git tag in filename
+          $cliUrl = "${base}/anya-${tag}-x86_64-pc-windows-msvc.zip"
+          $cliDownloaded = $false
+          try {
+            Invoke-WebRequest -Uri $cliUrl -OutFile anya-cli.zip -ErrorAction Stop
+            $cliDownloaded = $true
+            Write-Host "Downloaded CLI from: $cliUrl"
+          } catch {
+            # Try .sha256 file as fallback
+            try {
+              $sha256Url = "${cliUrl}.sha256"
+              Invoke-WebRequest -Uri $sha256Url -OutFile cli.sha256 -ErrorAction Stop
+              $cliHash = (Get-Content cli.sha256).Split(' ')[0].Trim()
+              $cliDownloaded = $true
+              Write-Host "Got CLI checksum from .sha256 file: $cliHash"
+            } catch {
+              Write-Host "CLI zip not found at: $cliUrl"
+            }
+          }
 
-          Write-Host "MSI SHA256: $msiHash"
-          Write-Host "CLI SHA256: $cliHash"
+          # Compute checksums
+          if ($msiDownloaded) {
+            $msiHash = (Get-FileHash anya.msi -Algorithm SHA256).Hash.ToLower()
+            Write-Host "MSI SHA256: $msiHash"
+          } else {
+            $msiHash = ""
+            Write-Host "WARNING: Could not download MSI — checksum will be empty"
+          }
+
+          if ($cliDownloaded -and (Test-Path anya-cli.zip)) {
+            $cliHash = (Get-FileHash anya-cli.zip -Algorithm SHA256).Hash.ToLower()
+            Write-Host "CLI SHA256: $cliHash"
+          } elseif (-not $cliDownloaded) {
+            $cliHash = ""
+            Write-Host "WARNING: Could not download CLI — checksum will be empty"
+          }
 
           echo "MSI_CHECKSUM=$msiHash" >> $env:GITHUB_ENV
           echo "CLI_CHECKSUM=$cliHash" >> $env:GITHUB_ENV
@@ -303,6 +344,7 @@ jobs:
           Set-Content .choco/tools/VERIFICATION.txt $verify
 
       - name: Pack and push to Chocolatey
+        if: env.MSI_CHECKSUM != '' && env.CLI_CHECKSUM != ''
         shell: pwsh
         run: |
           $version = "${{ steps.meta.outputs.version }}"
@@ -310,3 +352,7 @@ jobs:
           choco push anya.${version}.nupkg --source https://push.chocolatey.org/ --api-key ${{ secrets.CHOCO_API_KEY }}
         env:
           CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+
+      - name: Warn if checksums missing
+        if: env.MSI_CHECKSUM == '' || env.CLI_CHECKSUM == ''
+        run: echo "::warning::Chocolatey push skipped — could not compute checksums for release assets"
