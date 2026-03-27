@@ -35,6 +35,7 @@ RUN sed -i 's/, "src-tauri"//' Cargo.toml && \
     sed -i 's/"src-tauri"//' Cargo.toml
 
 # ── Layer caching: compile all dependencies before touching our source ──────
+ENV ANYA_VERSION_SUFFIX=""
 # Create minimal stub sources — just enough to let cargo compile the external
 # dependency graph. The stub itself may fail to compile; that's fine because
 # by the time cargo reaches our code all third-party crates are compiled and
