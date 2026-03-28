@@ -132,6 +132,8 @@ pub struct SignalSet {
     pub pe_suspicious_pdb: bool,
     pub pe_import_dll_count: usize,
     pub pe_import_function_count: usize,
+    pub pe_has_version_info: bool,
+    pub pe_has_known_compiler: bool,
     pub elf_is_pie: bool,
     pub elf_has_nx: bool,
     pub elf_has_relro: bool,

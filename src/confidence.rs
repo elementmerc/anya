@@ -134,6 +134,12 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
             .count();
         s.pe_import_dll_count = pe.imports.dll_count;
         s.pe_import_function_count = pe.imports.total_imports;
+        s.pe_has_version_info = pe.version_info.is_some();
+        s.pe_has_known_compiler = pe
+            .compiler
+            .as_ref()
+            .map(|c| !c.name.is_empty() && c.name != "Unknown")
+            .unwrap_or(false);
         // Suspicious PDB path detection
         if let Some(ref debug) = pe.debug_artifacts {
             if let Some(ref pdb) = debug.pdb_path {
