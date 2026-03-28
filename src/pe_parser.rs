@@ -365,13 +365,53 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
         .unwrap_or_default();
 
     // Populate section name anomalies
-    let sections = sections
+    let sections: Vec<output::SectionInfo> = sections
         .into_iter()
         .map(|mut s| {
             s.name_anomaly = Some(classify_section_name(&s.name, s.entropy));
             s
         })
         .collect();
+
+    // ── PE structural anomaly detection ────────────────────────────────────
+    let (anomalies, packed_score) = detect_pe_anomalies(&pe, data, &sections, &rich_header);
+
+    // .NET CLR detection (data directory index 14)
+    let is_dotnet = pe
+        .header
+        .optional_header
+        .as_ref()
+        .and_then(|oh| oh.data_directories.get_clr_runtime_header())
+        .is_some_and(|dd| dd.virtual_address > 0)
+        || bytes_contain(data, b"\x42\x53\x4A\x42"); // BSJB header
+
+    // Delay-load imports (data directory index 13)
+    let has_delay_imports = pe
+        .header
+        .optional_header
+        .as_ref()
+        .and_then(|oh| oh.data_directories.get_delay_import_descriptor())
+        .is_some_and(|dd| dd.virtual_address > 0 && pe.imports.is_empty());
+
+    // Resource analysis
+    let (resource_has_exe, resource_high_entropy, resource_oversized) =
+        analyse_resources(data, &pe);
+
+    // Overlay executable detection
+    let overlay_has_exe = overlay.as_ref().is_some_and(|o| {
+        o.offset + 2 <= data.len() && data[o.offset..o.offset + 2] == [0x4D, 0x5A]
+    });
+
+    // String density (strings per KB)
+    let string_density = {
+        let file_kb = (data.len() as f64) / 1024.0;
+        if file_kb > 0.0 {
+            let string_count = count_printable_strings(data, 4);
+            string_count as f64 / file_kb
+        } else {
+            0.0
+        }
+    };
 
     Ok(output::PEAnalysis {
         architecture,
@@ -397,6 +437,15 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
         debug_artifacts,
         weak_crypto,
         compiler_deps,
+        anomalies,
+        is_dotnet,
+        packed_score,
+        has_delay_imports,
+        resource_has_exe,
+        resource_high_entropy,
+        resource_oversized,
+        overlay_has_exe,
+        string_density,
     })
 }
 
@@ -1867,13 +1916,283 @@ fn detect_anti_analysis(pe: &PE) -> Vec<output::AntiAnalysisFinding> {
 
 // ─── Authenticode + Version Info ─────────────────────────────────────────────
 
-/// Extract Authenticode signature information from the PE Security Directory (data dir index 4).
-///
-/// The Security Directory's virtual_address field is a FILE OFFSET (PE spec special case).
-/// We parse the WIN_CERTIFICATE header and heuristically extract CN= strings from the PKCS#7
-/// blob.  Full cryptographic chain validation is not performed.
-///
-/// TODO: full PKCS#7 parsing — integrate the `cms` + `der` crates for accurate extraction.
+// ─── PE Structural Anomaly Detection ─────────────────────────────────────────
+
+/// Detect structural anomalies in the PE that indicate tampering or packing.
+/// Returns (anomalies, packed_heuristic_score).
+fn detect_pe_anomalies(
+    pe: &PE,
+    _data: &[u8],
+    sections: &[output::SectionInfo],
+    rich_header: &Option<output::RichHeaderInfo>,
+) -> (Vec<output::PeAnomaly>, u32) {
+    let mut anomalies = Vec::new();
+    let mut packed_score: u32 = 0;
+
+    let is_dll = pe.header.coff_header.characteristics & 0x2000 != 0;
+
+    // 1. Virtual/Raw size ratio
+    for section in &pe.sections {
+        let raw = section.size_of_raw_data as f64;
+        let virt = section.virtual_size as f64;
+        if raw > 0.0 && virt / raw > 10.0 {
+            anomalies.push(output::PeAnomaly {
+                name: "virtual_raw_ratio".to_string(),
+                description: format!(
+                    "Section has virtual/raw ratio {:.0}:1 (packing indicator)",
+                    virt / raw
+                ),
+                severity: "High".to_string(),
+            });
+            packed_score += 15;
+            break; // one is enough
+        }
+    }
+
+    // 2. Import directory exists but empty
+    let import_dir_present = pe
+        .header
+        .optional_header
+        .as_ref()
+        .and_then(|oh| oh.data_directories.get_import_table())
+        .is_some_and(|dd| dd.virtual_address > 0);
+
+    if import_dir_present && pe.imports.is_empty() {
+        anomalies.push(output::PeAnomaly {
+            name: "empty_import_table".to_string(),
+            description: "Import directory declared but contains no entries (tampered)".to_string(),
+            severity: "High".to_string(),
+        });
+        packed_score += 20;
+    }
+
+    // Zero imports (even without import directory)
+    if pe.imports.is_empty() {
+        packed_score += 30;
+    }
+
+    // 3. Entry point in last section
+    let ep = pe.entry as u32;
+    if let Some(last) = pe.sections.last() {
+        let last_start = last.virtual_address;
+        let last_end = last_start.saturating_add(last.virtual_size.max(last.size_of_raw_data));
+        if pe.sections.len() > 1 && ep >= last_start && ep < last_end {
+            anomalies.push(output::PeAnomaly {
+                name: "ep_in_last_section".to_string(),
+                description: "Entry point is in the last section (common packer pattern)"
+                    .to_string(),
+                severity: "Medium".to_string(),
+            });
+            packed_score += 15;
+        }
+    }
+
+    // 4. Entry point outside all sections
+    let ep_in_any = pe.sections.iter().any(|s| {
+        let start = s.virtual_address;
+        let end = start.saturating_add(s.virtual_size.max(s.size_of_raw_data));
+        ep >= start && ep < end
+    });
+    if !ep_in_any && ep > 0 {
+        anomalies.push(output::PeAnomaly {
+            name: "ep_outside_sections".to_string(),
+            description: "Entry point is outside all sections (injected or modified)".to_string(),
+            severity: "High".to_string(),
+        });
+        packed_score += 20;
+    }
+
+    // 5. SizeOfCode = 0
+    if let Some(oh) = &pe.header.optional_header {
+        if oh.standard_fields.size_of_code == 0 && !is_dll {
+            anomalies.push(output::PeAnomaly {
+                name: "zero_size_of_code".to_string(),
+                description: "SizeOfCode is 0 (no declared code section)".to_string(),
+                severity: "Medium".to_string(),
+            });
+            packed_score += 10;
+        }
+    }
+
+    // 6. Raw size 0 but virtual > 0
+    for section in &pe.sections {
+        if section.size_of_raw_data == 0 && section.virtual_size > 0x1000 {
+            anomalies.push(output::PeAnomaly {
+                name: "raw_zero_virtual_large".to_string(),
+                description: format!(
+                    "Section has 0 raw bytes but 0x{:X} virtual (unpack placeholder)",
+                    section.virtual_size
+                ),
+                severity: "Medium".to_string(),
+            });
+            packed_score += 10;
+            break;
+        }
+    }
+
+    // 7. Very few sections
+    if pe.sections.len() <= 2 && !is_dll {
+        packed_score += 10;
+    }
+
+    // 8. Timestamp anomaly
+    let timestamp = pe.header.coff_header.time_date_stamp;
+    if timestamp == 0 {
+        anomalies.push(output::PeAnomaly {
+            name: "timestamp_zero".to_string(),
+            description: "PE timestamp is zero (stripped or tampered)".to_string(),
+            severity: "Low".to_string(),
+        });
+        packed_score += 5;
+    } else if timestamp == 0x2A425E19 {
+        anomalies.push(output::PeAnomaly {
+            name: "timestamp_delphi".to_string(),
+            description: "PE timestamp is Delphi epoch (1992-06-19)".to_string(),
+            severity: "Low".to_string(),
+        });
+        packed_score += 5;
+    } else if timestamp > 0x70000000 {
+        // ~2028+ — likely future date
+        anomalies.push(output::PeAnomaly {
+            name: "timestamp_future".to_string(),
+            description: "PE timestamp is in the future".to_string(),
+            severity: "Low".to_string(),
+        });
+        packed_score += 5;
+    }
+
+    // 9. Missing Rich header
+    if rich_header.is_none()
+        && pe.sections.iter().any(|s| {
+            let name = String::from_utf8_lossy(&s.name).to_lowercase();
+            name.starts_with(".text") || name.starts_with(".rdata")
+        })
+    {
+        packed_score += 5;
+    }
+
+    // 10. DLL without relocations
+    if is_dll {
+        let has_relocs = pe
+            .header
+            .optional_header
+            .as_ref()
+            .and_then(|oh| oh.data_directories.get_base_relocation_table())
+            .is_some_and(|dd| dd.virtual_address > 0);
+        if !has_relocs {
+            anomalies.push(output::PeAnomaly {
+                name: "dll_no_relocations".to_string(),
+                description: "DLL has no relocation table (unusual)".to_string(),
+                severity: "Medium".to_string(),
+            });
+        }
+    }
+
+    // 11. Moderate entropy packing (6.0-7.0 range on executable sections)
+    let exec_sections: Vec<f64> = sections
+        .iter()
+        .filter(|s| s.raw_size > 0)
+        .map(|s| s.entropy)
+        .collect();
+    if !exec_sections.is_empty() {
+        let all_moderate = exec_sections.iter().all(|&e| (6.0..7.0).contains(&e));
+        if all_moderate && exec_sections.len() >= 2 {
+            packed_score += 10;
+        }
+    }
+
+    // 12. Section entropy patterns
+    if exec_sections.len() >= 2 {
+        let min_e = exec_sections.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max_e = exec_sections
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max);
+        // Classic packer: one near 0, others near 7.5
+        if min_e < 1.0 && max_e > 7.0 {
+            anomalies.push(output::PeAnomaly {
+                name: "entropy_classic_pack".to_string(),
+                description: "Classic packer pattern: empty + high-entropy sections".to_string(),
+                severity: "High".to_string(),
+            });
+        }
+        // Uniform high entropy
+        if max_e - min_e < 0.5 && min_e > 6.0 {
+            anomalies.push(output::PeAnomaly {
+                name: "entropy_uniform".to_string(),
+                description: "Uniform entropy across sections (encrypted/packed)".to_string(),
+                severity: "Medium".to_string(),
+            });
+        }
+    }
+
+    (anomalies, packed_score)
+}
+
+/// Analyse PE resources for embedded executables and high entropy.
+fn analyse_resources(data: &[u8], pe: &PE) -> (bool, bool, bool) {
+    let mut has_exe = false;
+    let mut high_entropy = false;
+    let mut oversized = false;
+
+    // Find resource section
+    if let Some(rsrc_section) = pe.sections.iter().find(|s| {
+        String::from_utf8_lossy(&s.name)
+            .trim_end_matches('\0')
+            .eq_ignore_ascii_case(".rsrc")
+    }) {
+        let start = rsrc_section.pointer_to_raw_data as usize;
+        let size = rsrc_section.size_of_raw_data as usize;
+
+        if start + size <= data.len() && size > 0 {
+            let rsrc_data = &data[start..start + size];
+
+            // Check for embedded MZ header
+            if rsrc_data.windows(2).any(|w| w == [0x4D, 0x5A]) {
+                has_exe = true;
+            }
+
+            // Check entropy
+            let entropy = calculate_entropy(rsrc_data);
+            if entropy > 7.0 {
+                high_entropy = true;
+            }
+
+            // Check if oversized (>50% of file)
+            if size > data.len() / 2 {
+                oversized = true;
+            }
+        }
+    }
+
+    (has_exe, high_entropy, oversized)
+}
+
+/// Count printable ASCII strings of at least `min_len` in raw data.
+fn count_printable_strings(data: &[u8], min_len: usize) -> usize {
+    let mut count = 0;
+    let mut current_len = 0;
+    for &byte in data {
+        if (0x20..=0x7E).contains(&byte) {
+            current_len += 1;
+        } else {
+            if current_len >= min_len {
+                count += 1;
+            }
+            current_len = 0;
+        }
+    }
+    if current_len >= min_len {
+        count += 1;
+    }
+    count
+}
+
+/// Check if `haystack` contains `needle` as a subsequence.
+fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
+}
+
 fn check_authenticode(data: &[u8], pe: &PE) -> output::AuthenticodeInfo {
     let absent = output::AuthenticodeInfo {
         present: false,

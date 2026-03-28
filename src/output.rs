@@ -300,6 +300,53 @@ pub struct PEAnalysis {
     /// Compiler dependency manifest
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub compiler_deps: Vec<CompilerDep>,
+
+    /// PE structural anomalies (tampered headers, packing indicators)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub anomalies: Vec<PeAnomaly>,
+
+    /// True if this is a .NET assembly (CLR data directory present)
+    #[serde(default)]
+    pub is_dotnet: bool,
+
+    /// Composite packed heuristic score (0-100+)
+    #[serde(default)]
+    pub packed_score: u32,
+
+    /// True if delay-load import directory has entries
+    #[serde(default)]
+    pub has_delay_imports: bool,
+
+    /// Embedded executable found in resources
+    #[serde(default)]
+    pub resource_has_exe: bool,
+
+    /// High-entropy resource section (> 7.0)
+    #[serde(default)]
+    pub resource_high_entropy: bool,
+
+    /// Resource section > 50% of file size
+    #[serde(default)]
+    pub resource_oversized: bool,
+
+    /// Executable found in overlay data
+    #[serde(default)]
+    pub overlay_has_exe: bool,
+
+    /// Strings per KB (low density = likely packed)
+    #[serde(default)]
+    pub string_density: f64,
+}
+
+/// A PE structural anomaly detected during analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeAnomaly {
+    /// Machine-readable identifier
+    pub name: String,
+    /// Human-readable description
+    pub description: String,
+    /// Severity: "High", "Medium", "Low"
+    pub severity: String,
 }
 
 /// PE checksum comparison
@@ -1030,6 +1077,15 @@ mod tests {
             debug_artifacts: None,
             weak_crypto: vec![],
             compiler_deps: vec![],
+            anomalies: vec![],
+            is_dotnet: false,
+            packed_score: 0,
+            has_delay_imports: false,
+            resource_has_exe: false,
+            resource_high_entropy: false,
+            resource_oversized: false,
+            overlay_has_exe: false,
+            string_density: 0.0,
         };
 
         let json = serde_json::to_string_pretty(&pe).unwrap();

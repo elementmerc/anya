@@ -88,6 +88,23 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
                 confidence: "High".to_string(), // anti-analysis is always High
             })
             .collect();
+
+        // PE structural anomalies
+        s.pe_anomaly_count = pe.anomalies.len();
+        s.pe_anomaly_high_count = pe.anomalies.iter().filter(|a| a.severity == "High").count();
+        s.pe_anomaly_medium_count = pe
+            .anomalies
+            .iter()
+            .filter(|a| a.severity == "Medium")
+            .count();
+        s.pe_packed_score = pe.packed_score;
+        s.pe_is_dotnet = pe.is_dotnet;
+        s.pe_has_delay_imports = pe.has_delay_imports;
+        s.pe_resource_has_exe = pe.resource_has_exe;
+        s.pe_resource_high_entropy = pe.resource_high_entropy;
+        s.pe_resource_oversized = pe.resource_oversized;
+        s.pe_overlay_has_exe = pe.overlay_has_exe;
+        s.pe_string_density = pe.string_density;
     }
 
     // ── ELF signals ─────────────────────────────────────────────────────
@@ -103,6 +120,17 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
             .map(|sec| sec.name.clone())
             .collect();
         s.elf_suspicious_function_count = elf.imports.suspicious_functions.len();
+        s.elf_library_count = elf.imports.library_count;
+        s.elf_dynamic_symbol_count = elf.imports.dynamic_symbol_count;
+        s.elf_is_static = elf.imports.library_count == 0 && elf.imports.dynamic_symbol_count == 0;
+        s.elf_no_text_section = !elf.sections.iter().any(|sec| sec.name == ".text");
+        // EP outside .text detection
+        if elf.sections.iter().any(|sec| sec.name == ".text") {
+            let ep_str = elf.entry_point.trim_start_matches("0x");
+            if let Ok(ep) = u64::from_str_radix(ep_str, 16) {
+                s.elf_ep_outside_text = ep == 0;
+            }
+        }
         s.elf_packer_indicators = elf
             .packer_indicators
             .iter()
@@ -139,7 +167,19 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
 
     // ── IOC signals ─────────────────────────────────────────────────────
     if let Some(ref ioc) = result.ioc_summary {
-        s.ioc_total_count = ioc.ioc_strings.len();
+        // Count high-value IOCs for volume (exclude mutex/paths — too noisy)
+        s.ioc_total_count = ioc
+            .ioc_strings
+            .iter()
+            .filter(|es| {
+                es.ioc_type.as_ref().is_some_and(|t| {
+                    !matches!(
+                        t.to_string().as_str(),
+                        "mutex" | "windows_path" | "linux_path"
+                    )
+                })
+            })
+            .count();
         s.ioc_strings = ioc
             .ioc_strings
             .iter()
@@ -299,6 +339,15 @@ mod tests {
             debug_artifacts: None,
             weak_crypto: vec![],
             compiler_deps: vec![],
+            anomalies: vec![],
+            is_dotnet: false,
+            packed_score: 0,
+            has_delay_imports: false,
+            resource_has_exe: false,
+            resource_high_entropy: false,
+            resource_oversized: false,
+            overlay_has_exe: false,
+            string_density: 0.0,
         }
     }
 

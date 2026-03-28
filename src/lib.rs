@@ -1507,6 +1507,15 @@ mod tests {
             debug_artifacts: None,
             weak_crypto: vec![],
             compiler_deps: vec![],
+            anomalies: vec![],
+            is_dotnet: false,
+            packed_score: 0,
+            has_delay_imports: false,
+            resource_has_exe: false,
+            resource_high_entropy: false,
+            resource_oversized: false,
+            overlay_has_exe: false,
+            string_density: 0.0,
         }
     }
 
