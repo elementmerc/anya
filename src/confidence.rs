@@ -123,9 +123,9 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
         };
         // Standard PE section names — anything outside this set is non-standard
         let standard_sections: &[&str] = &[
-            ".text", ".data", ".rdata", ".rsrc", ".reloc", ".bss", ".idata",
-            ".edata", ".tls", ".pdata", ".debug", ".CRT", ".gfids", ".00cfg",
-            "CODE", "DATA", "BSS", ".textbss", ".crt", ".sxdata", ".xdata",
+            ".text", ".data", ".rdata", ".rsrc", ".reloc", ".bss", ".idata", ".edata", ".tls",
+            ".pdata", ".debug", ".CRT", ".gfids", ".00cfg", "CODE", "DATA", "BSS", ".textbss",
+            ".crt", ".sxdata", ".xdata",
         ];
         s.pe_nonstandard_section_count = pe
             .sections
@@ -138,12 +138,13 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
         if let Some(ref debug) = pe.debug_artifacts {
             if let Some(ref pdb) = debug.pdb_path {
                 let lower = pdb.to_lowercase();
-                s.pe_suspicious_pdb = ["spy", "inject", "keylog", "rat", "trojan",
-                    "backdoor", "exploit", "payload", "dropper", "stealer",
-                    "ransom", "crypt", "hook", "dump", "shell", "bypass",
-                    "kmspy", "rootkit", "botnet"]
-                    .iter()
-                    .any(|kw| lower.contains(kw));
+                s.pe_suspicious_pdb = [
+                    "spy", "inject", "keylog", "rat", "trojan", "backdoor", "exploit", "payload",
+                    "dropper", "stealer", "ransom", "crypt", "hook", "dump", "shell", "bypass",
+                    "kmspy", "rootkit", "botnet",
+                ]
+                .iter()
+                .any(|kw| lower.contains(kw));
             }
         }
     }

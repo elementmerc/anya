@@ -1016,9 +1016,7 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
                 .as_deref()
                 .map(mime_to_format_label)
                 .unwrap_or_else(|| {
-                    extension_to_format_label(
-                        path.extension().and_then(|e| e.to_str()),
-                    )
+                    extension_to_format_label(path.extension().and_then(|e| e.to_str()))
                 });
             (format_label, None, None, None)
         }
