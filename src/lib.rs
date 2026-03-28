@@ -509,6 +509,45 @@ fn mime_to_format_label(mime: &str) -> String {
     .to_string()
 }
 
+/// Fallback format detection from file extension when MIME detection fails.
+/// Used for text-based formats that `infer` cannot detect from magic bytes.
+fn extension_to_format_label(ext: Option<&str>) -> String {
+    match ext.map(|e| e.to_ascii_lowercase()).as_deref() {
+        Some("py" | "pyw" | "pyx") => "Python Script",
+        Some("sh" | "bash") => "Shell Script",
+        Some("ps1" | "psm1" | "psd1") => "PowerShell Script",
+        Some("bat" | "cmd") => "Batch Script",
+        Some("rb") => "Ruby Script",
+        Some("pl" | "pm") => "Perl Script",
+        Some("lua") => "Lua Script",
+        Some("js" | "mjs" | "cjs") => "JavaScript",
+        Some("ts" | "mts") => "TypeScript",
+        Some("vbs" | "vbe") => "VBScript",
+        Some("json") => "JSON",
+        Some("xml" | "xsl" | "xslt") => "XML",
+        Some("yaml" | "yml") => "YAML",
+        Some("toml") => "TOML",
+        Some("ini" | "cfg" | "conf") => "Config File",
+        Some("csv") => "CSV",
+        Some("txt" | "text" | "log") => "Text File",
+        Some("md" | "markdown") => "Markdown",
+        Some("html" | "htm") => "HTML",
+        Some("css") => "CSS",
+        Some("sql") => "SQL",
+        Some("c" | "h") => "C Source",
+        Some("cpp" | "cc" | "cxx" | "hpp") => "C++ Source",
+        Some("rs") => "Rust Source",
+        Some("go") => "Go Source",
+        Some("java") => "Java Source",
+        Some("cs") => "C# Source",
+        Some("swift") => "Swift Source",
+        Some("kt" | "kts") => "Kotlin Source",
+        Some("r") => "R Script",
+        _ => "Unrecognized",
+    }
+    .to_string()
+}
+
 /// Calculate TLSH fuzzy hash (returns None if file < 50 bytes)
 fn calculate_tlsh(data: &[u8]) -> Option<String> {
     if data.len() < 50 {
@@ -972,11 +1011,15 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
             ("macOS Mach-O".to_string(), None, None, macho)
         }
         Ok(_) | Err(_) => {
-            // goblin didn't recognise it — use MIME type for a better format label
+            // goblin didn't recognise it — use MIME type, then extension fallback
             let format_label = mime_type
                 .as_deref()
                 .map(mime_to_format_label)
-                .unwrap_or_else(|| "Unrecognized".to_string());
+                .unwrap_or_else(|| {
+                    extension_to_format_label(
+                        path.extension().and_then(|e| e.to_str()),
+                    )
+                });
             (format_label, None, None, None)
         }
     };

@@ -105,6 +105,47 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
         s.pe_resource_oversized = pe.resource_oversized;
         s.pe_overlay_has_exe = pe.overlay_has_exe;
         s.pe_string_density = pe.string_density;
+        s.pe_is_dll = pe.file_type == "DLL";
+        s.pe_section_count = pe.sections.len();
+        s.pe_high_entropy_section_count = pe
+            .sections
+            .iter()
+            .filter(|sec| sec.entropy > 7.0 && sec.raw_size > 1024)
+            .count();
+        s.pe_moderate_entropy_uniform = {
+            let ents: Vec<f64> = pe
+                .sections
+                .iter()
+                .filter(|sec| sec.raw_size > 0)
+                .map(|sec| sec.entropy)
+                .collect();
+            ents.len() >= 2 && ents.iter().all(|&e| (6.0..7.0).contains(&e))
+        };
+        // Standard PE section names — anything outside this set is non-standard
+        let standard_sections: &[&str] = &[
+            ".text", ".data", ".rdata", ".rsrc", ".reloc", ".bss", ".idata",
+            ".edata", ".tls", ".pdata", ".debug", ".CRT", ".gfids", ".00cfg",
+            "CODE", "DATA", "BSS", ".textbss", ".crt", ".sxdata", ".xdata",
+        ];
+        s.pe_nonstandard_section_count = pe
+            .sections
+            .iter()
+            .filter(|sec| !standard_sections.contains(&sec.name.as_str()))
+            .count();
+        s.pe_import_dll_count = pe.imports.dll_count;
+        s.pe_import_function_count = pe.imports.total_imports;
+        // Suspicious PDB path detection
+        if let Some(ref debug) = pe.debug_artifacts {
+            if let Some(ref pdb) = debug.pdb_path {
+                let lower = pdb.to_lowercase();
+                s.pe_suspicious_pdb = ["spy", "inject", "keylog", "rat", "trojan",
+                    "backdoor", "exploit", "payload", "dropper", "stealer",
+                    "ransom", "crypt", "hook", "dump", "shell", "bypass",
+                    "kmspy", "rootkit", "botnet"]
+                    .iter()
+                    .any(|kw| lower.contains(kw));
+            }
+        }
     }
 
     // ── ELF signals ─────────────────────────────────────────────────────
