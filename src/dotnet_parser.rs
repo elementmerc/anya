@@ -61,7 +61,12 @@ const TABLE_IMPLMAP: usize = 0x1C; // P/Invoke map
 
 /// Parse .NET metadata from PE file data.
 /// Returns None if the file is not a valid .NET assembly or parsing fails.
-pub fn analyse_dotnet(data: &[u8], _clr_rva: u32, _section_rva_base: u32, _section_raw_offset: u32) -> Option<DotNetMetadata> {
+pub fn analyse_dotnet(
+    data: &[u8],
+    _clr_rva: u32,
+    _section_rva_base: u32,
+    _section_raw_offset: u32,
+) -> Option<DotNetMetadata> {
     // Find the BSJB metadata signature in the raw data
     let metadata_offset = find_metadata_root(data)?;
 
@@ -180,8 +185,7 @@ pub fn analyse_dotnet(data: &[u8], _clr_rva: u32, _section_rva_base: u32, _secti
 }
 
 fn find_metadata_root(data: &[u8]) -> Option<usize> {
-    data.windows(4)
-        .position(|w| w == METADATA_SIGNATURE)
+    data.windows(4).position(|w| w == METADATA_SIGNATURE)
 }
 
 fn analyse_strings_stream(data: &[u8], result: &mut DotNetMetadata) {
@@ -351,10 +355,18 @@ mod tests {
         // ConfuserEx should be detected from raw bytes
         let data = b"\x00\x00ConfuserEx\x00\x00";
         let mut result = DotNetMetadata {
-            has_module_initializer: false, obfuscated_names_ratio: 0.0,
-            reflection_usage: false, pinvoke_count: 0, pinvoke_suspicious: false,
-            high_entropy_blob: false, known_obfuscator: None, resource_count: 0,
-            encrypted_resources: false, type_count: 0, method_count: 0, clr_version: None,
+            has_module_initializer: false,
+            obfuscated_names_ratio: 0.0,
+            reflection_usage: false,
+            pinvoke_count: 0,
+            pinvoke_suspicious: false,
+            high_entropy_blob: false,
+            known_obfuscator: None,
+            resource_count: 0,
+            encrypted_resources: false,
+            type_count: 0,
+            method_count: 0,
+            clr_version: None,
         };
         detect_dotnet_patterns(data, &mut result);
         assert_eq!(result.known_obfuscator.as_deref(), Some("ConfuserEx"));

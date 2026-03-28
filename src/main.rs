@@ -448,7 +448,9 @@ fn run() -> Result<()> {
             return Ok(());
         }
         Some(Commands::Yara { command: _ }) => {
-            println!("YARA integration is coming soon. We're ironing out the kinks \u{2014} stay tuned.");
+            println!(
+                "YARA integration is coming soon. We're ironing out the kinks \u{2014} stay tuned."
+            );
             return Ok(());
         }
         Some(Commands::Cases { list }) => {
@@ -494,9 +496,11 @@ fn run() -> Result<()> {
         Some(Commands::Ksd { command }) => {
             let overlay_path = dirs::config_dir()
                 .map(|d| d.join("anya").join("known_samples.json"))
-                .ok_or_else(|| anyhow::anyhow!(
-                    "Could not determine config directory. Set $HOME or $XDG_CONFIG_HOME."
-                ))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Could not determine config directory. Set $HOME or $XDG_CONFIG_HOME."
+                    )
+                })?;
 
             match command {
                 KsdCommands::Import { file } => {
@@ -527,7 +531,8 @@ fn run() -> Result<()> {
                         println!("{:<18} {:<14} {:<10} TLSH", "SHA256", "Family", "Function");
                         println!("{}", "-".repeat(72));
                         for s in filtered.iter().take(*limit) {
-                            println!("{:<18} {:<14} {:<10} {}",
+                            println!(
+                                "{:<18} {:<14} {:<10} {}",
                                 &s.sha256[..16.min(s.sha256.len())],
                                 s.family,
                                 s.function,
@@ -535,7 +540,10 @@ fn run() -> Result<()> {
                             );
                         }
                         if filtered.len() > *limit {
-                            println!("... and {} more (use --limit to see more)", filtered.len() - limit);
+                            println!(
+                                "... and {} more (use --limit to see more)",
+                                filtered.len() - limit
+                            );
                         }
                     }
                 }
@@ -554,7 +562,12 @@ fn run() -> Result<()> {
                     }
                     println!("  Overlay path: {}", overlay_path.display());
                 }
-                KsdCommands::Add { tlsh, family, function, sha256 } => {
+                KsdCommands::Add {
+                    tlsh,
+                    family,
+                    function,
+                    sha256,
+                } => {
                     let sample = anya_scoring::ksd::KnownSample {
                         tlsh: tlsh.clone(),
                         sha256: sha256.clone(),

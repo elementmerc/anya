@@ -2030,7 +2030,8 @@ fn detect_pe_anomalies(
                 ),
                 severity: "Medium".to_string(),
             });
-            packed_score += anya_scoring::detection_patterns::packed_weight_raw_zero_virtual_large();
+            packed_score +=
+                anya_scoring::detection_patterns::packed_weight_raw_zero_virtual_large();
             break;
         }
     }
@@ -2102,7 +2103,8 @@ fn detect_pe_anomalies(
     if !exec_sections.is_empty() {
         let all_moderate = exec_sections.iter().all(|&e| (6.0..7.0).contains(&e));
         if all_moderate && exec_sections.len() >= 2 {
-            packed_score += anya_scoring::detection_patterns::packed_weight_entropy_uniform_moderate();
+            packed_score +=
+                anya_scoring::detection_patterns::packed_weight_entropy_uniform_moderate();
         }
     }
 

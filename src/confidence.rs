@@ -145,17 +145,21 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
         }
         // Suspicious import DLL categories
         {
-            let libs: Vec<String> = pe.imports.libraries.iter().map(|l| l.to_lowercase()).collect();
+            let libs: Vec<String> = pe
+                .imports
+                .libraries
+                .iter()
+                .map(|l| l.to_lowercase())
+                .collect();
             s.pe_has_networking_imports = libs.iter().any(|l| {
-                l == "ws2_32.dll" || l == "wininet.dll" || l == "winhttp.dll"
-                    || l == "dnsapi.dll" || l == "iphlpapi.dll"
+                l == "ws2_32.dll"
+                    || l == "wininet.dll"
+                    || l == "winhttp.dll"
+                    || l == "dnsapi.dll"
+                    || l == "iphlpapi.dll"
             });
-            s.pe_has_crypto_imports = libs.iter().any(|l| {
-                l == "crypt32.dll" || l == "bcrypt.dll"
-            });
-            s.pe_has_process_imports = libs.iter().any(|l| {
-                l == "psapi.dll"
-            });
+            s.pe_has_crypto_imports = libs.iter().any(|l| l == "crypt32.dll" || l == "bcrypt.dll");
+            s.pe_has_process_imports = libs.iter().any(|l| l == "psapi.dll");
         }
         s.pe_has_known_compiler = pe
             .compiler
@@ -217,8 +221,15 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
         // ELF section/library patterns
         let section_names: Vec<&str> = elf.sections.iter().map(|sec| sec.name.as_str()).collect();
         s.elf_has_android_sections = section_names.contains(&".note.android.ident");
-        s.elf_has_legacy_init = section_names.iter().any(|n| *n == ".ctors" || *n == ".dtors");
-        let lib_names: Vec<String> = elf.imports.libraries.iter().map(|l| l.to_lowercase()).collect();
+        s.elf_has_legacy_init = section_names
+            .iter()
+            .any(|n| *n == ".ctors" || *n == ".dtors");
+        let lib_names: Vec<String> = elf
+            .imports
+            .libraries
+            .iter()
+            .map(|l| l.to_lowercase())
+            .collect();
         s.elf_has_capability_lib = lib_names.iter().any(|l| l.starts_with("libcap.so"));
     }
 

@@ -1303,8 +1303,8 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
     // Failures are non-fatal: analysis continues without KSD if anything goes wrong.
     if let Some(ref tlsh) = out.hashes.tlsh {
         match std::panic::catch_unwind(|| {
-            let ksd_overlay_path = dirs::config_dir()
-                .map(|d| d.join("anya").join("known_samples.json"));
+            let ksd_overlay_path =
+                dirs::config_dir().map(|d| d.join("anya").join("known_samples.json"));
             let db = anya_scoring::ksd::KnownSampleDb::load(ksd_overlay_path.as_deref());
             if !db.is_empty() {
                 db.find_nearest(tlsh, 150)
@@ -1314,7 +1314,9 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         }) {
             Ok(result) => out.ksd_match = result,
             Err(_) => {
-                eprintln!("[anya] Warning: KSD lookup failed. Continuing without known sample matching.");
+                eprintln!(
+                    "[anya] Warning: KSD lookup failed. Continuing without known sample matching."
+                );
             }
         }
     }

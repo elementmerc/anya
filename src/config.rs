@@ -79,7 +79,9 @@ pub struct KsdConfig {
     pub overlay_path: String,
 }
 
-fn default_ksd_max_distance() -> u32 { 150 }
+fn default_ksd_max_distance() -> u32 {
+    150
+}
 
 impl Default for KsdConfig {
     fn default() -> Self {

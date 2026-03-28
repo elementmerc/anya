@@ -26,14 +26,50 @@ pub struct CertificateReputation {
 // Known trusted publisher names. Matched as whole tokens against CN fields.
 // Each entry is compared as a complete word boundary match (not substring).
 const TRUSTED_PUBLISHERS: &[&str] = &[
-    "microsoft", "google", "adobe", "mozilla", "apple", "oracle",
-    "amazon", "aws", "github", "jetbrains", "valve", "nvidia", "intel",
-    "amd", "advanced micro devices", "vmware", "cisco",
-    "digicert", "sectigo", "comodo", "globalsign", "verisign",
-    "entrust", "godaddy", "go daddy", "canonical", "red hat", "debian", "ubuntu",
-    "samsung", "ibm", "international business machines", "dell", "hp",
-    "hewlett-packard", "lenovo", "asus", "asustek",
-    "qualcomm", "broadcom", "realtek", "logitech", "corsair", "razer",
+    "microsoft",
+    "google",
+    "adobe",
+    "mozilla",
+    "apple",
+    "oracle",
+    "amazon",
+    "aws",
+    "github",
+    "jetbrains",
+    "valve",
+    "nvidia",
+    "intel",
+    "amd",
+    "advanced micro devices",
+    "vmware",
+    "cisco",
+    "digicert",
+    "sectigo",
+    "comodo",
+    "globalsign",
+    "verisign",
+    "entrust",
+    "godaddy",
+    "go daddy",
+    "canonical",
+    "red hat",
+    "debian",
+    "ubuntu",
+    "samsung",
+    "ibm",
+    "international business machines",
+    "dell",
+    "hp",
+    "hewlett-packard",
+    "lenovo",
+    "asus",
+    "asustek",
+    "qualcomm",
+    "broadcom",
+    "realtek",
+    "logitech",
+    "corsair",
+    "razer",
 ];
 
 /// Check if a Common Name (CN) string belongs to a trusted publisher.
@@ -70,10 +106,11 @@ pub fn is_trusted_cn(cn: &str) -> bool {
             let pub_name = pub_words[0];
             // Single-word publisher: match as whole token
             if tokens.iter().any(|t| {
-                *t == pub_name || domain_suffixes.iter().any(|suf| {
-                    // Match "godaddy.com" as "godaddy" but NOT "godaddy.evil.com"
-                    t.strip_suffix(suf) == Some(pub_name)
-                })
+                *t == pub_name
+                    || domain_suffixes.iter().any(|suf| {
+                        // Match "godaddy.com" as "godaddy" but NOT "godaddy.evil.com"
+                        t.strip_suffix(suf) == Some(pub_name)
+                    })
             }) {
                 return true;
             }
@@ -134,7 +171,10 @@ pub fn analyse_certificate(cert_data: &[u8]) -> CertificateReputation {
     }
 
     let is_self_signed = publisher.is_some() && publisher == issuer;
-    let is_trusted = publisher.as_ref().map(|cn| is_trusted_cn(cn)).unwrap_or(false);
+    let is_trusted = publisher
+        .as_ref()
+        .map(|cn| is_trusted_cn(cn))
+        .unwrap_or(false);
 
     CertificateReputation {
         is_trusted_publisher: is_trusted,
