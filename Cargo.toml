@@ -107,6 +107,9 @@ dirs = "5.0"
 
 # For Office document (ZIP-based) macro detection
 zip = "2"
+cms = "0.2.3"
+x509-cert = "0.2.5"
+const-oid = "0.10.2"
 
 [dev-dependencies]
 # For integration testing

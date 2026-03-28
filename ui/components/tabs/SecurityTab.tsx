@@ -193,6 +193,98 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
                   </div>
                 </FeatureCard>
               )}
+              {/* ── Certificate Reputation ──────────────────────────── */}
+              {pe.authenticode?.present && pe.authenticode.signer_cn && (
+                <FeatureCard
+                  title="Certificate Reputation"
+                  description="Publisher trust verification"
+                  status={pe.authenticode.is_microsoft_signed ? "enabled" : "na"}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {pe.authenticode.signer_cn && <InfoRow label="Publisher" value={pe.authenticode.signer_cn} />}
+                    {pe.authenticode.issuer_cn && <InfoRow label="Issuer" value={pe.authenticode.issuer_cn} />}
+                    <InfoRow label="Trust" value={
+                      pe.authenticode.is_microsoft_signed
+                        ? <span style={{ color: "var(--risk-low)", fontWeight: 600 }}>Trusted Publisher</span>
+                        : pe.authenticode.status === "Self-signed"
+                          ? <span style={{ color: "var(--risk-high)", fontWeight: 600 }}>Self-signed</span>
+                          : <span style={{ color: "var(--risk-medium)", fontWeight: 600 }}>Unknown Publisher</span>
+                    } />
+                  </div>
+                </FeatureCard>
+              )}
+
+              {/* ── Known Sample Match (compact) ──────────────────── */}
+              {result.ksd_match && (
+                <FeatureCard
+                  title="Known Sample Match"
+                  description="TLSH similarity to known malware"
+                  status="disabled"
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <InfoRow label="Family" value={
+                      <span style={{ fontWeight: 600, textTransform: "capitalize" }}>{result.ksd_match.family}</span>
+                    } />
+                    <InfoRow label="Similarity" value={
+                      `${Math.max(0, (1 - result.ksd_match.distance / 200) * 100).toFixed(1)}%`
+                    } />
+                    <InfoRow label="Confidence" value={
+                      <span style={{
+                        color: result.ksd_match.confidence === "Critical" ? "var(--risk-critical)"
+                          : result.ksd_match.confidence === "High" ? "var(--risk-high)"
+                          : "var(--risk-medium)"
+                      }}>
+                        {result.ksd_match.confidence}
+                      </span>
+                    } />
+                  </div>
+                </FeatureCard>
+              )}
+
+              {/* ── .NET Metadata ─────────────────────────────────── */}
+              {pe.dotnet_metadata && (
+                <FeatureCard
+                  title=".NET Assembly"
+                  description="Managed code metadata analysis"
+                  status={pe.dotnet_metadata.known_obfuscator ? "disabled" : "na"}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {pe.dotnet_metadata.known_obfuscator && (
+                      <InfoRow label="Obfuscator" value={
+                        <span style={{ color: "var(--risk-high)", fontWeight: 600 }}>{pe.dotnet_metadata.known_obfuscator}</span>
+                      } />
+                    )}
+                    <InfoRow label="Types" value={pe.dotnet_metadata.type_count} />
+                    <InfoRow label="Methods" value={pe.dotnet_metadata.method_count} />
+                    <InfoRow label="P/Invoke" value={
+                      <span style={pe.dotnet_metadata.pinvoke_suspicious ? { color: "var(--risk-high)" } : {}}>
+                        {pe.dotnet_metadata.pinvoke_count}{pe.dotnet_metadata.pinvoke_suspicious ? " (suspicious)" : ""}
+                      </span>
+                    } />
+                    <InfoRow label="Reflection" value={pe.dotnet_metadata.reflection_usage ? "Yes" : "No"} />
+                    {pe.dotnet_metadata.clr_version && <InfoRow label="CLR" value={pe.dotnet_metadata.clr_version} />}
+                  </div>
+                </FeatureCard>
+              )}
+
+              {/* ── Rich Header ────────────────────────────────────── */}
+              {pe.rich_header ? (
+                <FeatureCard title="Rich Header" description="Undocumented MSVC build metadata" status="enabled">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <InfoRow label="Entries" value={pe.rich_header.entries?.length ?? 0} />
+                    {pe.rich_header.entries && pe.rich_header.entries.length > 0 && (
+                      <InfoRow label="First linker" value={`${pe.rich_header.entries[0].product_name ?? pe.rich_header.entries[0].product_id} build ${pe.rich_header.entries[0].build_number}`} />
+                    )}
+                  </div>
+                </FeatureCard>
+              ) : pe && (
+                <FeatureCard title="Rich Header" description="Undocumented MSVC build metadata" status="disabled">
+                  <span style={{ fontSize: "var(--font-size-xs)", color: "var(--risk-medium)" }}>
+                    No Rich header found — may indicate non-MSVC toolchain or header stripping.
+                  </span>
+                </FeatureCard>
+              )}
+
               {pe.version_info && (
                 <FeatureCard title="Version Info" description="Embedded version resource from the PE file" status="na" fullWidth={versionInfoWide} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "version_info" })} clickable={teacherMode?.enabled}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>

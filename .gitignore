@@ -4,7 +4,6 @@
 *.pdb
 
 # Coverage reports
-tarpaulin-report.html
 *.profraw
 *.profdata
 lcov.info
@@ -103,3 +102,4 @@ docs/ARCHITECTURE_INTERNAL.md
 # Personal
 /private/
 CLAUDE.md
+/tests/

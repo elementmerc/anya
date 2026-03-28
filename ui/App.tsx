@@ -31,7 +31,9 @@ interface PinnedFinding {
 }
 
 // Lazy-load tab components (code splitting)
+import HomeView from "@/components/HomeView";
 const OverviewTab  = lazy(() => import("@/components/tabs/OverviewTab"));
+const IdentityTab  = lazy(() => import("@/components/tabs/IdentityTab"));
 const EntropyTab   = lazy(() => import("@/components/tabs/EntropyTab"));
 const ImportsTab   = lazy(() => import("@/components/tabs/ImportsTab"));
 const SectionsTab  = lazy(() => import("@/components/tabs/SectionsTab"));
@@ -51,12 +53,15 @@ function TabFallback() {
 }
 
 function tabHasBadge(id: TabName, result: AnalysisResult | null): boolean {
-  if (!result?.pe_analysis) return false;
+  if (!result) return false;
+  // Identity tab badges for any file type
+  if (id === "identity") return !!result.ksd_match;
+  if (!result.pe_analysis) return false;
   const pe = result.pe_analysis;
   switch (id) {
     case "imports":  return pe.imports.suspicious_api_count > 0 || pe.anti_analysis.length > 0;
     case "sections": return pe.sections.some((s) => s.is_wx);
-    case "security": return !pe.security.aslr_enabled || !pe.security.dep_enabled;
+    case "security": return !pe.security.aslr_enabled || !pe.security.dep_enabled || !!result.ksd_match;
     case "entropy":  return pe.sections.some((s) => s.entropy > 7.0);
     case "mitre":    return (result.mitre_techniques?.length ?? 0) > 0;
     default:         return false;
@@ -423,6 +428,17 @@ export default function App() {
     if (result) {
       setActiveTab("overview");
       setPinnedFindings([]);  // Clear pinned findings on new analysis
+      // Dynamically add/remove Identity tab based on content
+      const hasIdentity = result.ksd_match || result.pe_analysis?.dotnet_metadata;
+      setTabOrder((prev) => {
+        const without = prev.filter((t) => t !== "identity");
+        if (hasIdentity) {
+          // Insert after "overview"
+          const idx = without.indexOf("overview");
+          return [...without.slice(0, idx + 1), "identity", ...without.slice(idx + 1)];
+        }
+        return without;
+      });
     }
   }, [result?.file_info.path]);
 
@@ -537,6 +553,7 @@ export default function App() {
                 {batchState.selectedIndex !== null && batchSelectedResult?.result ? (
                   <Suspense fallback={<TabFallback />}>
                     {activeTab === "overview"  && <OverviewTab  result={activeResult!} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} />}
+                    {activeTab === "identity"  && <IdentityTab  result={activeResult!} />}
                     {activeTab === "entropy"   && <EntropyTab   result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
                     {activeTab === "imports"   && (
                       <ImportsTab
@@ -581,6 +598,7 @@ export default function App() {
               <main style={{ flex: 1, overflow: "hidden", position: "relative" }}>
                 <Suspense fallback={<TabFallback />}>
                   {activeTab === "overview"  && <OverviewTab  result={activeResult!} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} />}
+                  {activeTab === "identity"  && <IdentityTab  result={activeResult!} />}
                   {activeTab === "entropy"   && <EntropyTab   result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
                   {activeTab === "imports"   && (
                     <ImportsTab
@@ -606,11 +624,14 @@ export default function App() {
             </div>
           </>
         ) : (
-          <DropZone
-            isLoading={isLoading}
-            error={error}
-            onPickFile={analyse}
-          />
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
+            <HomeView onOpenFile={analyse} isLoading={isLoading} />
+            <DropZone
+              isLoading={isLoading}
+              error={error}
+              onPickFile={analyse}
+            />
+          </div>
         )}
 
         {bibleVersesEnabled && <BibleVerseBar />}

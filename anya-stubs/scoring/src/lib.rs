@@ -6,6 +6,7 @@ pub mod api_lists;
 pub mod confidence;
 pub mod detection_patterns;
 pub mod ioc;
+pub mod ksd;
 pub mod thresholds;
 pub mod types;
 

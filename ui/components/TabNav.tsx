@@ -7,6 +7,7 @@ import {
   AlignLeft,
   Shield,
   Crosshair,
+  Fingerprint,
 } from "lucide-react";
 import type { TabName } from "@/types/analysis";
 
@@ -26,7 +27,14 @@ const DEFAULT_TABS: TabDef[] = [
   { id: "mitre",     label: "MITRE",     Icon: Crosshair },
 ];
 
-const TAB_MAP = new Map(DEFAULT_TABS.map((t) => [t.id, t]));
+/** All possible tabs including conditional ones. Parent controls which appear via tabOrder. */
+const ALL_TABS: TabDef[] = [
+  ...DEFAULT_TABS.slice(0, 1), // overview
+  { id: "identity",  label: "Identity",  Icon: Fingerprint },
+  ...DEFAULT_TABS.slice(1),    // rest
+];
+
+const TAB_MAP = new Map(ALL_TABS.map((t) => [t.id, t]));
 
 interface Props {
   active: TabName;

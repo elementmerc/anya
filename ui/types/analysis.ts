@@ -172,6 +172,7 @@ export interface PEAnalysis {
   debug_artifacts?: DebugArtifacts;
   weak_crypto?: WeakCryptoIndicator[];
   compiler_deps?: CompilerDep[];
+  dotnet_metadata?: DotNetMetadata;
 }
 
 export interface DebugArtifacts {
@@ -341,6 +342,44 @@ export interface AnalysisResult {
   mach_analysis?: MachoAnalysis;
   pdf_analysis?: PdfAnalysis;
   office_analysis?: OfficeAnalysis;
+  // Known Sample Database match
+  ksd_match?: KsdMatch;
+  // Verdict summary
+  verdict_summary?: string;
+  top_findings?: TopFinding[];
+}
+
+/** TLSH Known Sample Database match */
+export interface KsdMatch {
+  family: string;
+  function: string;
+  distance: number;
+  confidence: string;
+  reference_sha256: string;
+  tags?: string[];
+}
+
+/** Top finding from scoring engine */
+export interface TopFinding {
+  label: string;
+  confidence: ConfidenceLevel;
+  technique_id?: string;
+}
+
+/** .NET metadata analysis */
+export interface DotNetMetadata {
+  has_module_initializer: boolean;
+  obfuscated_names_ratio: number;
+  reflection_usage: boolean;
+  pinvoke_count: number;
+  pinvoke_suspicious: boolean;
+  high_entropy_blob: boolean;
+  known_obfuscator?: string;
+  resource_count: number;
+  encrypted_resources: boolean;
+  type_count: number;
+  method_count: number;
+  clr_version?: string;
 }
 
 /** Wrapper returned by the analyze_file Tauri command */
@@ -371,6 +410,7 @@ export interface StoredAnalysis {
 
 export type TabName =
   | "overview"
+  | "identity"
   | "entropy"
   | "imports"
   | "sections"

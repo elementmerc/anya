@@ -19,7 +19,7 @@
 // Import necessary libraries
 use anya_security_core::{
     BatchSummary, OutputLevel, analyse_file, case, compute_verdict, config, elf_parser, hash_check,
-    is_executable_file, output, pe_parser, to_json_output, yara,
+    is_executable_file, output, pe_parser, to_json_output,
 };
 use anyhow::{Context, Result}; // For better error handling
 use clap::{CommandFactory, Parser, Subcommand}; // For parsing command-line arguments
@@ -153,6 +153,14 @@ struct Args {
     #[arg(long, value_name = "NAME")]
     case: Option<String>,
 
+    /// Disable Known Sample Database (TLSH similarity) matching
+    #[arg(long)]
+    no_ksd: bool,
+
+    /// Custom TLSH distance threshold for KSD matching (default: 150)
+    #[arg(long, value_name = "DISTANCE", default_value = "150")]
+    ksd_threshold: u32,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -220,6 +228,63 @@ enum Commands {
         /// Shell to generate completions for
         #[arg(value_enum)]
         shell: clap_complete::Shell,
+    },
+
+    /// Manage the Known Sample Database (TLSH similarity matching)
+    Ksd {
+        #[command(subcommand)]
+        command: KsdCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum KsdCommands {
+    /// Import known samples from a calibration results JSON file
+    Import {
+        /// Path to calibration_results.json (with --store-raw data)
+        file: PathBuf,
+    },
+
+    /// List known samples in the database
+    List {
+        /// Filter by malware family
+        #[arg(long)]
+        family: Option<String>,
+        /// Maximum entries to show
+        #[arg(long, default_value = "50")]
+        limit: usize,
+    },
+
+    /// Show database statistics
+    Stats,
+
+    /// Add a single known sample manually
+    Add {
+        /// TLSH hash of the sample
+        #[arg(long)]
+        tlsh: String,
+        /// Malware family name
+        #[arg(long)]
+        family: String,
+        /// Malware function (loader, dropper, stealer, etc.)
+        #[arg(long, default_value = "unknown")]
+        function: String,
+        /// SHA256 hash (optional reference)
+        #[arg(long, default_value = "manual")]
+        sha256: String,
+    },
+
+    /// Export the database to a JSON file
+    Export {
+        /// Output file path
+        file: PathBuf,
+    },
+
+    /// Remove a sample from the overlay database
+    Remove {
+        /// SHA256 hash of the sample to remove
+        #[arg(long)]
+        sha256: String,
     },
 }
 
@@ -382,29 +447,8 @@ fn run() -> Result<()> {
             }
             return Ok(());
         }
-        Some(Commands::Yara { command }) => {
-            match command {
-                YaraCommands::Combine {
-                    input_dir,
-                    output_file,
-                    recursive,
-                } => {
-                    yara::combine(input_dir, output_file, *recursive)?;
-                }
-                YaraCommands::FromStrings {
-                    strings_file,
-                    output,
-                    name,
-                    overwrite,
-                } => {
-                    yara::from_strings(
-                        strings_file,
-                        output.as_deref(),
-                        name.as_deref(),
-                        *overwrite,
-                    )?;
-                }
-            }
+        Some(Commands::Yara { command: _ }) => {
+            println!("YARA integration is coming soon. We're ironing out the kinks \u{2014} stay tuned.");
             return Ok(());
         }
         Some(Commands::Cases { list }) => {
@@ -445,6 +489,105 @@ fn run() -> Result<()> {
         Some(Commands::Completions { shell }) => {
             let mut cmd = Args::command();
             clap_complete::generate(*shell, &mut cmd, "anya", &mut std::io::stdout());
+            return Ok(());
+        }
+        Some(Commands::Ksd { command }) => {
+            let overlay_path = dirs::config_dir()
+                .map(|d| d.join("anya").join("known_samples.json"))
+                .ok_or_else(|| anyhow::anyhow!(
+                    "Could not determine config directory. Set $HOME or $XDG_CONFIG_HOME."
+                ))?;
+
+            match command {
+                KsdCommands::Import { file } => {
+                    println!("Importing known samples from: {}", file.display());
+                    let samples = anya_scoring::ksd::KnownSampleDb::import_calibration(file)
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    if samples.is_empty() {
+                        println!("No samples with TLSH hashes found in the file.");
+                    } else {
+                        println!("Parsed {} samples with TLSH hashes.", samples.len());
+                        anya_scoring::ksd::KnownSampleDb::save_overlay(&samples, &overlay_path)
+                            .map_err(|e| anyhow::anyhow!(e))?;
+                        println!("Overlay saved to: {}", overlay_path.display());
+                    }
+                }
+                KsdCommands::List { family, limit } => {
+                    let db = anya_scoring::ksd::KnownSampleDb::load(Some(&overlay_path));
+                    if db.is_empty() {
+                        println!("Known Sample Database is empty.");
+                        println!("Run 'anya ksd import <calibration_results.json>' to populate.");
+                    } else {
+                        let samples = db.samples();
+                        let filtered: Vec<_> = if let Some(fam) = family {
+                            samples.iter().filter(|s| s.family == *fam).collect()
+                        } else {
+                            samples.iter().collect()
+                        };
+                        println!("{:<18} {:<14} {:<10} TLSH", "SHA256", "Family", "Function");
+                        println!("{}", "-".repeat(72));
+                        for s in filtered.iter().take(*limit) {
+                            println!("{:<18} {:<14} {:<10} {}",
+                                &s.sha256[..16.min(s.sha256.len())],
+                                s.family,
+                                s.function,
+                                &s.tlsh[..20.min(s.tlsh.len())],
+                            );
+                        }
+                        if filtered.len() > *limit {
+                            println!("... and {} more (use --limit to see more)", filtered.len() - limit);
+                        }
+                    }
+                }
+                KsdCommands::Stats => {
+                    let db = anya_scoring::ksd::KnownSampleDb::load(Some(&overlay_path));
+                    let stats = db.stats();
+                    println!("Known Sample Database Statistics");
+                    println!("  Total samples: {}", stats.total_samples);
+                    if !stats.families.is_empty() {
+                        println!("  Families:");
+                        let mut families: Vec<_> = stats.families.iter().collect();
+                        families.sort_by(|a, b| b.1.cmp(a.1));
+                        for (family, count) in families {
+                            println!("    {:<16} {}", family, count);
+                        }
+                    }
+                    println!("  Overlay path: {}", overlay_path.display());
+                }
+                KsdCommands::Add { tlsh, family, function, sha256 } => {
+                    let sample = anya_scoring::ksd::KnownSample {
+                        tlsh: tlsh.clone(),
+                        sha256: sha256.clone(),
+                        family: family.clone(),
+                        function: function.clone(),
+                        tags: vec![],
+                    };
+                    anya_scoring::ksd::KnownSampleDb::save_overlay(&[sample], &overlay_path)
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                }
+                KsdCommands::Remove { sha256 } => {
+                    println!("WARNING: This action is permanent and cannot be reversed.");
+                    println!("Remove sample {}?", &sha256[..16.min(sha256.len())]);
+                    print!("Type 'y' to confirm: ");
+                    use std::io::Write;
+                    std::io::stdout().flush().ok();
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input).ok();
+                    if input.trim().to_lowercase() != "y" {
+                        println!("Cancelled.");
+                        return Ok(());
+                    }
+                    anya_scoring::ksd::KnownSampleDb::remove_from_overlay(sha256, &overlay_path)
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                }
+                KsdCommands::Export { file } => {
+                    let db = anya_scoring::ksd::KnownSampleDb::load(Some(&overlay_path));
+                    let json = serde_json::to_string_pretty(db.samples())
+                        .map_err(|e| anyhow::anyhow!("Failed to serialize: {}", e))?;
+                    std::fs::write(file, json)?;
+                    println!("Exported {} samples to {}", db.len(), file.display());
+                }
+            }
             return Ok(());
         }
         None => {} // Continue to file/directory analysis

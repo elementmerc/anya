@@ -68,3 +68,17 @@ pub fn is_suspicious_rpath(_path: &str) -> bool {
 pub fn is_standard_elf_section(_name: &str) -> bool {
     true
 }
+
+// Packed score weights (stubs return 0 — real values in private crate)
+pub fn packed_weight_virtual_raw_ratio() -> u32 { 0 }
+pub fn packed_weight_empty_import_table() -> u32 { 0 }
+pub fn packed_weight_zero_imports() -> u32 { 0 }
+pub fn packed_weight_ep_in_last_section() -> u32 { 0 }
+pub fn packed_weight_ep_outside_sections() -> u32 { 0 }
+pub fn packed_weight_zero_size_of_code() -> u32 { 0 }
+pub fn packed_weight_raw_zero_virtual_large() -> u32 { 0 }
+pub fn packed_weight_few_sections() -> u32 { 0 }
+pub fn packed_weight_timestamp_anomaly() -> u32 { 0 }
+pub fn packed_weight_missing_rich_header() -> u32 { 0 }
+pub fn packed_weight_entropy_classic_pack() -> u32 { 0 }
+pub fn packed_weight_entropy_uniform_moderate() -> u32 { 0 }

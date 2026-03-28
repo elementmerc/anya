@@ -18,9 +18,11 @@ use walkdir::WalkDir;
 
 // Re-export modules
 pub mod case;
+pub mod cert_db;
 pub mod confidence;
 pub mod config;
 pub mod data;
+pub mod dotnet_parser;
 pub mod elf_parser;
 pub mod errors;
 pub mod guided_output;
@@ -1291,10 +1293,31 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         ioc_summary: result.ioc_summary.clone(),
         verdict_summary: None, // filled below after struct is built
         top_findings: vec![],  // filled below after struct is built
+        ksd_match: None,       // filled below after TLSH is available
         mach_analysis: result.mach_analysis.clone(),
         pdf_analysis: result.pdf_analysis.clone(),
         office_analysis: result.office_analysis.clone(),
     };
+
+    // KSD lookup — find nearest known malware sample by TLSH similarity.
+    // Failures are non-fatal: analysis continues without KSD if anything goes wrong.
+    if let Some(ref tlsh) = out.hashes.tlsh {
+        match std::panic::catch_unwind(|| {
+            let ksd_overlay_path = dirs::config_dir()
+                .map(|d| d.join("anya").join("known_samples.json"));
+            let db = anya_scoring::ksd::KnownSampleDb::load(ksd_overlay_path.as_deref());
+            if !db.is_empty() {
+                db.find_nearest(tlsh, 150)
+            } else {
+                None
+            }
+        }) {
+            Ok(result) => out.ksd_match = result,
+            Err(_) => {
+                eprintln!("[anya] Warning: KSD lookup failed. Continuing without known sample matching.");
+            }
+        }
+    }
 
     // Populate verdict and top findings so all consumers (CLI + GUI) get complete output
     let (_, verdict_text) = compute_verdict(&out);
@@ -1557,6 +1580,7 @@ mod tests {
             resource_oversized: false,
             overlay_has_exe: false,
             string_density: 0.0,
+            dotnet_metadata: None,
         }
     }
 

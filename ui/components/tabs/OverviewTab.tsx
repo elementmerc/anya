@@ -262,6 +262,44 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate, pinned
 
           </div>
 
+          {/* KSD match badge */}
+          {result.ksd_match && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 16px",
+                borderRadius: "var(--radius)",
+                border: `1px solid ${
+                  result.ksd_match.confidence === "Critical" ? "var(--risk-critical)"
+                  : result.ksd_match.confidence === "High" ? "var(--risk-high)"
+                  : "var(--risk-medium)"
+                }`,
+                background: "var(--bg-elevated)",
+                animation: "settings-panel-in 300ms ease-out",
+              }}
+            >
+              <span style={{
+                fontSize: "var(--font-size-xs)",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                color: result.ksd_match.confidence === "Critical" ? "var(--risk-critical)"
+                  : result.ksd_match.confidence === "High" ? "var(--risk-high)"
+                  : "var(--risk-medium)",
+              }}>
+                Known Malware
+              </span>
+              <span style={{ fontSize: "var(--font-size-sm)", color: "var(--text-primary)", fontWeight: 500, textTransform: "capitalize" }}>
+                {result.ksd_match.family}
+              </span>
+              <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>
+                {Math.max(0, (1 - result.ksd_match.distance / 200) * 100).toFixed(0)}% match
+              </span>
+            </div>
+          )}
+
           {/* File info */}
           <div>
             <p

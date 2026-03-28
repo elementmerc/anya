@@ -116,6 +116,10 @@ pub struct AnalysisResult {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub top_findings: Vec<TopFinding>,
 
+    /// Known Sample Database match (TLSH similarity to known malware)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ksd_match: Option<anya_scoring::ksd::KsdMatch>,
+
     /// Mach-O binary analysis (if applicable)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mach_analysis: Option<MachoAnalysis>,
@@ -336,6 +340,10 @@ pub struct PEAnalysis {
     /// Strings per KB (low density = likely packed)
     #[serde(default)]
     pub string_density: f64,
+
+    /// .NET metadata analysis (only for .NET assemblies)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dotnet_metadata: Option<crate::dotnet_parser::DotNetMetadata>,
 }
 
 /// A PE structural anomaly detected during analysis
@@ -891,6 +899,7 @@ mod tests {
             file_type_mismatch: None,
             ioc_summary: None,
             verdict_summary: None,
+            ksd_match: None,
             top_findings: vec![],
             mach_analysis: None,
             pdf_analysis: None,
@@ -1086,6 +1095,7 @@ mod tests {
             resource_oversized: false,
             overlay_has_exe: false,
             string_density: 0.0,
+            dotnet_metadata: None,
         };
 
         let json = serde_json::to_string_pretty(&pe).unwrap();
@@ -1143,6 +1153,7 @@ mod tests {
             file_type_mismatch: None,
             ioc_summary: None,
             verdict_summary: None,
+            ksd_match: None,
             top_findings: vec![],
             mach_analysis: None,
             pdf_analysis: None,
