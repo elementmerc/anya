@@ -31,6 +31,9 @@ jobs:
             exit 1
           fi
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Bump version in all files
         run: |
           VERSION="${{ github.event.inputs.version }}"
@@ -53,12 +56,15 @@ jobs:
           grep -n '"version"' src-tauri/tauri.conf.json | head -1
           grep -n '"version"' package.json | head -1
 
+      - name: Regenerate Cargo.lock
+        run: cargo generate-lockfile
+
       - name: Commit and tag
         run: |
           VERSION="${{ github.event.inputs.version }}"
           git config user.name "Daniel Iwugo"
           git config user.email "daniel@themalwarefiles.com"
-          git add Cargo.toml src-tauri/Cargo.toml src-tauri/tauri.conf.json package.json
+          git add Cargo.toml Cargo.lock src-tauri/Cargo.toml src-tauri/tauri.conf.json package.json
           git commit -m "Bump version to ${VERSION}"
           git tag "v${VERSION}"
           git push origin HEAD
