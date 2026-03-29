@@ -276,6 +276,13 @@ jobs:
       - name: Build CLI binary
         run: cargo build --release --target x86_64-unknown-linux-musl -p anya-security-core
 
+      - name: Upload static CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: anya-linux-x64-static
+          path: target/x86_64-unknown-linux-musl/release/anya
+          retention-days: 14
+
   # ── Version consistency check ────────────────────────────────────────
   # Ensures all 4 version files are in sync before any release.
   version-check:

@@ -105,6 +105,80 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
         s.pe_resource_oversized = pe.resource_oversized;
         s.pe_overlay_has_exe = pe.overlay_has_exe;
         s.pe_string_density = pe.string_density;
+        s.pe_is_dll = pe.file_type == "DLL";
+        s.pe_section_count = pe.sections.len();
+        s.pe_high_entropy_section_count = pe
+            .sections
+            .iter()
+            .filter(|sec| sec.entropy > 7.0 && sec.raw_size > 1024)
+            .count();
+        s.pe_moderate_entropy_uniform = {
+            let ents: Vec<f64> = pe
+                .sections
+                .iter()
+                .filter(|sec| sec.raw_size > 0)
+                .map(|sec| sec.entropy)
+                .collect();
+            ents.len() >= 2 && ents.iter().all(|&e| (6.0..7.0).contains(&e))
+        };
+        // Standard PE section names — anything outside this set is non-standard
+        let standard_sections: &[&str] = &[
+            ".text", ".data", ".rdata", ".rsrc", ".reloc", ".bss", ".idata", ".edata", ".tls",
+            ".pdata", ".debug", ".CRT", ".gfids", ".00cfg", "CODE", "DATA", "BSS", ".textbss",
+            ".crt", ".sxdata", ".xdata",
+        ];
+        s.pe_nonstandard_section_count = pe
+            .sections
+            .iter()
+            .filter(|sec| !standard_sections.contains(&sec.name.as_str()))
+            .count();
+        s.pe_import_dll_count = pe.imports.dll_count;
+        s.pe_import_function_count = pe.imports.total_imports;
+        s.pe_has_version_info = pe.version_info.is_some();
+        // .NET metadata signals
+        if let Some(ref dotnet) = pe.dotnet_metadata {
+            s.pe_dotnet_obfuscated_ratio = dotnet.obfuscated_names_ratio;
+            s.pe_dotnet_known_obfuscator = dotnet.known_obfuscator.clone();
+            s.pe_dotnet_reflection = dotnet.reflection_usage;
+            s.pe_dotnet_pinvoke_suspicious = dotnet.pinvoke_suspicious;
+            s.pe_dotnet_high_entropy_blob = dotnet.high_entropy_blob;
+        }
+        // Suspicious import DLL categories
+        {
+            let libs: Vec<String> = pe
+                .imports
+                .libraries
+                .iter()
+                .map(|l| l.to_lowercase())
+                .collect();
+            s.pe_has_networking_imports = libs.iter().any(|l| {
+                l == "ws2_32.dll"
+                    || l == "wininet.dll"
+                    || l == "winhttp.dll"
+                    || l == "dnsapi.dll"
+                    || l == "iphlpapi.dll"
+            });
+            s.pe_has_crypto_imports = libs.iter().any(|l| l == "crypt32.dll" || l == "bcrypt.dll");
+            s.pe_has_process_imports = libs.iter().any(|l| l == "psapi.dll");
+        }
+        s.pe_has_known_compiler = pe
+            .compiler
+            .as_ref()
+            .map(|c| !c.name.is_empty() && c.name != "Unknown")
+            .unwrap_or(false);
+        // Suspicious PDB path detection
+        if let Some(ref debug) = pe.debug_artifacts {
+            if let Some(ref pdb) = debug.pdb_path {
+                let lower = pdb.to_lowercase();
+                s.pe_suspicious_pdb = [
+                    "spy", "inject", "keylog", "rat", "trojan", "backdoor", "exploit", "payload",
+                    "dropper", "stealer", "ransom", "crypt", "hook", "dump", "shell", "bypass",
+                    "kmspy", "rootkit", "botnet",
+                ]
+                .iter()
+                .any(|kw| lower.contains(kw));
+            }
+        }
     }
 
     // ── ELF signals ─────────────────────────────────────────────────────
@@ -144,6 +218,19 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
         s.elf_interpreter_suspicious = elf.interpreter_suspicious;
         s.elf_interpreter = elf.interpreter.clone();
         s.elf_suspicious_section_names = elf.suspicious_section_names.clone();
+        // ELF section/library patterns
+        let section_names: Vec<&str> = elf.sections.iter().map(|sec| sec.name.as_str()).collect();
+        s.elf_has_android_sections = section_names.contains(&".note.android.ident");
+        s.elf_has_legacy_init = section_names
+            .iter()
+            .any(|n| *n == ".ctors" || *n == ".dtors");
+        let lib_names: Vec<String> = elf
+            .imports
+            .libraries
+            .iter()
+            .map(|l| l.to_lowercase())
+            .collect();
+        s.elf_has_capability_lib = lib_names.iter().any(|l| l.starts_with("libcap.so"));
     }
 
     // ── Mach-O signals ──────────────────────────────────────────────────
@@ -211,6 +298,12 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
             .get("script_obfuscation")
             .copied()
             .unwrap_or(0);
+    }
+
+    // ── KSD match ──────────────────────────────────────────────────────
+    if let Some(ref ksd) = result.ksd_match {
+        s.ksd_match_distance = Some(ksd.distance);
+        s.ksd_match_family = Some(ksd.family.clone());
     }
 
     // ── File type mismatch ──────────────────────────────────────────────
@@ -348,6 +441,7 @@ mod tests {
             resource_oversized: false,
             overlay_has_exe: false,
             string_density: 0.0,
+            dotnet_metadata: None,
         }
     }
 
@@ -398,6 +492,7 @@ mod tests {
             file_type_mismatch: None,
             ioc_summary: None,
             verdict_summary: None,
+            ksd_match: None,
             top_findings: vec![],
             mach_analysis: None,
             pdf_analysis: None,

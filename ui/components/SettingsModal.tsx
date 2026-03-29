@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { X, Lock, Database, Sun, Moon, FolderOpen, GraduationCap, BookOpen } from "lucide-react";
+import { X, Lock, Database, Sun, Moon, FolderOpen, GraduationCap, BookOpen, ChevronRight } from "lucide-react";
 import { getSettings, getThresholds, saveThresholds } from "@/lib/tauri-bridge";
 import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
 import { saveSettingsToDb } from "@/lib/db";
@@ -44,6 +44,7 @@ export default function SettingsModal({
   });
   const [thresholdWarning, setThresholdWarning] = useState<string | null>(null);
   const [thresholdError, setThresholdError] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -391,34 +392,71 @@ export default function SettingsModal({
             </div>
           </section>
 
-          {/* ── Analysis Thresholds ──────────────────────────────── */}
+          {/* ── Advanced (collapsible) ─────────────────────────── */}
           <section>
-            <h3
-              className="text-xs font-semibold uppercase tracking-wider mb-3"
-              style={{ color: "var(--text-muted)" }}
+            <button
+              onClick={() => setAdvancedOpen(!advancedOpen)}
+              className="flex items-center gap-2 w-full text-left group"
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
             >
-              Analysis Thresholds
-            </h3>
-            {[
-              { label: "Suspicious entropy", key: "suspicious_entropy", min: 4.0, max: 7.5, step: 0.1, format: (v: number) => v.toFixed(1) },
-              { label: "Packed entropy", key: "packed_entropy", min: 6.0, max: 8.0, step: 0.1, format: (v: number) => v.toFixed(1) },
-              { label: "Suspicious score", key: "suspicious_score", min: 20, max: 65, step: 1, format: (v: number) => String(v) },
-              { label: "Malicious score", key: "malicious_score", min: 50, max: 95, step: 1, format: (v: number) => String(v) },
-            ].map(({ label, key, min, max, step, format }) => (
-              <div key={key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0" }}>
-                <span style={{ fontSize: "var(--font-size-sm)", color: "var(--text-secondary)", minWidth: 140 }}>{label}</span>
-                <input type="range" min={min} max={max} step={step}
-                  value={localThresholds[key as keyof ThresholdConfig]}
-                  onChange={(e) => handleThresholdChange(key, Number(e.target.value))}
-                  style={{ flex: 1, accentColor: "var(--accent)" }}
-                />
-                <span style={{ fontSize: "var(--font-size-sm)", fontFamily: "var(--font-mono)", color: "var(--text-primary)", minWidth: 36, textAlign: "right" }}>
-                  {format(localThresholds[key as keyof ThresholdConfig] as number)}
-                </span>
+              <ChevronRight
+                size={14}
+                style={{
+                  color: "var(--text-muted)",
+                  transition: "transform 200ms ease-out",
+                  transform: advancedOpen ? "rotate(90deg)" : "rotate(0deg)",
+                }}
+              />
+              <h3
+                className="text-xs font-semibold uppercase tracking-wider"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Advanced
+              </h3>
+              {/* Chevron rotation is the only affordance needed */}
+            </button>
+
+            <div
+              style={{
+                overflow: "hidden",
+                maxHeight: advancedOpen ? 400 : 0,
+                opacity: advancedOpen ? 1 : 0,
+                transition: "max-height 300ms ease-out, opacity 200ms ease-out",
+                marginTop: advancedOpen ? 12 : 0,
+              }}
+            >
+              <div
+                className="rounded-lg p-4"
+                style={{
+                  background: "var(--bg-elevated)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+                  Fine-tune detection thresholds. Changes apply immediately. The defaults work well for most use cases.
+                </p>
+                {[
+                  { label: "Suspicious entropy", key: "suspicious_entropy", min: 4.0, max: 7.5, step: 0.1, format: (v: number) => v.toFixed(1) },
+                  { label: "Packed entropy", key: "packed_entropy", min: 6.0, max: 8.0, step: 0.1, format: (v: number) => v.toFixed(1) },
+                  { label: "Suspicious score", key: "suspicious_score", min: 20, max: 65, step: 1, format: (v: number) => String(v) },
+                  { label: "Malicious score", key: "malicious_score", min: 50, max: 95, step: 1, format: (v: number) => String(v) },
+                ].map(({ label, key, min, max, step, format }) => (
+                  <div key={key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 0" }}>
+                    <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)", minWidth: 130 }}>{label}</span>
+                    <input type="range" min={min} max={max} step={step}
+                      value={localThresholds[key as keyof ThresholdConfig]}
+                      onChange={(e) => handleThresholdChange(key, Number(e.target.value))}
+                      style={{ flex: 1, accentColor: "var(--accent)" }}
+                    />
+                    <span style={{ fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)", color: "var(--text-primary)", minWidth: 32, textAlign: "right" }}>
+                      {format(localThresholds[key as keyof ThresholdConfig] as number)}
+                    </span>
+                  </div>
+                ))}
+                {thresholdWarning && <p style={{ fontSize: "var(--font-size-xs)", color: "var(--risk-medium)", margin: "6px 0 0" }}>{thresholdWarning}</p>}
+                {thresholdError && <p style={{ fontSize: "var(--font-size-xs)", color: "var(--risk-high)", margin: "6px 0 0" }}>{thresholdError}</p>}
               </div>
-            ))}
-            {thresholdWarning && <p style={{ fontSize: "var(--font-size-xs)", color: "var(--risk-medium)", margin: "4px 0 0" }}>{thresholdWarning}</p>}
-            {thresholdError && <p style={{ fontSize: "var(--font-size-xs)", color: "var(--risk-high)", margin: "4px 0 0" }}>{thresholdError}</p>}
+            </div>
           </section>
 
           {/* ── Privacy (non-negotiable) ─────────────────────────── */}

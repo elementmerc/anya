@@ -446,6 +446,11 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
         resource_oversized,
         overlay_has_exe,
         string_density,
+        dotnet_metadata: if is_dotnet {
+            crate::dotnet_parser::analyse_dotnet(data, 0, 0, 0)
+        } else {
+            None
+        },
     })
 }
 
@@ -1944,7 +1949,7 @@ fn detect_pe_anomalies(
                 ),
                 severity: "High".to_string(),
             });
-            packed_score += 15;
+            packed_score += anya_scoring::detection_patterns::packed_weight_virtual_raw_ratio();
             break; // one is enough
         }
     }
@@ -1963,12 +1968,12 @@ fn detect_pe_anomalies(
             description: "Import directory declared but contains no entries (tampered)".to_string(),
             severity: "High".to_string(),
         });
-        packed_score += 20;
+        packed_score += anya_scoring::detection_patterns::packed_weight_empty_import_table();
     }
 
     // Zero imports (even without import directory)
     if pe.imports.is_empty() {
-        packed_score += 30;
+        packed_score += anya_scoring::detection_patterns::packed_weight_zero_imports();
     }
 
     // 3. Entry point in last section
@@ -1983,7 +1988,7 @@ fn detect_pe_anomalies(
                     .to_string(),
                 severity: "Medium".to_string(),
             });
-            packed_score += 15;
+            packed_score += anya_scoring::detection_patterns::packed_weight_ep_in_last_section();
         }
     }
 
@@ -1999,7 +2004,7 @@ fn detect_pe_anomalies(
             description: "Entry point is outside all sections (injected or modified)".to_string(),
             severity: "High".to_string(),
         });
-        packed_score += 20;
+        packed_score += anya_scoring::detection_patterns::packed_weight_ep_outside_sections();
     }
 
     // 5. SizeOfCode = 0
@@ -2010,7 +2015,7 @@ fn detect_pe_anomalies(
                 description: "SizeOfCode is 0 (no declared code section)".to_string(),
                 severity: "Medium".to_string(),
             });
-            packed_score += 10;
+            packed_score += anya_scoring::detection_patterns::packed_weight_zero_size_of_code();
         }
     }
 
@@ -2025,14 +2030,15 @@ fn detect_pe_anomalies(
                 ),
                 severity: "Medium".to_string(),
             });
-            packed_score += 10;
+            packed_score +=
+                anya_scoring::detection_patterns::packed_weight_raw_zero_virtual_large();
             break;
         }
     }
 
     // 7. Very few sections
     if pe.sections.len() <= 2 && !is_dll {
-        packed_score += 10;
+        packed_score += anya_scoring::detection_patterns::packed_weight_few_sections();
     }
 
     // 8. Timestamp anomaly
@@ -2043,14 +2049,14 @@ fn detect_pe_anomalies(
             description: "PE timestamp is zero (stripped or tampered)".to_string(),
             severity: "Low".to_string(),
         });
-        packed_score += 5;
+        packed_score += anya_scoring::detection_patterns::packed_weight_timestamp_anomaly();
     } else if timestamp == 0x2A425E19 {
         anomalies.push(output::PeAnomaly {
             name: "timestamp_delphi".to_string(),
             description: "PE timestamp is Delphi epoch (1992-06-19)".to_string(),
             severity: "Low".to_string(),
         });
-        packed_score += 5;
+        packed_score += anya_scoring::detection_patterns::packed_weight_timestamp_anomaly();
     } else if timestamp > 0x70000000 {
         // ~2028+ — likely future date
         anomalies.push(output::PeAnomaly {
@@ -2058,7 +2064,7 @@ fn detect_pe_anomalies(
             description: "PE timestamp is in the future".to_string(),
             severity: "Low".to_string(),
         });
-        packed_score += 5;
+        packed_score += anya_scoring::detection_patterns::packed_weight_timestamp_anomaly();
     }
 
     // 9. Missing Rich header
@@ -2068,7 +2074,7 @@ fn detect_pe_anomalies(
             name.starts_with(".text") || name.starts_with(".rdata")
         })
     {
-        packed_score += 5;
+        packed_score += anya_scoring::detection_patterns::packed_weight_missing_rich_header();
     }
 
     // 10. DLL without relocations
@@ -2097,7 +2103,8 @@ fn detect_pe_anomalies(
     if !exec_sections.is_empty() {
         let all_moderate = exec_sections.iter().all(|&e| (6.0..7.0).contains(&e));
         if all_moderate && exec_sections.len() >= 2 {
-            packed_score += 10;
+            packed_score +=
+                anya_scoring::detection_patterns::packed_weight_entropy_uniform_moderate();
         }
     }
 

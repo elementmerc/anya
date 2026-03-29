@@ -18,9 +18,11 @@ use walkdir::WalkDir;
 
 // Re-export modules
 pub mod case;
+pub mod cert_db;
 pub mod confidence;
 pub mod config;
 pub mod data;
+pub mod dotnet_parser;
 pub mod elf_parser;
 pub mod errors;
 pub mod guided_output;
@@ -509,6 +511,45 @@ fn mime_to_format_label(mime: &str) -> String {
     .to_string()
 }
 
+/// Fallback format detection from file extension when MIME detection fails.
+/// Used for text-based formats that `infer` cannot detect from magic bytes.
+fn extension_to_format_label(ext: Option<&str>) -> String {
+    match ext.map(|e| e.to_ascii_lowercase()).as_deref() {
+        Some("py" | "pyw" | "pyx") => "Python Script",
+        Some("sh" | "bash") => "Shell Script",
+        Some("ps1" | "psm1" | "psd1") => "PowerShell Script",
+        Some("bat" | "cmd") => "Batch Script",
+        Some("rb") => "Ruby Script",
+        Some("pl" | "pm") => "Perl Script",
+        Some("lua") => "Lua Script",
+        Some("js" | "mjs" | "cjs") => "JavaScript",
+        Some("ts" | "mts") => "TypeScript",
+        Some("vbs" | "vbe") => "VBScript",
+        Some("json") => "JSON",
+        Some("xml" | "xsl" | "xslt") => "XML",
+        Some("yaml" | "yml") => "YAML",
+        Some("toml") => "TOML",
+        Some("ini" | "cfg" | "conf") => "Config File",
+        Some("csv") => "CSV",
+        Some("txt" | "text" | "log") => "Text File",
+        Some("md" | "markdown") => "Markdown",
+        Some("html" | "htm") => "HTML",
+        Some("css") => "CSS",
+        Some("sql") => "SQL",
+        Some("c" | "h") => "C Source",
+        Some("cpp" | "cc" | "cxx" | "hpp") => "C++ Source",
+        Some("rs") => "Rust Source",
+        Some("go") => "Go Source",
+        Some("java") => "Java Source",
+        Some("cs") => "C# Source",
+        Some("swift") => "Swift Source",
+        Some("kt" | "kts") => "Kotlin Source",
+        Some("r") => "R Script",
+        _ => "Unrecognized",
+    }
+    .to_string()
+}
+
 /// Calculate TLSH fuzzy hash (returns None if file < 50 bytes)
 fn calculate_tlsh(data: &[u8]) -> Option<String> {
     if data.len() < 50 {
@@ -972,11 +1013,13 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
             ("macOS Mach-O".to_string(), None, None, macho)
         }
         Ok(_) | Err(_) => {
-            // goblin didn't recognise it — use MIME type for a better format label
+            // goblin didn't recognise it — use MIME type, then extension fallback
             let format_label = mime_type
                 .as_deref()
                 .map(mime_to_format_label)
-                .unwrap_or_else(|| "Unrecognized".to_string());
+                .unwrap_or_else(|| {
+                    extension_to_format_label(path.extension().and_then(|e| e.to_str()))
+                });
             (format_label, None, None, None)
         }
     };
@@ -1250,10 +1293,33 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         ioc_summary: result.ioc_summary.clone(),
         verdict_summary: None, // filled below after struct is built
         top_findings: vec![],  // filled below after struct is built
+        ksd_match: None,       // filled below after TLSH is available
         mach_analysis: result.mach_analysis.clone(),
         pdf_analysis: result.pdf_analysis.clone(),
         office_analysis: result.office_analysis.clone(),
     };
+
+    // KSD lookup — find nearest known malware sample by TLSH similarity.
+    // Failures are non-fatal: analysis continues without KSD if anything goes wrong.
+    if let Some(ref tlsh) = out.hashes.tlsh {
+        match std::panic::catch_unwind(|| {
+            let ksd_overlay_path =
+                dirs::config_dir().map(|d| d.join("anya").join("known_samples.json"));
+            let db = anya_scoring::ksd::KnownSampleDb::load(ksd_overlay_path.as_deref());
+            if !db.is_empty() {
+                db.find_nearest(tlsh, 150)
+            } else {
+                None
+            }
+        }) {
+            Ok(result) => out.ksd_match = result,
+            Err(_) => {
+                eprintln!(
+                    "[anya] Warning: KSD lookup failed. Continuing without known sample matching."
+                );
+            }
+        }
+    }
 
     // Populate verdict and top findings so all consumers (CLI + GUI) get complete output
     let (_, verdict_text) = compute_verdict(&out);
@@ -1516,6 +1582,7 @@ mod tests {
             resource_oversized: false,
             overlay_has_exe: false,
             string_density: 0.0,
+            dotnet_metadata: None,
         }
     }
 

@@ -28,8 +28,10 @@ anya/
 │   ├── macho_parser.rs         # Mach-O analysis logic
 │   ├── errors.rs               # Error suggestion hints (plain-English)
 │   ├── ioc.rs                  # IOC regex detection (IPv4, URL, domain, etc.)
+│   ├── dotnet_parser.rs        # .NET CLR metadata parser (obfuscation, reflection, P/Invoke)
+│   ├── cert_db.rs              # Certificate reputation database (publisher trust checking)
 │   ├── hash_check.rs           # Hash list lookup subcommand
-│   ├── yara.rs                 # YARA combine + from-strings subcommands
+│   ├── yara.rs                 # YARA utilities (placeholder — coming soon)
 │   ├── case.rs                 # Case management (YAML persistence)
 │   ├── confidence.rs           # Scoring bridge (extracts signals → delegates to anya-scoring)
 │   ├── watch.rs              # Directory watch mode (anya watch)
@@ -81,8 +83,9 @@ anya/
 │   │       ├── ImportsTab.tsx
 │   │       ├── EntropyTab.tsx
 │   │       ├── StringsTab.tsx
-│   │       ├── SecurityTab.tsx
-│   │       └── MitreTab.tsx    # MITRE ATT&CK technique display
+│   │       ├── SecurityTab.tsx   # Security features + cert reputation + .NET + Rich Header
+│   │       ├── IdentityTab.tsx  # KSD match details + .NET metadata (conditional)
+│   │       └── MitreTab.tsx     # MITRE ATT&CK technique display
 │   ├── hooks/
 │   │   ├── useAnalysis.ts      # File analysis state management
 │   │   ├── useTheme.ts         # Theme persistence
@@ -457,6 +460,45 @@ Benchmarked operations: hash calculation, entropy calculation, string extraction
 
 ---
 
-**Last updated:** 2026-03-16 (v1.1.0 — batch analysis, GUI enhancements)
-**Version:** 1.1.0
+## Known Sample Database (KSD)
+
+TLSH-based fuzzy matching against known malware samples. Every analysed file gets a TLSH hash compared against a database of known samples.
+
+**Storage:** Layered — embedded default DB (private crate) + user overlay at `~/.config/anya/known_samples.json`.
+
+**CLI commands:**
+- `anya ksd import <calibration.json>` — import samples from calibration data
+- `anya ksd stats` — show database statistics
+- `anya ksd list [--family emotet] [--limit 50]` — browse entries
+- `anya ksd add --tlsh <hash> --family <name> --function <type>` — manual entry
+- `anya ksd remove --sha256 <hash>` — remove entry (permanent, with confirmation)
+- `anya ksd export <file>` — export to JSON
+
+**Matching:** LSH-bucketed search for O(N/128) average-case on large databases. Distance-based confidence tiers.
+
+**Config:** `[ksd]` section in `config.toml` — `enabled`, `max_distance`, `overlay_path`.
+
+---
+
+## .NET Metadata Analysis
+
+`dotnet_parser.rs` — Parses CLR metadata from .NET assemblies:
+- Metadata streams: #~, #Strings, #Blob
+- Obfuscation detection: unprintable type/method names, known obfuscator fingerprints (ConfuserEx, .NET Reactor, SmartAssembly, Dotfuscator, Babel, Crypto Obfuscator, Eazfuscator)
+- Behavioural signals: reflection API usage, suspicious P/Invoke, high-entropy blob streams
+- Uses Aho-Corasick single-pass detection for all patterns
+
+---
+
+## Certificate Reputation
+
+`cert_db.rs` — Offline publisher trust checking:
+- Token-based CN matching against 40+ trusted publisher names
+- Prevents substring spoofing (e.g. "not-microsoft.evil.com")
+- Self-signed certificate detection
+- 230+ test variants covering real-world certificate CNs
+
+---
+
+**Last updated:** 2026-03-28 (v1.2.4 — KSD, .NET analysis, certificate reputation, 100% detection)
 **Maintainer:** Daniel Iwugo — daniel@themalwarefiles.com

@@ -57,6 +57,40 @@ pub struct Config {
     /// Default: platform-appropriate data directory (e.g. ~/.local/share/anya/cases on Linux)
     #[serde(default)]
     pub cases_directory: Option<String>,
+
+    /// Known Sample Database settings
+    #[serde(default)]
+    pub ksd: KsdConfig,
+}
+
+/// Known Sample Database (KSD) configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KsdConfig {
+    /// Enable/disable KSD matching (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// TLSH distance threshold for matching (default: 150)
+    #[serde(default = "default_ksd_max_distance")]
+    pub max_distance: u32,
+
+    /// Custom overlay file path (empty = default ~/.config/anya/known_samples.json)
+    #[serde(default)]
+    pub overlay_path: String,
+}
+
+fn default_ksd_max_distance() -> u32 {
+    150
+}
+
+impl Default for KsdConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_distance: 150,
+            overlay_path: String::new(),
+        }
+    }
 }
 
 /// Analysis-related settings
