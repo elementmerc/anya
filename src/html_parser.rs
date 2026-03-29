@@ -29,14 +29,14 @@ fn matches(idx: usize, text: &str) -> bool {
     HTML_COMPILED
         .get(idx)
         .and_then(|r| r.as_ref())
-        .map_or(false, |r| r.is_match(text))
+        .is_some_and(|r| r.is_match(text))
 }
 
 fn count_matches(idx: usize, text: &str) -> usize {
-    HTML_COMPILED
-        .get(idx)
-        .and_then(|r| r.as_ref())
-        .map_or(0, |r| r.find_iter(text).count())
+    match HTML_COMPILED.get(idx).and_then(|r| r.as_ref()) {
+        Some(r) => r.find_iter(text).count(),
+        None => 0,
+    }
 }
 
 /// Analyse file bytes as HTML/HTA.

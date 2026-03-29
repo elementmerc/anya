@@ -50,11 +50,12 @@ pub fn detect_ole_analysis(data: &[u8]) -> Option<OleAnalysis> {
                         data[i + 0x3E],
                         data[i + 0x3F],
                     ]) as usize;
-                    if pe_offset < 0x1000 && i + pe_offset + 4 <= data.len() {
-                        if &data[i + pe_offset..i + pe_offset + 4] == b"PE\0\0" {
-                            has_embedded_objects = true;
-                            break;
-                        }
+                    if pe_offset < 0x1000
+                        && i + pe_offset + 4 <= data.len()
+                        && &data[i + pe_offset..i + pe_offset + 4] == b"PE\0\0"
+                    {
+                        has_embedded_objects = true;
+                        break;
                     }
                 }
             }

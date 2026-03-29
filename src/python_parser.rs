@@ -27,7 +27,7 @@ fn matches(idx: usize, text: &str) -> bool {
     PY_COMPILED
         .get(idx)
         .and_then(|r| r.as_ref())
-        .map_or(false, |r| r.is_match(text))
+        .is_some_and(|r| r.is_match(text))
 }
 
 /// Analyse file bytes as Python script.

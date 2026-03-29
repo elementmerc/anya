@@ -76,10 +76,10 @@ pub fn detect_lnk_analysis(data: &[u8]) -> Option<LnkAnalysis> {
         }
 
         // Icon location extraction
-        if lower.contains(".ico") || lower.contains(".dll,") || lower.contains(".exe,") {
-            if icon_location.is_none() {
-                icon_location = Some(s.clone());
-            }
+        if (lower.contains(".ico") || lower.contains(".dll,") || lower.contains(".exe,"))
+            && icon_location.is_none()
+        {
+            icon_location = Some(s.clone());
         }
 
         // Environment variable abuse

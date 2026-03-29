@@ -37,14 +37,13 @@ static SHELL_COMPILED: LazyLock<Vec<Option<Regex>>> = LazyLock::new(|| {
 
 /// Detect script type from content heuristics
 fn detect_script_type(text: &str) -> &'static str {
-    if text.starts_with("#!/") {
-        if text.starts_with("#!/bin/bash")
+    if text.starts_with("#!/")
+        && (text.starts_with("#!/bin/bash")
             || text.starts_with("#!/bin/sh")
             || text.starts_with("#!/usr/bin/env bash")
-            || text.starts_with("#!/usr/bin/env sh")
-        {
-            return "shell";
-        }
+            || text.starts_with("#!/usr/bin/env sh"))
+    {
+        return "shell";
     }
     if text.contains("@echo off") || text.contains("@ECHO OFF") || text.contains("%~") {
         return "batch";
