@@ -313,6 +313,84 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
         s.mismatch_claimed_extension = Some(m.claimed_extension.clone());
     }
 
+    // ── Script format signals ─────────────────────────────────────────
+    if let Some(ref js) = result.javascript_analysis {
+        s.js_suspicious_count = js.suspicious_patterns.len();
+        s.js_obfuscation_score = js.obfuscation_score;
+        s.js_has_eval = js.has_eval;
+        s.js_has_activex = js.has_activex;
+        s.js_has_wscript = js.has_wscript;
+    }
+    if let Some(ref ps) = result.powershell_analysis {
+        s.ps_has_encoded_command = ps.has_encoded_command;
+        s.ps_has_download_cradle = ps.has_download_cradle;
+        s.ps_has_amsi_bypass = ps.has_amsi_bypass;
+        s.ps_suspicious_count = ps.suspicious_cmdlets.len() + ps.obfuscation_indicators.len();
+    }
+    if let Some(ref vbs) = result.vbscript_analysis {
+        s.vbs_has_shell_exec = vbs.has_shell_exec;
+        s.vbs_has_download = vbs.has_download;
+        s.vbs_obfuscation_score = vbs.obfuscation_score;
+    }
+    if let Some(ref sh) = result.shell_script_analysis {
+        s.shell_has_download_execute = sh.has_download_execute;
+        s.shell_has_persistence = sh.has_persistence;
+        s.shell_suspicious_count = sh.suspicious_commands.len();
+    }
+    if let Some(ref py) = result.python_analysis {
+        s.python_has_exec = py.has_exec_eval;
+        s.python_has_subprocess = py.has_subprocess;
+        s.python_has_network = py.has_network;
+    }
+
+    // ── Document & archive signals ────────────────────────────────────
+    if let Some(ref ole) = result.ole_analysis {
+        s.ole_has_macros = ole.has_macros;
+        s.ole_has_auto_execute = ole.has_auto_execute;
+        s.ole_has_embedded_objects = ole.has_embedded_objects;
+    }
+    if let Some(ref rtf) = result.rtf_analysis {
+        s.rtf_has_embedded_objects = rtf.has_embedded_objects;
+        s.rtf_contains_pe_bytes = rtf.contains_pe_bytes;
+    }
+    if let Some(ref zip) = result.zip_analysis {
+        s.zip_has_executables = zip.has_executables;
+        s.zip_has_encrypted_entries = zip.has_encrypted_entries;
+        s.zip_has_double_extensions = zip.has_double_extensions;
+        s.zip_has_path_traversal = zip.has_path_traversal;
+    }
+
+    // ── Media, markup & misc signals ──────────────────────────────────
+    if let Some(ref html) = result.html_analysis {
+        s.html_script_count = html.script_count;
+        s.html_has_hidden_iframes = html.has_hidden_iframes;
+        s.html_has_embedded_objects = html.has_embedded_objects;
+    }
+    if let Some(ref xml) = result.xml_analysis {
+        s.xml_has_external_entities = xml.has_external_entities;
+        s.xml_has_xslt_scripts = xml.has_xslt_scripts;
+        s.xml_is_svg_with_code = xml.is_svg_with_code;
+    }
+    if let Some(ref img) = result.image_analysis {
+        s.img_has_trailing_data = img.has_trailing_data;
+        s.img_trailing_size = img.trailing_data_size;
+    }
+    if let Some(ref lnk) = result.lnk_analysis {
+        s.lnk_has_suspicious_target = lnk.has_suspicious_target;
+        s.lnk_has_encoded_args = lnk.has_encoded_args;
+    }
+    if let Some(ref iso) = result.iso_analysis {
+        s.iso_has_executables = iso.has_executables;
+        s.iso_has_autorun = iso.has_autorun;
+    }
+    if let Some(ref cab) = result.cab_analysis {
+        s.cab_has_executables = cab.has_executables;
+    }
+    if let Some(ref msi) = result.msi_analysis {
+        s.msi_has_custom_actions = msi.has_custom_actions;
+        s.msi_has_embedded_binaries = msi.has_embedded_binaries;
+    }
+
     s
 }
 
@@ -497,6 +575,21 @@ mod tests {
             mach_analysis: None,
             pdf_analysis: None,
             office_analysis: None,
+            javascript_analysis: None,
+            powershell_analysis: None,
+            vbscript_analysis: None,
+            shell_script_analysis: None,
+            python_analysis: None,
+            ole_analysis: None,
+            rtf_analysis: None,
+            zip_analysis: None,
+            html_analysis: None,
+            xml_analysis: None,
+            image_analysis: None,
+            lnk_analysis: None,
+            iso_analysis: None,
+            cab_analysis: None,
+            msi_analysis: None,
         }
     }
 

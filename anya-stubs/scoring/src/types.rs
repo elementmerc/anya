@@ -179,6 +179,66 @@ pub struct SignalSet {
     pub mismatch_severity: Option<MismatchSeverity>,
     pub mismatch_detected_type: Option<String>,
     pub mismatch_claimed_extension: Option<String>,
+
+    // ── Script format signals ─────────────────────────────────────────
+    pub js_suspicious_count: usize,
+    pub js_obfuscation_score: u8,
+    pub js_has_eval: bool,
+    pub js_has_activex: bool,
+    pub js_has_wscript: bool,
+
+    pub ps_has_encoded_command: bool,
+    pub ps_has_download_cradle: bool,
+    pub ps_has_amsi_bypass: bool,
+    pub ps_suspicious_count: usize,
+
+    pub vbs_has_shell_exec: bool,
+    pub vbs_has_download: bool,
+    pub vbs_obfuscation_score: u8,
+
+    pub shell_has_download_execute: bool,
+    pub shell_has_persistence: bool,
+    pub shell_suspicious_count: usize,
+
+    pub python_has_exec: bool,
+    pub python_has_subprocess: bool,
+    pub python_has_network: bool,
+
+    // ── Document & archive signals ────────────────────────────────────
+    pub ole_has_macros: bool,
+    pub ole_has_auto_execute: bool,
+    pub ole_has_embedded_objects: bool,
+
+    pub rtf_has_embedded_objects: bool,
+    pub rtf_contains_pe_bytes: bool,
+
+    pub zip_has_executables: bool,
+    pub zip_has_encrypted_entries: bool,
+    pub zip_has_double_extensions: bool,
+    pub zip_has_path_traversal: bool,
+
+    // ── Media, markup & misc signals ──────────────────────────────────
+    pub html_script_count: usize,
+    pub html_has_hidden_iframes: bool,
+    pub html_has_embedded_objects: bool,
+
+    pub xml_has_external_entities: bool,
+    pub xml_has_xslt_scripts: bool,
+    pub xml_is_svg_with_code: bool,
+
+    pub img_has_trailing_data: bool,
+    pub img_trailing_size: usize,
+
+    pub lnk_has_suspicious_target: bool,
+    pub lnk_has_encoded_args: bool,
+
+    pub iso_has_executables: bool,
+    pub iso_has_autorun: bool,
+
+    pub cab_has_executables: bool,
+
+    pub msi_has_custom_actions: bool,
+    pub msi_has_embedded_binaries: bool,
 }
 
 #[derive(Debug, Clone, Default)]

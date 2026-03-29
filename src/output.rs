@@ -131,6 +131,54 @@ pub struct AnalysisResult {
     /// Office document macro/embedding analysis (if applicable)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub office_analysis: Option<OfficeAnalysis>,
+
+    // ── Script format analysis ────────────────────────────────────────────
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub javascript_analysis: Option<JavaScriptAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub powershell_analysis: Option<PowerShellAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vbscript_analysis: Option<VbScriptAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell_script_analysis: Option<ShellScriptAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python_analysis: Option<PythonAnalysis>,
+
+    // ── Document & archive format analysis ────────────────────────────────
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ole_analysis: Option<OleAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rtf_analysis: Option<RtfAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zip_analysis: Option<ZipAnalysis>,
+
+    // ── Media, markup & misc format analysis ──────────────────────────────
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub html_analysis: Option<HtmlAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xml_analysis: Option<XmlAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_analysis: Option<ImageAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lnk_analysis: Option<LnkAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iso_analysis: Option<IsoAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cab_analysis: Option<CabAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub msi_analysis: Option<MsiAnalysis>,
 }
 
 /// A single top finding for JSON output
@@ -835,6 +883,266 @@ pub struct OfficeAnalysis {
     pub suspicious_components: Vec<String>,
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Script analysis structures
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// JavaScript / JScript static analysis results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JavaScriptAnalysis {
+    /// Obfuscation heuristic score (0–100)
+    pub obfuscation_score: u8,
+    /// Suspicious patterns detected (eval, ActiveXObject, etc.)
+    pub suspicious_patterns: Vec<String>,
+    /// Uses eval() or Function() constructor
+    pub has_eval: bool,
+    /// Creates ActiveXObject (IE/WScript specific)
+    pub has_activex: bool,
+    /// References WScript.Shell or WScript.CreateObject
+    pub has_wscript: bool,
+    /// Count of Base64/hex-encoded payload blobs detected
+    pub encoded_payloads: usize,
+}
+
+/// PowerShell script static analysis results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PowerShellAnalysis {
+    /// Uses -EncodedCommand / -enc parameter
+    pub has_encoded_command: bool,
+    /// Download cradle detected (Invoke-WebRequest, Net.WebClient, etc.)
+    pub has_download_cradle: bool,
+    /// AMSI bypass pattern detected
+    pub has_amsi_bypass: bool,
+    /// Uses reflection (Assembly::Load, GetType, etc.)
+    pub has_reflection: bool,
+    /// Obfuscation indicators (tick-mark insertion, concatenation, etc.)
+    pub obfuscation_indicators: Vec<String>,
+    /// Suspicious cmdlets found
+    pub suspicious_cmdlets: Vec<String>,
+}
+
+/// VBScript / VBA static analysis results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VbScriptAnalysis {
+    /// Shell execution detected (WScript.Shell, Shell.Run, etc.)
+    pub has_shell_exec: bool,
+    /// WMI access detected (GetObject winmgmts)
+    pub has_wmi: bool,
+    /// Download capability detected (XMLHTTP, ADODB.Stream)
+    pub has_download: bool,
+    /// Count of Chr() concatenation chains (obfuscation)
+    pub chr_chain_count: usize,
+    /// Obfuscation heuristic score (0–100)
+    pub obfuscation_score: u8,
+    /// Suspicious patterns found
+    pub suspicious_patterns: Vec<String>,
+}
+
+/// Batch / Shell script static analysis results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShellScriptAnalysis {
+    /// "batch" | "shell" | "unknown"
+    pub script_type: String,
+    /// Download-then-execute pattern (certutil, curl|bash, etc.)
+    pub has_download_execute: bool,
+    /// Persistence mechanism (schtasks, crontab, etc.)
+    pub has_persistence: bool,
+    /// Privilege escalation commands
+    pub has_privilege_escalation: bool,
+    /// Suspicious commands found
+    pub suspicious_commands: Vec<String>,
+}
+
+/// Python script static analysis results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PythonAnalysis {
+    /// Uses exec()/eval()/compile()
+    pub has_exec_eval: bool,
+    /// Uses subprocess/os.system/os.popen
+    pub has_subprocess: bool,
+    /// Uses socket/urllib/requests
+    pub has_network: bool,
+    /// Uses ctypes (native code loading)
+    pub has_native_code: bool,
+    /// Obfuscation indicators
+    pub obfuscation_indicators: Vec<String>,
+    /// Suspicious import names
+    pub suspicious_imports: Vec<String>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Document & archive analysis structures
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// OLE Compound Document analysis (Office 97-2003 .doc/.xls/.ppt)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OleAnalysis {
+    /// VBA macro streams found
+    pub has_macros: bool,
+    /// Auto-execute entry points (AutoOpen, Document_Open, etc.)
+    pub has_auto_execute: bool,
+    /// Names of macro-containing streams
+    pub macro_stream_names: Vec<String>,
+    /// Embedded OLE objects found
+    pub has_embedded_objects: bool,
+    /// Suspicious keywords found in macro streams
+    pub suspicious_keywords: Vec<String>,
+}
+
+/// RTF document analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RtfAnalysis {
+    /// Embedded objects detected (\objocx, \objemb, \objlink)
+    pub has_embedded_objects: bool,
+    /// \objdata block present (can contain executables)
+    pub has_objdata: bool,
+    /// PE header (MZ) found inside \objdata hex stream
+    pub contains_pe_bytes: bool,
+    /// Suspicious RTF control words
+    pub suspicious_control_words: Vec<String>,
+}
+
+/// ZIP archive deep analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZipAnalysis {
+    /// Total number of entries in the archive
+    pub entry_count: usize,
+    /// Archive contains executable files
+    pub has_executables: bool,
+    /// Names of executable entries
+    pub executable_names: Vec<String>,
+    /// Archive contains encrypted/password-protected entries
+    pub has_encrypted_entries: bool,
+    /// Compression ratio (uncompressed / compressed)
+    pub compression_ratio: f64,
+    /// Double-extension files detected (e.g., invoice.pdf.exe)
+    pub has_double_extensions: bool,
+    /// Path traversal entries detected (../)
+    pub has_path_traversal: bool,
+    /// Other suspicious entries
+    pub suspicious_entries: Vec<String>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Media, markup & misc analysis structures
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// HTML / HTA file analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HtmlAnalysis {
+    /// Number of <script> tags found
+    pub script_count: usize,
+    /// Event handlers with inline code (onload, onerror, etc.)
+    pub has_event_handlers: bool,
+    /// Hidden iframes detected (width=0 height=0)
+    pub has_hidden_iframes: bool,
+    /// Embedded objects (Flash, ActiveX, Java applets)
+    pub has_embedded_objects: bool,
+    /// Form action targets found
+    pub has_form_actions: bool,
+    /// Meta refresh redirect detected
+    pub has_meta_refresh: bool,
+    /// Base64-encoded data: URIs found
+    pub has_data_uris: bool,
+    /// Suspicious elements found
+    pub suspicious_elements: Vec<String>,
+}
+
+/// XML / SVG file analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XmlAnalysis {
+    /// DTD declaration present
+    pub has_dtd: bool,
+    /// External entity references (SYSTEM/PUBLIC — XXE indicator)
+    pub has_external_entities: bool,
+    /// XSLT with embedded scripts
+    pub has_xslt_scripts: bool,
+    /// SVG with embedded code (<script>, onload, etc.)
+    pub is_svg_with_code: bool,
+    /// Suspicious elements found
+    pub suspicious_elements: Vec<String>,
+}
+
+/// Image file metadata and steganography analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageAnalysis {
+    /// Data appended after image EOF marker
+    pub has_trailing_data: bool,
+    /// Size of trailing data in bytes
+    pub trailing_data_size: usize,
+    /// Suspicious metadata fields found
+    pub has_suspicious_metadata: bool,
+    /// Extracted metadata strings of interest
+    pub metadata_strings: Vec<String>,
+    /// URLs found in metadata or chunks
+    pub has_embedded_urls: bool,
+}
+
+/// Windows LNK (shortcut) file analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LnkAnalysis {
+    /// Target path
+    pub target_path: String,
+    /// Command-line arguments
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<String>,
+    /// Icon file location
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_location: Option<String>,
+    /// Target is a script interpreter (cmd, powershell, mshta, etc.)
+    pub has_suspicious_target: bool,
+    /// Arguments contain encoded payloads
+    pub has_encoded_args: bool,
+    /// Suspicious indicators found
+    pub suspicious_indicators: Vec<String>,
+}
+
+/// ISO 9660 / disk image analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IsoAnalysis {
+    /// Volume label
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub volume_label: Option<String>,
+    /// Number of files in the image
+    pub file_count: usize,
+    /// Image contains executable files
+    pub has_executables: bool,
+    /// Names of executable entries
+    pub executable_names: Vec<String>,
+    /// AutoRun.inf present
+    pub has_autorun: bool,
+    /// Suspicious entries found
+    pub suspicious_entries: Vec<String>,
+}
+
+/// Microsoft CAB archive analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CabAnalysis {
+    /// Number of files in the cabinet
+    pub file_count: usize,
+    /// Contains executable files
+    pub has_executables: bool,
+    /// Names of executable entries
+    pub executable_names: Vec<String>,
+    /// Total uncompressed size
+    pub total_uncompressed_size: u64,
+}
+
+/// MSI installer analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MsiAnalysis {
+    /// Custom actions present
+    pub has_custom_actions: bool,
+    /// Embedded binaries in the Binary table
+    pub has_embedded_binaries: bool,
+    /// Custom action types found
+    pub custom_action_types: Vec<String>,
+    /// Suspicious property values
+    pub suspicious_properties: Vec<String>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// A classified extracted string with category and offset
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassifiedString {
@@ -904,6 +1212,21 @@ mod tests {
             mach_analysis: None,
             pdf_analysis: None,
             office_analysis: None,
+            javascript_analysis: None,
+            powershell_analysis: None,
+            vbscript_analysis: None,
+            shell_script_analysis: None,
+            python_analysis: None,
+            ole_analysis: None,
+            rtf_analysis: None,
+            zip_analysis: None,
+            html_analysis: None,
+            xml_analysis: None,
+            image_analysis: None,
+            lnk_analysis: None,
+            iso_analysis: None,
+            cab_analysis: None,
+            msi_analysis: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -1158,6 +1481,21 @@ mod tests {
             mach_analysis: None,
             pdf_analysis: None,
             office_analysis: None,
+            javascript_analysis: None,
+            powershell_analysis: None,
+            vbscript_analysis: None,
+            shell_script_analysis: None,
+            python_analysis: None,
+            ole_analysis: None,
+            rtf_analysis: None,
+            zip_analysis: None,
+            html_analysis: None,
+            xml_analysis: None,
+            image_analysis: None,
+            lnk_analysis: None,
+            iso_analysis: None,
+            cab_analysis: None,
+            msi_analysis: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();

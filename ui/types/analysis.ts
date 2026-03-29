@@ -342,6 +342,24 @@ export interface AnalysisResult {
   mach_analysis?: MachoAnalysis;
   pdf_analysis?: PdfAnalysis;
   office_analysis?: OfficeAnalysis;
+  // Script format analysis
+  javascript_analysis?: JavaScriptAnalysis;
+  powershell_analysis?: PowerShellAnalysis;
+  vbscript_analysis?: VbScriptAnalysis;
+  shell_script_analysis?: ShellScriptAnalysis;
+  python_analysis?: PythonAnalysis;
+  // Document & archive format analysis
+  ole_analysis?: OleAnalysis;
+  rtf_analysis?: RtfAnalysis;
+  zip_analysis?: ZipAnalysis;
+  // Media, markup & misc format analysis
+  html_analysis?: HtmlAnalysis;
+  xml_analysis?: XmlAnalysis;
+  image_analysis?: ImageAnalysis;
+  lnk_analysis?: LnkAnalysis;
+  iso_analysis?: IsoAnalysis;
+  cab_analysis?: CabAnalysis;
+  msi_analysis?: MsiAnalysis;
   // Known Sample Database match
   ksd_match?: KsdMatch;
   // Verdict summary
@@ -528,4 +546,139 @@ export interface CaseDetail {
   created: string;
   updated: string;
   files: CaseFile[];
+}
+
+// ── Script format analysis ──────────────────────────────────────────────
+
+export interface JavaScriptAnalysis {
+  obfuscation_score: number;
+  suspicious_patterns: string[];
+  has_eval: boolean;
+  has_activex: boolean;
+  has_wscript: boolean;
+  encoded_payloads: number;
+}
+
+export interface PowerShellAnalysis {
+  has_encoded_command: boolean;
+  has_download_cradle: boolean;
+  has_amsi_bypass: boolean;
+  has_reflection: boolean;
+  obfuscation_indicators: string[];
+  suspicious_cmdlets: string[];
+}
+
+export interface VbScriptAnalysis {
+  has_shell_exec: boolean;
+  has_wmi: boolean;
+  has_download: boolean;
+  chr_chain_count: number;
+  obfuscation_score: number;
+  suspicious_patterns: string[];
+}
+
+export interface ShellScriptAnalysis {
+  script_type: string;
+  has_download_execute: boolean;
+  has_persistence: boolean;
+  has_privilege_escalation: boolean;
+  suspicious_commands: string[];
+}
+
+export interface PythonAnalysis {
+  has_exec_eval: boolean;
+  has_subprocess: boolean;
+  has_network: boolean;
+  has_native_code: boolean;
+  obfuscation_indicators: string[];
+  suspicious_imports: string[];
+}
+
+// ── Document & archive format analysis ──────────────────────────────────
+
+export interface OleAnalysis {
+  has_macros: boolean;
+  has_auto_execute: boolean;
+  macro_stream_names: string[];
+  has_embedded_objects: boolean;
+  suspicious_keywords: string[];
+}
+
+export interface RtfAnalysis {
+  has_embedded_objects: boolean;
+  has_objdata: boolean;
+  contains_pe_bytes: boolean;
+  suspicious_control_words: string[];
+}
+
+export interface ZipAnalysis {
+  entry_count: number;
+  has_executables: boolean;
+  executable_names: string[];
+  has_encrypted_entries: boolean;
+  compression_ratio: number;
+  has_double_extensions: boolean;
+  has_path_traversal: boolean;
+  suspicious_entries: string[];
+}
+
+// ── Media, markup & misc format analysis ────────────────────────────────
+
+export interface HtmlAnalysis {
+  script_count: number;
+  has_event_handlers: boolean;
+  has_hidden_iframes: boolean;
+  has_embedded_objects: boolean;
+  has_form_actions: boolean;
+  has_meta_refresh: boolean;
+  has_data_uris: boolean;
+  suspicious_elements: string[];
+}
+
+export interface XmlAnalysis {
+  has_dtd: boolean;
+  has_external_entities: boolean;
+  has_xslt_scripts: boolean;
+  is_svg_with_code: boolean;
+  suspicious_elements: string[];
+}
+
+export interface ImageAnalysis {
+  has_trailing_data: boolean;
+  trailing_data_size: number;
+  has_suspicious_metadata: boolean;
+  metadata_strings: string[];
+  has_embedded_urls: boolean;
+}
+
+export interface LnkAnalysis {
+  target_path: string;
+  arguments?: string;
+  icon_location?: string;
+  has_suspicious_target: boolean;
+  has_encoded_args: boolean;
+  suspicious_indicators: string[];
+}
+
+export interface IsoAnalysis {
+  volume_label?: string;
+  file_count: number;
+  has_executables: boolean;
+  executable_names: string[];
+  has_autorun: boolean;
+  suspicious_entries: string[];
+}
+
+export interface CabAnalysis {
+  file_count: number;
+  has_executables: boolean;
+  executable_names: string[];
+  total_uncompressed_size: number;
+}
+
+export interface MsiAnalysis {
+  has_custom_actions: boolean;
+  has_embedded_binaries: boolean;
+  custom_action_types: string[];
+  suspicious_properties: string[];
 }
