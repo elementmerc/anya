@@ -316,22 +316,9 @@ fn detect_dotnet_patterns(data: &[u8], result: &mut DotNetMetadata) {
     }
 }
 
+/// Delegates to the canonical implementation in lib.rs
 fn calculate_entropy(data: &[u8]) -> f64 {
-    if data.is_empty() {
-        return 0.0;
-    }
-    let mut freq = [0u64; 256];
-    for &byte in data {
-        freq[byte as usize] += 1;
-    }
-    let len = data.len() as f64;
-    freq.iter()
-        .filter(|&&f| f > 0)
-        .map(|&f| {
-            let p = f as f64 / len;
-            -p * p.log2()
-        })
-        .sum()
+    crate::calculate_entropy(data)
 }
 
 #[cfg(test)]

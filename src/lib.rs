@@ -17,6 +17,7 @@ use std::sync::LazyLock;
 use walkdir::WalkDir;
 
 // Re-export modules
+pub mod cab_parser;
 pub mod case;
 pub mod cert_db;
 pub mod confidence;
@@ -27,11 +28,25 @@ pub mod elf_parser;
 pub mod errors;
 pub mod guided_output;
 pub mod hash_check;
+pub mod html_parser;
+pub mod image_parser;
 pub mod ioc;
+pub mod iso_parser;
+pub mod js_parser;
+pub mod lnk_parser;
 pub mod macho_parser;
+pub mod msi_parser;
+pub mod ole_parser;
 pub mod output;
 pub mod pe_parser;
+pub mod ps_parser;
+pub mod python_parser;
+pub mod rtf_parser;
+pub mod script_parser;
+pub mod vbs_parser;
+pub mod xml_parser;
 pub mod yara;
+pub mod zip_parser;
 
 // Scoring engine
 pub use anya_scoring;
@@ -82,6 +97,22 @@ pub struct FileAnalysisResult {
     pub mach_analysis: Option<output::MachoAnalysis>,
     pub pdf_analysis: Option<output::PdfAnalysis>,
     pub office_analysis: Option<output::OfficeAnalysis>,
+    // New format-specific analysis fields
+    pub javascript_analysis: Option<output::JavaScriptAnalysis>,
+    pub powershell_analysis: Option<output::PowerShellAnalysis>,
+    pub vbscript_analysis: Option<output::VbScriptAnalysis>,
+    pub shell_script_analysis: Option<output::ShellScriptAnalysis>,
+    pub python_analysis: Option<output::PythonAnalysis>,
+    pub ole_analysis: Option<output::OleAnalysis>,
+    pub rtf_analysis: Option<output::RtfAnalysis>,
+    pub zip_analysis: Option<output::ZipAnalysis>,
+    pub html_analysis: Option<output::HtmlAnalysis>,
+    pub xml_analysis: Option<output::XmlAnalysis>,
+    pub image_analysis: Option<output::ImageAnalysis>,
+    pub lnk_analysis: Option<output::LnkAnalysis>,
+    pub iso_analysis: Option<output::IsoAnalysis>,
+    pub cab_analysis: Option<output::CabAnalysis>,
+    pub msi_analysis: Option<output::MsiAnalysis>,
 }
 
 /// Batch analysis summary
@@ -205,6 +236,28 @@ pub fn calculate_entropy_and_histogram(data: &[u8]) -> (output::EntropyInfo, Vec
 /// Calculate Shannon entropy (delegates to combined function)
 pub fn calculate_file_entropy(data: &[u8]) -> output::EntropyInfo {
     calculate_entropy_and_histogram(data).0
+}
+
+/// Calculate Shannon entropy for a byte slice, returning a single f64 value (0.0–8.0).
+/// This is the canonical entropy implementation — all parsers should use this
+/// instead of maintaining private copies.
+pub fn calculate_entropy(data: &[u8]) -> f64 {
+    if data.is_empty() {
+        return 0.0;
+    }
+    let mut frequency = [0u64; 256];
+    for &byte in data {
+        frequency[byte as usize] += 1;
+    }
+    let len = data.len() as f64;
+    frequency
+        .iter()
+        .filter(|&&count| count > 0)
+        .map(|&count| {
+            let p = count as f64 / len;
+            -p * p.log2()
+        })
+        .sum()
 }
 
 /// Categorize entropy value
@@ -964,6 +1017,7 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
         .unwrap_or(false);
 
     // Extract strings + IOC detection (suppressed for image files)
+    // Single-pass: extract strings once, reuse for both StringsInfo and IOC detection
     let (strings, ioc_summary) = if is_image {
         let suppressed = output::StringsInfo {
             min_length: min_string_length,
@@ -975,9 +1029,28 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
         };
         (suppressed, None)
     } else {
-        let s = extract_strings_data(&data, min_string_length);
+        let (strings_with_offsets, total_count) =
+            extract_strings_with_offsets(&data, min_string_length);
+
+        // Build StringsInfo from the shared extraction
+        let sample_count = 10.min(strings_with_offsets.len());
+        let samples: Vec<String> = strings_with_offsets
+            .iter()
+            .take(sample_count)
+            .map(|(s, _)| s.clone())
+            .collect();
+        let classified = Some(classify_strings(&strings_with_offsets));
+        let s = output::StringsInfo {
+            min_length: min_string_length,
+            total_count,
+            samples,
+            sample_count,
+            classified,
+            suppressed_reason: None,
+        };
+
+        // IOC detection from the same extraction
         let ioc = {
-            let (strings_with_offsets, _) = extract_strings_with_offsets(&data, min_string_length);
             let summary = ioc::extract_iocs(&strings_with_offsets);
             if summary.ioc_strings.is_empty() {
                 None
@@ -1032,6 +1105,91 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
     let pdf_analysis = detect_pdf_analysis(&data);
     let office_analysis = detect_office_analysis(&data, path);
 
+    // ── Format-specific analysis dispatch ────────────────────────────────
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let fmt = file_format.as_str();
+
+    // Script parsers
+    let javascript_analysis = if fmt == "JavaScript" || ext == "js" || ext == "jse" || ext == "mjs"
+    {
+        js_parser::detect_javascript_analysis(&data)
+    } else {
+        None
+    };
+    let powershell_analysis = if ext == "ps1" || ext == "psm1" || ext == "psd1" {
+        ps_parser::detect_powershell_analysis(&data)
+    } else {
+        None
+    };
+    let vbscript_analysis = if ext == "vbs" || ext == "vbe" || ext == "wsf" {
+        vbs_parser::detect_vbscript_analysis(&data)
+    } else {
+        None
+    };
+    let shell_script_analysis =
+        if ext == "bat" || ext == "cmd" || ext == "sh" || ext == "bash" || fmt == "Shell Script" {
+            script_parser::detect_shell_script_analysis(&data)
+        } else {
+            None
+        };
+    let python_analysis = if ext == "py" || ext == "pyw" || fmt == "Python Script" {
+        python_parser::detect_python_analysis(&data)
+    } else {
+        None
+    };
+
+    // Document & archive parsers
+    let ole_analysis = ole_parser::detect_ole_analysis(&data);
+    let rtf_analysis = rtf_parser::detect_rtf_analysis(&data);
+    let zip_analysis = if fmt == "ZIP Archive" || ext == "zip" {
+        zip_parser::detect_zip_analysis(&data)
+    } else {
+        None
+    };
+
+    // Media, markup & misc parsers
+    let html_analysis =
+        if fmt == "HTML Document" || fmt == "HTML" || ext == "html" || ext == "htm" || ext == "hta"
+        {
+            html_parser::detect_html_analysis(&data)
+        } else {
+            None
+        };
+    let xml_analysis = if fmt == "XML Document" || ext == "xml" || ext == "svg" || ext == "xsl" {
+        xml_parser::detect_xml_analysis(&data)
+    } else {
+        None
+    };
+    let image_analysis = if is_image {
+        image_parser::detect_image_analysis(&data)
+    } else {
+        None
+    };
+    let lnk_analysis = if ext == "lnk" || fmt == "Windows Shortcut" {
+        lnk_parser::detect_lnk_analysis(&data)
+    } else {
+        None
+    };
+    let iso_analysis = if fmt == "ISO 9660" || ext == "iso" {
+        iso_parser::detect_iso_analysis(&data)
+    } else {
+        None
+    };
+    let cab_analysis = if fmt == "Windows Cabinet" || ext == "cab" {
+        cab_parser::detect_cab_analysis(&data)
+    } else {
+        None
+    };
+    let msi_analysis = if ext == "msi" {
+        msi_parser::detect_msi_analysis(&data)
+    } else {
+        None
+    };
+
     Ok(FileAnalysisResult {
         path: path.to_path_buf(),
         size_bytes,
@@ -1048,6 +1206,21 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
         mach_analysis,
         pdf_analysis,
         office_analysis,
+        javascript_analysis,
+        powershell_analysis,
+        vbscript_analysis,
+        shell_script_analysis,
+        python_analysis,
+        ole_analysis,
+        rtf_analysis,
+        zip_analysis,
+        html_analysis,
+        xml_analysis,
+        image_analysis,
+        lnk_analysis,
+        iso_analysis,
+        cab_analysis,
+        msi_analysis,
     })
 }
 
@@ -1297,6 +1470,21 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         mach_analysis: result.mach_analysis.clone(),
         pdf_analysis: result.pdf_analysis.clone(),
         office_analysis: result.office_analysis.clone(),
+        javascript_analysis: result.javascript_analysis.clone(),
+        powershell_analysis: result.powershell_analysis.clone(),
+        vbscript_analysis: result.vbscript_analysis.clone(),
+        shell_script_analysis: result.shell_script_analysis.clone(),
+        python_analysis: result.python_analysis.clone(),
+        ole_analysis: result.ole_analysis.clone(),
+        rtf_analysis: result.rtf_analysis.clone(),
+        zip_analysis: result.zip_analysis.clone(),
+        html_analysis: result.html_analysis.clone(),
+        xml_analysis: result.xml_analysis.clone(),
+        image_analysis: result.image_analysis.clone(),
+        lnk_analysis: result.lnk_analysis.clone(),
+        iso_analysis: result.iso_analysis.clone(),
+        cab_analysis: result.cab_analysis.clone(),
+        msi_analysis: result.msi_analysis.clone(),
     };
 
     // KSD lookup — find nearest known malware sample by TLSH similarity.
@@ -1603,6 +1791,21 @@ mod tests {
             mach_analysis: None,
             pdf_analysis: None,
             office_analysis: None,
+            javascript_analysis: None,
+            powershell_analysis: None,
+            vbscript_analysis: None,
+            shell_script_analysis: None,
+            python_analysis: None,
+            ole_analysis: None,
+            rtf_analysis: None,
+            zip_analysis: None,
+            html_analysis: None,
+            xml_analysis: None,
+            image_analysis: None,
+            lnk_analysis: None,
+            iso_analysis: None,
+            cab_analysis: None,
+            msi_analysis: None,
         }
     }
 
@@ -1610,23 +1813,8 @@ mod tests {
 
     #[test]
     fn test_is_suspicious_file_high_entropy() {
-        let result = FileAnalysisResult {
-            path: PathBuf::from("test.exe"),
-            size_bytes: 1000,
-            hashes: calculate_hashes(b"test"),
-            entropy: high_entropy(),
-            strings: extract_strings_data(b"test", 4),
-            file_format: "PE".to_string(),
-            pe_analysis: None,
-            elf_analysis: None,
-            mime_type: None,
-            byte_histogram: None,
-            file_type_mismatch: None,
-            ioc_summary: None,
-            mach_analysis: None,
-            pdf_analysis: None,
-            office_analysis: None,
-        };
+        let mut result = baseline_result();
+        result.entropy = high_entropy();
 
         assert!(is_suspicious_file(&result));
     }
@@ -1915,6 +2103,21 @@ mod tests {
             mach_analysis: None,
             pdf_analysis: None,
             office_analysis: None,
+            javascript_analysis: None,
+            powershell_analysis: None,
+            vbscript_analysis: None,
+            shell_script_analysis: None,
+            python_analysis: None,
+            ole_analysis: None,
+            rtf_analysis: None,
+            zip_analysis: None,
+            html_analysis: None,
+            xml_analysis: None,
+            image_analysis: None,
+            lnk_analysis: None,
+            iso_analysis: None,
+            cab_analysis: None,
+            msi_analysis: None,
         };
 
         let json = to_json_output(&result);

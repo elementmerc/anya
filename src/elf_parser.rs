@@ -59,23 +59,9 @@ fn elf_section_type_to_str(sh_type: u32) -> &'static str {
 
 // ─── Entropy (local copy to avoid cross-module dep) ──────────────────────────
 
+/// Delegates to the canonical implementation in lib.rs
 fn calculate_entropy(data: &[u8]) -> f64 {
-    if data.is_empty() {
-        return 0.0;
-    }
-    let mut frequency = [0u64; 256];
-    for &byte in data {
-        frequency[byte as usize] += 1;
-    }
-    let len = data.len() as f64;
-    let mut entropy = 0.0;
-    for &count in &frequency {
-        if count > 0 {
-            let p = count as f64 / len;
-            entropy -= p * p.log2();
-        }
-    }
-    entropy
+    crate::calculate_entropy(data)
 }
 
 fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {

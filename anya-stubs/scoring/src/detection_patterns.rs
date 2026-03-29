@@ -106,3 +106,18 @@ pub fn packed_weight_entropy_classic_pack() -> u32 {
 pub fn packed_weight_entropy_uniform_moderate() -> u32 {
     0
 }
+
+// ── Script Parser Pattern Stubs ─────────────────────────────────────────────
+pub static JS_SUSPICIOUS_PATTERNS: LazyLock<Vec<String>> = LazyLock::new(Vec::new);
+pub static JS_OBFUSCATION_PATTERNS: LazyLock<Vec<String>> = LazyLock::new(Vec::new);
+pub static PS_SUSPICIOUS_PATTERNS: LazyLock<Vec<String>> = LazyLock::new(Vec::new);
+pub static VBS_SUSPICIOUS_KEYWORDS: LazyLock<Vec<String>> = LazyLock::new(Vec::new);
+pub static SHELL_SUSPICIOUS_PATTERNS: LazyLock<Vec<String>> = LazyLock::new(Vec::new);
+pub static PYTHON_SUSPICIOUS_PATTERNS: LazyLock<Vec<String>> = LazyLock::new(Vec::new);
+pub static OLE_MACRO_STREAM_NAMES: LazyLock<Vec<Vec<u8>>> = LazyLock::new(Vec::new);
+pub static OLE_AUTO_EXECUTE_NAMES: LazyLock<Vec<String>> = LazyLock::new(Vec::new);
+pub static OLE_SUSPICIOUS_KEYWORDS: LazyLock<Vec<String>> = LazyLock::new(Vec::new);
+pub static HTML_SUSPICIOUS_PATTERNS: LazyLock<Vec<String>> = LazyLock::new(Vec::new);
+pub static LNK_SUSPICIOUS_TARGETS: LazyLock<Vec<String>> = LazyLock::new(Vec::new);
+pub static MSI_SUSPICIOUS_PATTERNS: LazyLock<Vec<String>> = LazyLock::new(Vec::new);
+pub static EXECUTABLE_EXTENSIONS: LazyLock<Vec<String>> = LazyLock::new(Vec::new);
