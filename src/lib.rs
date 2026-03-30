@@ -604,6 +604,14 @@ fn extension_to_format_label(ext: Option<&str>) -> String {
 }
 
 /// Calculate TLSH fuzzy hash (returns None if file < 50 bytes)
+/// Compute TLSH distance between two hex-encoded TLSH strings.
+/// Returns None if either string is invalid.
+pub fn tlsh_distance(hex1: &str, hex2: &str) -> Option<i32> {
+    let h1: tlsh2::Tlsh128_1 = hex1.parse().ok()?;
+    let h2: tlsh2::Tlsh128_1 = hex2.parse().ok()?;
+    Some(h1.diff(&h2, true))
+}
+
 fn calculate_tlsh(data: &[u8]) -> Option<String> {
     if data.len() < 50 {
         return None;

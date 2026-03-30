@@ -478,7 +478,7 @@ pub mod commands {
     pub async fn save_thresholds(
         thresholds: anya_security_core::config::ThresholdConfig,
     ) -> Result<(), String> {
-        thresholds.validate().map_err(|e| e)?;
+        thresholds.validate()?;
 
         let mut config = anya_security_core::config::Config::load_or_default()
             .map_err(|e| format!("Failed to load config: {e}"))?;
@@ -519,7 +519,7 @@ pub mod commands {
             .file_info
             .path
             .split(['/', '\\'])
-            .last()
+            .next_back()
             .unwrap_or("Unknown");
         let file_path = &json_result.file_info.path;
         let file_size_kb = json_result.file_info.size_kb;
@@ -751,6 +751,152 @@ pub mod commands {
         .map_err(|e| format!("{e}"))
     }
 
+    // ── Graph data commands ────────────────────────────────────────────────────
+
+    /// Compute relationship graph data from batch results.
+    /// Returns nodes (files) and edges (relationships) for the 3D graph.
+    #[tauri::command]
+    pub async fn get_batch_graph_data(
+        results: Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value, String> {
+        tokio::task::spawn_blocking(move || {
+            let mut nodes = Vec::new();
+            let mut edges = Vec::new();
+
+            // Build nodes from results
+            for (i, r) in results.iter().enumerate() {
+                let file_name = r
+                    .get("file_info")
+                    .and_then(|fi| fi.get("path"))
+                    .and_then(|p| p.as_str())
+                    .unwrap_or("unknown");
+                let short_name = std::path::Path::new(file_name)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| file_name.to_string());
+                let verdict = r
+                    .get("verdict_summary")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("UNKNOWN");
+                let color = if verdict.contains("MALICIOUS") {
+                    "#ff4444"
+                } else if verdict.contains("SUSPICIOUS") {
+                    "#ffaa00"
+                } else if verdict.contains("CLEAN") {
+                    "#44ff88"
+                } else {
+                    "#888888"
+                };
+                let tlsh = r
+                    .get("hashes")
+                    .and_then(|h| h.get("tlsh"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("");
+                let family = r
+                    .get("ksd_match")
+                    .and_then(|k| k.get("family"))
+                    .and_then(|f| f.as_str())
+                    .unwrap_or("");
+
+                nodes.push(serde_json::json!({
+                    "id": i,
+                    "name": short_name,
+                    "color": color,
+                    "verdict": verdict,
+                    "tlsh": tlsh,
+                    "family": family,
+                    "val": 1,
+                }));
+            }
+
+            // Build edges from TLSH similarity
+            for (i, ri) in results.iter().enumerate() {
+                let tlsh_i = ri
+                    .get("hashes")
+                    .and_then(|h| h.get("tlsh"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("");
+                if tlsh_i.is_empty() {
+                    continue;
+                }
+                for (j, rj) in results.iter().enumerate().skip(i + 1) {
+                    let tlsh_j = rj
+                        .get("hashes")
+                        .and_then(|h| h.get("tlsh"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("");
+                    if tlsh_j.is_empty() {
+                        continue;
+                    }
+                    // Compute TLSH distance using core crate utility
+                    if let Some(distance) = anya_security_core::tlsh_distance(tlsh_i, tlsh_j) {
+                        if distance <= 150 {
+                            let strength = 1.0 - (distance as f64 / 150.0);
+                            let label = if distance <= 30 {
+                                "near-identical"
+                            } else if distance <= 80 {
+                                "similar"
+                            } else {
+                                "related"
+                            };
+                            edges.push(serde_json::json!({
+                                "source": i,
+                                "target": j,
+                                "distance": distance,
+                                "strength": strength,
+                                "label": label,
+                            }));
+                        }
+                    }
+                }
+            }
+
+            // Also connect files that share the same KSD family
+            for (i, ri) in results.iter().enumerate() {
+                let family_i = ri
+                    .get("ksd_match")
+                    .and_then(|k| k.get("family"))
+                    .and_then(|f| f.as_str())
+                    .unwrap_or("");
+                if family_i.is_empty() {
+                    continue;
+                }
+                for (j, rj) in results.iter().enumerate().skip(i + 1) {
+                    let family_j = rj
+                        .get("ksd_match")
+                        .and_then(|k| k.get("family"))
+                        .and_then(|f| f.as_str())
+                        .unwrap_or("");
+                    if family_i == family_j {
+                        // Check if edge already exists from TLSH
+                        let already = edges
+                            .iter()
+                            .any(|e| {
+                                (e["source"] == i && e["target"] == j)
+                                    || (e["source"] == j && e["target"] == i)
+                            });
+                        if !already {
+                            edges.push(serde_json::json!({
+                                "source": i,
+                                "target": j,
+                                "distance": 0,
+                                "strength": 0.8,
+                                "label": format!("same family: {}", family_i),
+                            }));
+                        }
+                    }
+                }
+            }
+
+            Ok(serde_json::json!({
+                "nodes": nodes,
+                "links": edges,
+            }))
+        })
+        .await
+        .map_err(|e| format!("{e}"))?
+    }
+
     // ── Installer / first-run commands ────────────────────────────────────────
 
     /// Check whether this is a first run by looking for the `.anya_configured`
@@ -897,6 +1043,7 @@ pub fn run() {
             commands::get_case,
             commands::delete_case,
             commands::get_cases_dir,
+            commands::get_batch_graph_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Anya");
