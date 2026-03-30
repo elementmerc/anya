@@ -220,3 +220,8 @@ Before implementing anything, check:
 
 Ask: "This touches [X]. Is that in scope for this session?"
 Do not assume. Do not expand scope silently.
+
+Even in Edit automatically mode, pause and ask the user questions when
+something is unclear, when a design decision has multiple valid paths,
+or when a mistake could be expensive to fix later. A 30-second question
+saves 30 minutes of rework.
