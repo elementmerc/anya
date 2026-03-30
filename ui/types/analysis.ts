@@ -682,3 +682,33 @@ export interface MsiAnalysis {
   custom_action_types: string[];
   suspicious_properties: string[];
 }
+
+// ── Network graph data ──────────────────────────────────────────────
+
+export interface GraphNode {
+  id: number;
+  name: string;
+  color: string;
+  verdict: string;
+  tlsh: string;
+  family: string;
+  val: number;
+}
+
+export interface GraphLink {
+  source: number;
+  target: number;
+  distance: number;
+  strength: number;
+  label: string;
+}
+
+export interface GraphData {
+  nodes: GraphNode[];
+  links: GraphLink[];
+}
+
+export interface ForensicFragment {
+  associated_family: string;
+  explanation: string;
+}

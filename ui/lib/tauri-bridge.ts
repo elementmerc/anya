@@ -131,3 +131,9 @@ export const pickExistingCaseFolder = async (): Promise<string | null> => {
   const casesRoot = await getCasesDir();
   return open({ directory: true, multiple: false, defaultPath: casesRoot }) as Promise<string | null>;
 };
+
+// ── Network graph ────────────────────────────────────────────────────────────
+
+/** Compute relationship graph from batch analysis results (server-side TLSH + KSD matching) */
+export const getBatchGraphData = (results: unknown[]): Promise<import("../types/analysis").GraphData> =>
+  invoke("get_batch_graph_data", { results });
