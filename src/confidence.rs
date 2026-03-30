@@ -25,6 +25,12 @@ pub use anya_scoring::confidence::{
 pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
     let mut s = SignalSet {
         file_format: result.file_format.clone(),
+        file_extension: result
+            .file_info
+            .extension
+            .as_deref()
+            .unwrap_or("")
+            .to_lowercase(),
         file_entropy: result.entropy.value,
         entropy_is_suspicious: result.entropy.is_suspicious,
         ..Default::default()
@@ -167,16 +173,28 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
             .map(|c| !c.name.is_empty() && c.name != "Unknown")
             .unwrap_or(false);
         // Suspicious PDB path detection
+        // "shell" removed — false-positives on PowerShell paths
         if let Some(ref debug) = pe.debug_artifacts {
             if let Some(ref pdb) = debug.pdb_path {
                 let lower = pdb.to_lowercase();
-                s.pe_suspicious_pdb = [
+                let has_keyword = [
                     "spy", "inject", "keylog", "rat", "trojan", "backdoor", "exploit", "payload",
-                    "dropper", "stealer", "ransom", "crypt", "hook", "dump", "shell", "bypass",
-                    "kmspy", "rootkit", "botnet",
+                    "dropper", "stealer", "ransom", "crypt", "hook", "dump", "bypass", "kmspy",
+                    "rootkit", "botnet",
                 ]
                 .iter()
                 .any(|kw| lower.contains(kw));
+                let is_legitimate = [
+                    "powershell",
+                    "microsoft",
+                    "dotnet",
+                    "roslyn",
+                    "msbuild",
+                    "nuget",
+                ]
+                .iter()
+                .any(|wl| lower.contains(wl));
+                s.pe_suspicious_pdb = has_keyword && !is_legitimate;
             }
         }
     }
@@ -307,6 +325,179 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
     }
 
     // ── File type mismatch ──────────────────────────────────────────────
+    // ── File-level signals ───────────────────────────────────────────
+    s.file_size = result.file_info.size_bytes;
+
+    // ── Compiler/toolchain fingerprinting ───────────────────────────
+    if let Some(ref pe) = result.pe_analysis {
+        s.pe_toolchain = detect_toolchain(pe);
+    }
+
+    // ── String entropy profiling ────────────────────────────────────
+    if let Some(ref classified) = result.strings.classified {
+        if !classified.is_empty() {
+            let entropies: Vec<f64> = classified
+                .iter()
+                .map(|cs| string_entropy(&cs.value))
+                .collect();
+            let total: f64 = entropies.iter().sum();
+            s.string_avg_entropy = total / entropies.len() as f64;
+            let high_count = entropies.iter().filter(|&&e| e > 4.0).count();
+            s.string_high_entropy_ratio = high_count as f64 / entropies.len() as f64;
+        }
+    }
+
+    // ── Import behavioural clustering ───────────────────────────────
+    if let Some(ref pe) = result.pe_analysis {
+        s.import_clusters = detect_import_clusters(pe);
+    }
+
+    // ── Known-product signals: version info ────────────────────────
+    if let Some(ref pe) = result.pe_analysis {
+        if let Some(ref vi) = pe.version_info {
+            s.pe_product_name = vi.product_name.as_deref().unwrap_or("").to_lowercase();
+            s.pe_company_name = vi.company_name.as_deref().unwrap_or("").to_lowercase();
+        }
+    }
+
+    // ── Known-product signals: debug info ────────────────────────────
+    if let Some(ref elf) = result.elf_analysis {
+        s.elf_has_dwarf_info = elf.has_dwarf_info;
+    }
+    if let Some(ref pe) = result.pe_analysis {
+        if let Some(ref debug) = pe.debug_artifacts {
+            if let Some(ref pdb) = debug.pdb_path {
+                let lower = pdb.to_lowercase();
+                s.pe_pdb_is_development = lower.contains("/usr/src/")
+                    || lower.contains("\\users\\")
+                    || lower.contains("/home/")
+                    || lower.contains("\\source\\repos\\")
+                    || lower.contains("/build/")
+                    || lower.contains("\\debug\\")
+                    || lower.contains("\\release\\");
+            }
+        }
+    }
+
+    // ── Known-product signals: export patterns ───────────────────────
+    if let Some(ref pe) = result.pe_analysis {
+        if let Some(ref exports) = pe.exports {
+            let names: Vec<String> = exports
+                .samples
+                .iter()
+                .map(|e| e.name.to_lowercase())
+                .collect();
+            if names
+                .iter()
+                .any(|n| n == "dllgetclassobject" || n == "dllregisterserver")
+            {
+                s.pe_export_pattern = "com".into();
+            } else if names
+                .iter()
+                .any(|n| n.starts_with("jni_") || n == "jni_onload")
+            {
+                s.pe_export_pattern = "jni".into();
+            } else if names
+                .iter()
+                .any(|n| n == "napi_register_module_v1" || n.starts_with("napi_"))
+            {
+                s.pe_export_pattern = "napi".into();
+            } else if exports.total_count == 1 && names.iter().any(|n| n == "dllmain") {
+                s.pe_export_pattern = "dllmain_only".into();
+            }
+        }
+    }
+
+    // ── Structural similarity fingerprint ────────────────────────────
+    if let Some(ref pe) = result.pe_analysis {
+        let sec_names: Vec<&str> = pe.sections.iter().map(|s| s.name.as_str()).collect();
+        let sec_hash = simple_hash(&sec_names.join("|"));
+        let dll_names: Vec<&str> = pe.imports.libraries.iter().map(|l| l.as_str()).collect();
+        let dll_hash = simple_hash(&dll_names.join("|"));
+        s.structural_fingerprint = format!(
+            "{}:{}:{:08x}:{:08x}",
+            pe.sections.len(),
+            pe.imports.dll_count,
+            sec_hash,
+            dll_hash
+        );
+    } else if let Some(ref elf) = result.elf_analysis {
+        let sec_names: Vec<&str> = elf.sections.iter().map(|s| s.name.as_str()).collect();
+        let sec_hash = simple_hash(&sec_names.join("|"));
+        s.structural_fingerprint = format!(
+            "{}:{}:{:08x}",
+            elf.sections.len(),
+            elf.imports.library_count,
+            sec_hash
+        );
+    }
+
+    // ── Entropy distribution (byte histogram shape) ──────────────────
+    if let Some(ref hist) = result.byte_histogram {
+        if !hist.is_empty() {
+            let total: u64 = hist.iter().sum();
+            if total > 0 {
+                let non_zero = hist.iter().filter(|&&v| v > 0).count();
+                s.histogram_flatness = non_zero as f64 / 256.0;
+                // Packed/encrypted: very flat (>0.95 usage, low variance)
+                let mean = total as f64 / 256.0;
+                let variance: f64 = hist
+                    .iter()
+                    .map(|&v| {
+                        let diff = v as f64 - mean;
+                        diff * diff
+                    })
+                    .sum::<f64>()
+                    / 256.0;
+                let cv = variance.sqrt() / mean.max(1.0); // coefficient of variation
+                s.histogram_is_packed = s.histogram_flatness > 0.9 && cv < 0.5;
+            }
+        }
+    }
+
+    // ── Cross-reference IOC validation ───────────────────────────────
+    if let Some(ref ioc) = result.ioc_summary {
+        s.ioc_benign_count = ioc
+            .ioc_strings
+            .iter()
+            .filter(|es| is_benign_ioc(&es.value))
+            .count();
+    }
+
+    // ── Resource language analysis ───────────────────────────────────
+    // PE resource language detection is not yet extracted by pe_parser;
+    // populate from version info locale heuristic instead
+    if let Some(ref pe) = result.pe_analysis {
+        if let Some(ref vi) = pe.version_info {
+            // If version info has English text but product appears non-English, flag mismatch
+            let has_english_text = vi.file_description.as_deref().is_some_and(|d| d.is_ascii());
+            let has_non_ascii_company = vi.company_name.as_deref().is_some_and(|c| !c.is_ascii());
+            s.pe_language_mismatch = has_english_text && has_non_ascii_company;
+        }
+    }
+
+    // ── Timestamp plausibility ───────────────────────────────────────
+    if let Some(ref pe) = result.pe_analysis {
+        if let Some(ref debug) = pe.debug_artifacts {
+            // Timestamp is zeroed check
+            if debug.timestamp_zeroed {
+                s.pe_timestamp_suspicious = true;
+            }
+        }
+        // Parse timestamp from entry point or use debug artifacts
+        // PE timestamp is in the COFF header — currently not exposed as a
+        // standalone field, but debug_artifacts.timestamp_zeroed catches the
+        // zeroed case. For future/ancient detection, we'd need the raw value.
+        // For now, flag zeroed timestamps only.
+    }
+
+    // ── Forensic fragment detection ─────────────────────────────────
+    s.is_forensic_fragment = result.file_info.size_bytes < 100
+        && result.pe_analysis.is_none()
+        && result.elf_analysis.is_none()
+        && result.mach_analysis.is_none()
+        && result.ioc_summary.is_none();
+
     if let Some(ref m) = result.file_type_mismatch {
         s.mismatch_severity = Some(m.severity.clone());
         s.mismatch_detected_type = Some(m.detected_type.clone());
@@ -469,6 +660,323 @@ pub fn assign_overlay_confidence(
     assign_overlay_confidence_raw(overlay.high_entropy, has_authenticode)
 }
 
+// ── Structural similarity hashing ────────────────────────────────────────────
+
+/// Simple FNV-1a hash for structural fingerprinting.
+fn simple_hash(s: &str) -> u32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in s.bytes() {
+        hash ^= byte as u32;
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash
+}
+
+// ── Benign IOC validation ───────────────────────────────────────────────────
+
+/// Check if an IOC value matches known benign infrastructure.
+fn is_benign_ioc(value: &str) -> bool {
+    let lower = value.to_lowercase();
+    // Known CDN/cloud/package domains
+    let benign_domains = [
+        "googleapis.com",
+        "cloudfront.net",
+        "amazonaws.com",
+        "azure.com",
+        "microsoft.com",
+        "windows.com",
+        "windowsupdate.com",
+        "github.com",
+        "githubusercontent.com",
+        "npmjs.org",
+        "pypi.org",
+        "rubygems.org",
+        "nuget.org",
+        "maven.org",
+        "crates.io",
+        "docker.io",
+        "docker.com",
+        "cloudflare.com",
+        "akamai.net",
+        "akamaized.net",
+        "fastly.net",
+        "edgecastcdn.net",
+        "digicert.com",
+        "letsencrypt.org",
+        "verisign.com",
+        "symantec.com",
+        "google.com",
+        "gstatic.com",
+        "apple.com",
+        "mozilla.org",
+        "mozilla.net",
+        "ubuntu.com",
+        "debian.org",
+        "redhat.com",
+        "fedoraproject.org",
+        "kernel.org",
+        "gnu.org",
+        "sourceforge.net",
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+    ];
+    benign_domains
+        .iter()
+        .any(|d| lower.ends_with(d) || lower == *d)
+}
+
+// ── Compiler/toolchain fingerprinting ────────────────────────────────────────
+
+/// Detect the compiler/toolchain from PE structural artifacts.
+fn detect_toolchain(pe: &crate::output::PEAnalysis) -> String {
+    // 0. Import-based detection FIRST — most reliable for MinGW vs MSVC.
+    // MinGW DLLs import libwinpthread/libgcc/libstdc++ which are MinGW-only.
+    let libs: Vec<String> = pe
+        .imports
+        .libraries
+        .iter()
+        .map(|l| l.to_lowercase())
+        .collect();
+    if libs.iter().any(|l| {
+        l.starts_with("libwinpthread") || l.starts_with("libgcc") || l.starts_with("libstdc++")
+    }) {
+        return "mingw".into();
+    }
+
+    // 1. Explicit compiler detection from existing field
+    if let Some(ref comp) = pe.compiler {
+        let name = comp.name.to_lowercase();
+        if name.contains("msvc") || name.contains("visual c") {
+            return "msvc".into();
+        }
+        if name.contains("gcc") || name.contains("mingw") {
+            return "mingw".into();
+        }
+        if name.contains("go") && name.contains("build") {
+            return "go".into();
+        }
+        if name.contains("rust") {
+            return "rust".into();
+        }
+        if name.contains("delphi") || name.contains("borland") {
+            return "delphi".into();
+        }
+        if name.contains(".net") || name.contains("csc") {
+            return "dotnet".into();
+        }
+    }
+
+    // 2. .NET detection
+    if pe.is_dotnet {
+        return "dotnet".into();
+    }
+
+    // 3. Section name patterns
+    let section_names: Vec<&str> = pe.sections.iter().map(|s| s.name.as_str()).collect();
+    if section_names.iter().any(|n| n.starts_with("UPX")) {
+        return "upx".into(); // UPX packed, original toolchain unknown
+    }
+    if section_names
+        .iter()
+        .any(|n| *n == ".rsrc" || *n == "CODE" || *n == "DATA" || *n == "BSS")
+    {
+        // Borland/Delphi pattern: CODE, DATA, BSS sections
+        if section_names.contains(&"CODE") {
+            return "delphi".into();
+        }
+    }
+    // AutoIt uses specific section patterns
+    if section_names
+        .iter()
+        .any(|n| n.contains("AutoIt") || n.contains(".a3x"))
+    {
+        return "autoit".into();
+    }
+    // NSIS installer detection
+    if section_names
+        .iter()
+        .any(|n| *n == ".ndata" || n.contains("nsis"))
+    {
+        return "nsis".into();
+    }
+
+    // 4. Import-based detection (reuses `libs` from step 0)
+    // PyInstaller
+    if libs.iter().any(|l| l.contains("python")) {
+        return "pyinstaller".into();
+    }
+    // Go binaries have minimal imports but specific patterns
+    if pe
+        .sections
+        .iter()
+        .any(|s| s.name == ".symtab" || s.name == ".gosymtab")
+    {
+        return "go".into();
+    }
+    // MinGW: imports msvcrt.dll instead of msvcr*.dll/vcruntime*.dll
+    if libs.contains(&"msvcrt.dll".to_string())
+        && !libs
+            .iter()
+            .any(|l| l.starts_with("vcruntime") || l.starts_with("msvcp"))
+    {
+        return "mingw".into();
+    }
+    // MSVC: imports vcruntime*.dll or msvcp*.dll
+    if libs
+        .iter()
+        .any(|l| l.starts_with("vcruntime") || l.starts_with("msvcp"))
+    {
+        return "msvc".into();
+    }
+
+    // 5. Rich header presence strongly suggests MSVC
+    if pe.rich_header.is_some() {
+        return "msvc".into();
+    }
+
+    String::new()
+}
+
+// ── String entropy profiling ────────────────────────────────────────────────
+
+/// Calculate Shannon entropy of a single string.
+fn string_entropy(s: &str) -> f64 {
+    if s.len() < 4 {
+        return 0.0;
+    }
+    let mut freq = [0u32; 256];
+    for &b in s.as_bytes() {
+        freq[b as usize] += 1;
+    }
+    let len = s.len() as f64;
+    freq.iter()
+        .filter(|&&f| f > 0)
+        .map(|&f| {
+            let p = f as f64 / len;
+            -p * p.log2()
+        })
+        .sum()
+}
+
+// ── Import behavioural clustering ───────────────────────────────────────────
+
+/// Classify PE imports into behavioural profiles.
+fn detect_import_clusters(pe: &crate::output::PEAnalysis) -> Vec<String> {
+    let mut clusters = Vec::new();
+    let apis: Vec<String> = pe
+        .imports
+        .suspicious_apis
+        .iter()
+        .map(|a| a.name.to_lowercase())
+        .collect();
+    let categories: Vec<String> = pe
+        .imports
+        .suspicious_apis
+        .iter()
+        .map(|a| a.category.clone())
+        .collect();
+    let libs: Vec<String> = pe
+        .imports
+        .libraries
+        .iter()
+        .map(|l| l.to_lowercase())
+        .collect();
+
+    // Process injection cluster
+    let has_process_manip = apis
+        .iter()
+        .any(|a| a.contains("openprocess") || a.contains("createprocess"));
+    let has_memory_alloc = apis
+        .iter()
+        .any(|a| a.contains("virtualallocex") || a.contains("ntmapviewofsection"));
+    let has_write_inject = apis.iter().any(|a| {
+        a.contains("writeprocessmemory")
+            || a.contains("ntwritevirtualmemory")
+            || a.contains("createremotethread")
+            || a.contains("queueuserapc")
+    });
+    if has_process_manip && (has_memory_alloc || has_write_inject) {
+        clusters.push("process_injection".into());
+    }
+
+    // File dropper cluster
+    let has_file_ops = apis
+        .iter()
+        .any(|a| a.contains("createfile") || a.contains("writefile"));
+    let has_exec = apis.iter().any(|a| {
+        a.contains("winexec") || a.contains("shellexecute") || a.contains("createprocess")
+    });
+    if has_file_ops && has_exec {
+        clusters.push("file_dropper".into());
+    }
+
+    // Credential theft cluster
+    let has_cred_apis = apis.iter().any(|a| {
+        a.contains("credread")
+            || a.contains("cryptunprotectdata")
+            || a.contains("lsaenumeratelogonsessions")
+    });
+    let has_reg_access = apis
+        .iter()
+        .any(|a| a.contains("regopen") || a.contains("regquery"));
+    if has_cred_apis || (has_reg_access && libs.iter().any(|l| l == "crypt32.dll")) {
+        clusters.push("credential_theft".into());
+    }
+
+    // Keylogger cluster
+    let has_hooks = apis.iter().any(|a| {
+        a.contains("setwindowshookex")
+            || a.contains("getasynckeystate")
+            || a.contains("getkeystate")
+    });
+    let has_clipboard = apis
+        .iter()
+        .any(|a| a.contains("getclipboarddata") || a.contains("openclipboard"));
+    if has_hooks || (has_clipboard && categories.iter().any(|c| c.contains("Keylog"))) {
+        clusters.push("keylogger".into());
+    }
+
+    // Network C2 cluster
+    let has_net = libs
+        .iter()
+        .any(|l| l == "ws2_32.dll" || l == "wininet.dll" || l == "winhttp.dll");
+    let has_net_apis = apis.iter().any(|a| {
+        a.contains("internetopen")
+            || a.contains("httpopen")
+            || a.contains("urldownload")
+            || a.contains("wsastartup")
+    });
+    if has_net && has_net_apis {
+        clusters.push("network_c2".into());
+    }
+
+    // Persistence cluster
+    let has_service = apis.iter().any(|a| {
+        a.contains("createservice") || a.contains("openscmanager") || a.contains("startservice")
+    });
+    let has_registry_persist = apis
+        .iter()
+        .any(|a| a.contains("regsetvalue") || a.contains("regcreatekey"));
+    if has_service || has_registry_persist {
+        clusters.push("persistence".into());
+    }
+
+    // Evasion cluster
+    let has_evasion = categories
+        .iter()
+        .any(|c| c.contains("Anti-Analysis") || c.contains("Evasion"));
+    let has_dynamic_resolve = apis
+        .iter()
+        .any(|a| a.contains("getprocaddress") || a.contains("loadlibrary"));
+    if has_evasion && has_dynamic_resolve {
+        clusters.push("evasion".into());
+    }
+
+    clusters
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -514,6 +1022,7 @@ mod tests {
             is_dotnet: false,
             packed_score: 0,
             has_delay_imports: false,
+            spoofed_imports: vec![],
             resource_has_exe: false,
             resource_high_entropy: false,
             resource_oversized: false,
@@ -571,6 +1080,7 @@ mod tests {
             ioc_summary: None,
             verdict_summary: None,
             ksd_match: None,
+            forensic_fragment: None,
             top_findings: vec![],
             mach_analysis: None,
             pdf_analysis: None,
@@ -617,6 +1127,7 @@ mod tests {
             is_suspicious: true,
             is_wx: true,
             name_anomaly: None,
+            md5: None,
             confidence: None,
         });
         pe.packers.push(PackerFinding {

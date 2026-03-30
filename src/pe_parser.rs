@@ -215,11 +215,19 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
             let section_start = section.pointer_to_raw_data as usize;
             let section_size = section.size_of_raw_data as usize;
 
-            let entropy = if section_start + section_size <= data.len() {
-                calculate_entropy(&data[section_start..section_start + section_size])
+            let section_data = if section_start + section_size <= data.len() {
+                Some(&data[section_start..section_start + section_size])
             } else {
-                0.0
+                None
             };
+
+            let entropy = section_data.map_or(0.0, calculate_entropy);
+
+            // Per-section MD5
+            let md5 = section_data.map(|sd| {
+                use md5::Digest;
+                format!("{:x}", md5::Md5::digest(sd))
+            });
 
             let characteristics = section.characteristics;
             let writable = characteristics & 0x80000000 != 0;
@@ -235,6 +243,7 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
                 is_wx: writable && executable,
                 name_anomaly: None, // Populated below after section collection
                 confidence: None,
+                md5,
             }
         })
         .collect();
@@ -441,6 +450,7 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
         is_dotnet,
         packed_score,
         has_delay_imports,
+        spoofed_imports: vec![], // Populated below
         resource_has_exe,
         resource_high_entropy,
         resource_oversized,

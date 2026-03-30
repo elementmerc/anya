@@ -137,7 +137,11 @@ fn check_png_text_chunks(data: &[u8], strings: &mut Vec<String>, has_urls: &mut 
             }
             let chunk_type = &data[offset + 4..offset + 8];
             if chunk_type == *ct {
-                let chunk_data_end = (offset + 8 + chunk_len).min(data.len());
+                let chunk_data_end = offset
+                    .checked_add(8)
+                    .and_then(|v| v.checked_add(chunk_len))
+                    .unwrap_or(data.len())
+                    .min(data.len());
                 let chunk_data = &data[offset + 8..chunk_data_end];
                 let text = String::from_utf8_lossy(chunk_data);
                 if text.contains("http://") || text.contains("https://") {
@@ -147,10 +151,13 @@ fn check_png_text_chunks(data: &[u8], strings: &mut Vec<String>, has_urls: &mut 
                     }
                 }
             }
-            // Move to next chunk: length + type(4) + data + CRC(4)
-            offset += 4 + 4 + chunk_len + 4;
-            if chunk_len > data.len() {
-                break; // Malformed chunk
+            // Move to next chunk: length(4) + type(4) + data + CRC(4)
+            match offset
+                .checked_add(12)
+                .and_then(|v| v.checked_add(chunk_len))
+            {
+                Some(next) => offset = next,
+                None => break, // Overflow — malformed chunk
             }
         }
     }
@@ -184,7 +191,10 @@ fn check_jpeg_comments(data: &[u8], strings: &mut Vec<String>, has_urls: &mut bo
             break;
         }
         let seg_len = u16::from_be_bytes([data[offset + 2], data[offset + 3]]) as usize;
-        offset += 2 + seg_len;
+        match offset.checked_add(2 + seg_len) {
+            Some(next) => offset = next,
+            None => break,
+        }
     }
 }
 

@@ -94,6 +94,7 @@ pub struct IocSummary {
 #[derive(Debug, Clone, Default)]
 pub struct SignalSet {
     pub file_format: String,
+    pub file_extension: String,
     pub file_entropy: f64,
     pub entropy_is_suspicious: bool,
     pub pe_suspicious_api_count: usize,
@@ -239,6 +240,27 @@ pub struct SignalSet {
 
     pub msi_has_custom_actions: bool,
     pub msi_has_embedded_binaries: bool,
+
+    pub pe_toolchain: String,
+    pub string_avg_entropy: f64,
+    pub string_high_entropy_ratio: f64,
+    pub import_clusters: Vec<String>,
+    pub file_size: u64,
+    pub is_forensic_fragment: bool,
+
+    pub pe_product_name: String,
+    pub pe_company_name: String,
+    pub elf_has_dwarf_info: bool,
+    pub pe_pdb_is_development: bool,
+    pub pe_export_pattern: String,
+    pub structural_fingerprint: String,
+    pub histogram_flatness: f64,
+    pub histogram_is_packed: bool,
+    pub ioc_benign_count: usize,
+    pub pe_resource_language_id: u32,
+    pub pe_language_mismatch: bool,
+    pub pe_timestamp_year: u32,
+    pub pe_timestamp_suspicious: bool,
 }
 
 #[derive(Debug, Clone, Default)]

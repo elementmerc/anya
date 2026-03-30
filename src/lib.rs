@@ -723,6 +723,23 @@ fn looks_like_ipv4(s: &str) -> bool {
 }
 
 /// Detect mismatch between file extension and detected magic bytes.
+/// Cached parsed fragment database — parsed once at first access.
+static FRAGMENT_DB: LazyLock<serde_json::Value> =
+    LazyLock::new(|| serde_json::from_str(anya_data::FRAGMENT_DB_JSON).unwrap_or_default());
+
+/// Look up a SHA256 in the forensic fragment database.
+/// Returns a ForensicFragment annotation if matched, None otherwise.
+fn lookup_fragment_db(sha256: &str) -> Option<output::ForensicFragment> {
+    let fragments = FRAGMENT_DB.get("fragments")?.as_object()?;
+    let entry = fragments.get(sha256)?;
+    let family = entry.get("family")?.as_str()?;
+    let description = entry.get("description")?.as_str()?;
+    Some(output::ForensicFragment {
+        associated_family: family.to_string(),
+        explanation: description.to_string(),
+    })
+}
+
 fn detect_file_type_mismatch(
     data: &[u8],
     extension: Option<&str>,
@@ -1464,9 +1481,10 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         byte_histogram: result.byte_histogram.clone(),
         file_type_mismatch: result.file_type_mismatch.clone(),
         ioc_summary: result.ioc_summary.clone(),
-        verdict_summary: None, // filled below after struct is built
-        top_findings: vec![],  // filled below after struct is built
-        ksd_match: None,       // filled below after TLSH is available
+        verdict_summary: None,   // filled below after struct is built
+        top_findings: vec![],    // filled below after struct is built
+        ksd_match: None,         // filled below after TLSH is available
+        forensic_fragment: None, // filled below for sub-100B files
         mach_analysis: result.mach_analysis.clone(),
         pdf_analysis: result.pdf_analysis.clone(),
         office_analysis: result.office_analysis.clone(),
@@ -1489,8 +1507,10 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
 
     // KSD lookup — find nearest known malware sample by TLSH similarity.
     // Failures are non-fatal: analysis continues without KSD if anything goes wrong.
+    // Uses catch_unwind as a last resort since the KSD crate may panic on
+    // corrupt overlay files or malformed TLSH values.
     if let Some(ref tlsh) = out.hashes.tlsh {
-        match std::panic::catch_unwind(|| {
+        let ksd_result = std::panic::catch_unwind(|| {
             let ksd_overlay_path =
                 dirs::config_dir().map(|d| d.join("anya").join("known_samples.json"));
             let db = anya_scoring::ksd::KnownSampleDb::load(ksd_overlay_path.as_deref());
@@ -1499,12 +1519,34 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
             } else {
                 None
             }
-        }) {
-            Ok(result) => out.ksd_match = result,
-            Err(_) => {
-                eprintln!(
-                    "[anya] Warning: KSD lookup failed. Continuing without known sample matching."
-                );
+        });
+        if let Ok(result) = ksd_result {
+            out.ksd_match = result;
+        }
+    }
+
+    // Forensic fragment annotation — for sub-100B files with KSD or SHA256 association
+    if out.file_info.size_bytes < 100
+        && out.pe_analysis.is_none()
+        && out.elf_analysis.is_none()
+        && out.mach_analysis.is_none()
+    {
+        // Try KSD (TLSH) first — works for files >= 50 bytes
+        if let Some(ref ksd) = out.ksd_match {
+            out.forensic_fragment = Some(output::ForensicFragment {
+                associated_family: ksd.family.clone(),
+                explanation: format!(
+                    "This file is not independently malicious. It is a {} byte fragment \
+                     associated with known malware ({}). It may be part of a malware package, \
+                     build system, or delivery mechanism. Investigate surrounding files for context.",
+                    out.file_info.size_bytes, ksd.family
+                ),
+            });
+        }
+        // For sub-50B files: try SHA256 exact-match against fragment database
+        if out.forensic_fragment.is_none() {
+            if let Some(frag) = lookup_fragment_db(&out.hashes.sha256) {
+                out.forensic_fragment = Some(frag);
             }
         }
     }
@@ -1765,6 +1807,7 @@ mod tests {
             is_dotnet: false,
             packed_score: 0,
             has_delay_imports: false,
+            spoofed_imports: vec![],
             resource_has_exe: false,
             resource_high_entropy: false,
             resource_oversized: false,
@@ -1837,6 +1880,7 @@ mod tests {
             is_suspicious: false,
             is_wx: true,
             name_anomaly: None,
+            md5: None,
             confidence: None,
         });
         let mut result = baseline_result();

@@ -120,6 +120,10 @@ pub struct AnalysisResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ksd_match: Option<anya_scoring::ksd::KsdMatch>,
 
+    /// Forensic fragment annotation (for sub-100B files associated with known malware)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forensic_fragment: Option<ForensicFragment>,
+
     /// Mach-O binary analysis (if applicable)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mach_analysis: Option<MachoAnalysis>,
@@ -369,6 +373,10 @@ pub struct PEAnalysis {
     #[serde(default)]
     pub has_delay_imports: bool,
 
+    /// Suspicious import DLL patterns: benign DLL names importing unexpected functions
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub spoofed_imports: Vec<String>,
+
     /// Embedded executable found in resources
     #[serde(default)]
     pub resource_has_exe: bool,
@@ -586,6 +594,10 @@ pub struct SectionInfo {
     /// Section name anomaly assessment: "Normal", "Elevated", or "Suspicious"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name_anomaly: Option<String>,
+
+    /// MD5 hash of section raw data
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub md5: Option<String>,
 
     /// Confidence that this section is suspicious
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -881,6 +893,16 @@ pub struct OfficeAnalysis {
     pub has_embedded_objects: bool,
     pub has_external_links: bool,
     pub suspicious_components: Vec<String>,
+}
+
+/// Forensic fragment — annotation for sub-100B files associated with known malware.
+/// This is NOT a detection — the file is not independently malicious.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ForensicFragment {
+    /// Associated malware family from KSD match
+    pub associated_family: String,
+    /// Brief explanation
+    pub explanation: String,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1208,6 +1230,7 @@ mod tests {
             ioc_summary: None,
             verdict_summary: None,
             ksd_match: None,
+            forensic_fragment: None,
             top_findings: vec![],
             mach_analysis: None,
             pdf_analysis: None,
@@ -1328,6 +1351,7 @@ mod tests {
             is_suspicious: false,
             is_wx: false,
             name_anomaly: None,
+            md5: None,
             confidence: None,
         };
 
@@ -1413,6 +1437,7 @@ mod tests {
             is_dotnet: false,
             packed_score: 0,
             has_delay_imports: false,
+            spoofed_imports: vec![],
             resource_has_exe: false,
             resource_high_entropy: false,
             resource_oversized: false,
@@ -1477,6 +1502,7 @@ mod tests {
             ioc_summary: None,
             verdict_summary: None,
             ksd_match: None,
+            forensic_fragment: None,
             top_findings: vec![],
             mach_analysis: None,
             pdf_analysis: None,
