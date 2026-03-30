@@ -18,8 +18,8 @@
 
 // Import necessary libraries
 use anya_security_core::{
-    BatchSummary, OutputLevel, analyse_file, case, compute_verdict, config, elf_parser, hash_check,
-    is_executable_file, output, pe_parser, to_json_output,
+    BatchSummary, OutputLevel, analyse_file, case, compute_verdict, config, elf_parser,
+    find_executable_files, hash_check, is_executable_file, output, pe_parser, to_json_output,
 };
 use anyhow::{Context, Result}; // For better error handling
 use clap::{CommandFactory, Parser, Subcommand}; // For parsing command-line arguments
@@ -50,6 +50,8 @@ struct RunConfig<'a> {
     min_string_length: usize,
     effective_json: bool,
     effective_html: bool,
+    effective_pdf: bool,
+    effective_markdown: bool,
     packed_entropy: f64,
     suspicious_entropy: f64,
     cases_dir_override: Option<&'a str>,
@@ -145,7 +147,7 @@ struct Args {
     #[arg(long, requires = "directory")]
     summary: bool,
 
-    /// Output format: text (default), json, or html (generates a report file)
+    /// Output format: text (default), json, html, pdf, or markdown
     #[arg(long, value_name = "FORMAT", default_value = "text")]
     format: OutputFormat,
 
@@ -171,6 +173,8 @@ enum OutputFormat {
     Text,
     Json,
     Html,
+    Pdf,
+    Markdown,
 }
 
 #[derive(Subcommand, Debug)]
@@ -228,6 +232,28 @@ enum Commands {
         /// Shell to generate completions for
         #[arg(value_enum)]
         shell: clap_complete::Shell,
+    },
+
+    /// Benchmark detection rate and performance against a sample dataset
+    Benchmark {
+        /// Directory containing sample files to benchmark against
+        #[arg(value_name = "DIR")]
+        directory: PathBuf,
+        /// Recurse into subdirectories
+        #[arg(short, long)]
+        recursive: bool,
+        /// Number of parallel workers (default: auto-detect from CPU cores)
+        #[arg(short, long, value_name = "N")]
+        workers: Option<usize>,
+        /// Use all available CPU cores (overrides --workers)
+        #[arg(long)]
+        max: bool,
+        /// Expected ground truth: "malware" or "benign" (for detection rate calculation)
+        #[arg(long, value_name = "LABEL")]
+        ground_truth: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Manage the Known Sample Database (TLSH similarity matching)
@@ -423,6 +449,16 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+    // Initialize structured logging — ANYA_LOG env var controls level
+    // Default: warn (quiet), --verbose: info, ANYA_LOG=debug for development
+    let env_filter = tracing_subscriber::EnvFilter::try_from_env("ANYA_LOG")
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+    tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .init();
+
     // Parse command-line arguments
     let args = Args::parse();
 
@@ -603,6 +639,17 @@ fn run() -> Result<()> {
             }
             return Ok(());
         }
+        Some(Commands::Benchmark {
+            directory,
+            recursive,
+            workers,
+            max,
+            ground_truth,
+            json: bench_json,
+        }) => {
+            run_benchmark(directory, *recursive, *workers, *max, ground_truth.as_deref(), *bench_json)?;
+            return Ok(());
+        }
         None => {} // Continue to file/directory analysis
     }
 
@@ -612,7 +659,19 @@ fn run() -> Result<()> {
     if args.init_config {
         let path = config::Config::create_default_file()?;
         println!("✓ Created default config file at: {}", path.display());
-        println!("\nEdit this file to customise Anya's behaviour.");
+
+        // Create YARA rules directory
+        let rules_dir = anya_security_core::yara::scanner::default_rules_dir();
+        if !rules_dir.exists() {
+            std::fs::create_dir_all(&rules_dir).ok();
+            println!("✓ Created YARA rules directory at: {}", rules_dir.display());
+            println!("  Place .yar/.yara files here for signature-based detection.");
+        } else {
+            let count = anya_security_core::yara::scanner::rule_file_count();
+            println!("✓ YARA rules directory: {} ({} rule files)", rules_dir.display(), count);
+        }
+
+        println!("\nEdit the config to customise Anya's behaviour.");
         println!("Run 'anya --help' to see which CLI flags override config settings.");
         return Ok(());
     }
@@ -646,6 +705,8 @@ fn run() -> Result<()> {
     // Merge --format with --json flag: --json is shorthand for --format json
     let effective_json = args.json || matches!(args.format, OutputFormat::Json);
     let effective_html = matches!(args.format, OutputFormat::Html);
+    let effective_pdf = matches!(args.format, OutputFormat::Pdf);
+    let effective_markdown = matches!(args.format, OutputFormat::Markdown);
 
     // Validate: must provide either --file or --directory
     if args.file.is_none() && args.directory.is_none() {
@@ -659,31 +720,9 @@ fn run() -> Result<()> {
         );
     }
 
-    // Validate: --output currently only works with --json or --format html
-    if args.output.is_some() && !effective_json && !effective_html {
-        let example_path = args
-            .file
-            .as_ref()
-            .or(args.directory.as_ref())
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "FILE".to_string());
-
-        anyhow::bail!(
-            "The --output flag currently only works with --json or --format html.\n\
-             \n\
-             For text output to file, use shell redirection:\n\
-             anya --file {} > output.txt\n\
-             \n\
-             For JSON output to file:\n\
-             anya --file {} --json --output report.json\n\
-             \n\
-             For HTML report:\n\
-             anya --file {} --format html --output report.html",
-            example_path,
-            example_path,
-            example_path
-        );
-    }
+    // When --format text (default) is used with --output, produce Markdown instead
+    let effective_markdown = effective_markdown
+        || (matches!(args.format, OutputFormat::Text) && args.output.is_some());
 
     // Validate: --summary and --json are mutually exclusive
     if args.summary && effective_json {
@@ -711,6 +750,8 @@ fn run() -> Result<()> {
         min_string_length,
         effective_json,
         effective_html,
+        effective_pdf,
+        effective_markdown,
         packed_entropy: config.thresholds.packed_entropy,
         suspicious_entropy: config.thresholds.suspicious_entropy,
         cases_dir_override: config.cases_directory.as_deref(),
@@ -744,6 +785,8 @@ fn analyse_single_file(
         min_string_length,
         effective_json,
         effective_html,
+        effective_pdf,
+        effective_markdown,
         packed_entropy,
         suspicious_entropy,
         cases_dir_override,
@@ -806,6 +849,26 @@ fn analyse_single_file(
             PathBuf::from(format!("{}_report.html", stem))
         });
         report::generate_html_report(&json_result, &output_path)?;
+        return Ok(());
+    }
+
+    // ── PDF report output ──────────────────────────────────────────────────
+    if effective_pdf {
+        let output_path = args.output.clone().unwrap_or_else(|| {
+            let stem = file_path.file_stem().unwrap_or_default().to_string_lossy();
+            PathBuf::from(format!("{}_report.pdf", stem))
+        });
+        report::generate_pdf_report(&json_result, &output_path)?;
+        return Ok(());
+    }
+
+    // ── Markdown report output ─────────────────────────────────────────────
+    if effective_markdown {
+        let output_path = args.output.clone().unwrap_or_else(|| {
+            let stem = file_path.file_stem().unwrap_or_default().to_string_lossy();
+            PathBuf::from(format!("{}_report.md", stem))
+        });
+        report::generate_markdown_report(&json_result, &output_path)?;
         return Ok(());
     }
 
@@ -950,6 +1013,37 @@ fn analyse_single_file(
     // 8. IOC indicators section
     if let Some(ref ioc) = json_result.ioc_summary {
         print_ioc_section(ioc);
+    }
+
+    // 8b. YARA matches
+    if !json_result.yara_matches.is_empty() {
+        println!("\n{}", "YARA MATCHES".bold().cyan());
+        for ym in &json_result.yara_matches {
+            let desc = ym.description.as_deref().unwrap_or("No description");
+            println!(
+                "  {} {} {}",
+                "MATCH".red().bold(),
+                ym.rule_name.bold(),
+                format!("({})", ym.namespace).dimmed()
+            );
+            println!("    {}", desc.dimmed());
+            if !ym.matched_strings.is_empty() {
+                for ms in ym.matched_strings.iter().take(5) {
+                    println!(
+                        "    {} @ offset {:#x} ({} bytes)",
+                        ms.identifier.yellow(),
+                        ms.offset,
+                        ms.length
+                    );
+                }
+                if ym.matched_strings.len() > 5 {
+                    println!(
+                        "    {} more match(es)...",
+                        ym.matched_strings.len() - 5
+                    );
+                }
+            }
+        }
     }
 
     // In quiet mode, summarize findings
@@ -1118,12 +1212,14 @@ fn analyse_directory(
         None
     };
 
-    // --summary mode: collect verdicts for table output
+    // --summary mode: collect verdicts for table output + relationship graph
     if args.summary {
         struct SummaryRow {
             filename: String,
             verdict: String,
             top_indicator: String,
+            tlsh: String,
+            family: String,
         }
 
         let mut rows: Vec<SummaryRow> = Vec::new();
@@ -1173,10 +1269,23 @@ fn analyse_directory(
                         }
                     }
 
+                    let tlsh = json_result
+                        .hashes
+                        .tlsh
+                        .clone()
+                        .unwrap_or_default();
+                    let family = json_result
+                        .ksd_match
+                        .as_ref()
+                        .map(|k| k.family.clone())
+                        .unwrap_or_default();
+
                     rows.push(SummaryRow {
                         filename,
                         verdict: verdict_word,
                         top_indicator,
+                        tlsh,
+                        family,
                     });
                 }
                 Err(e) => {
@@ -1185,6 +1294,8 @@ fn analyse_directory(
                         filename,
                         verdict: "ERROR".to_string(),
                         top_indicator: format!("{}", e),
+                        tlsh: String::new(),
+                        family: String::new(),
                     });
                 }
             }
@@ -1245,6 +1356,96 @@ fn analyse_directory(
             println!("{:<30} {} {}", name, verdict_coloured, row.top_indicator);
         }
 
+        // ── Relationship output (TLSH similarity + KSD family) ───────────
+        let mut relationships: Vec<(usize, usize, i32, &str)> = Vec::new();
+        for (i, ri) in rows.iter().enumerate() {
+            if ri.tlsh.is_empty() {
+                continue;
+            }
+            for (j, rj) in rows.iter().enumerate().skip(i + 1) {
+                if rj.tlsh.is_empty() {
+                    continue;
+                }
+                if let Some(distance) =
+                    anya_security_core::tlsh_distance(&ri.tlsh, &rj.tlsh)
+                {
+                    if distance <= 150 {
+                        let label = if distance <= 30 {
+                            "near-identical"
+                        } else if distance <= 80 {
+                            "similar"
+                        } else {
+                            "related"
+                        };
+                        relationships.push((i, j, distance, label));
+                    }
+                }
+            }
+        }
+
+        // Also connect same KSD family
+        for (i, ri) in rows.iter().enumerate() {
+            if ri.family.is_empty() {
+                continue;
+            }
+            for (j, rj) in rows.iter().enumerate().skip(i + 1) {
+                if ri.family == rj.family {
+                    let already = relationships
+                        .iter()
+                        .any(|&(a, b, _, _)| (a == i && b == j) || (a == j && b == i));
+                    if !already {
+                        relationships.push((i, j, 0, "same family"));
+                    }
+                }
+            }
+        }
+
+        if !relationships.is_empty() {
+            println!(
+                "\n{}",
+                format!("RELATIONSHIPS — {} connections found", relationships.len())
+                    .bold()
+                    .cyan()
+            );
+            println!(
+                "{:<30} {:<4} {:<30} {}",
+                "FILE A".bold(),
+                "".bold(),
+                "FILE B".bold(),
+                "RELATIONSHIP".bold()
+            );
+            for &(i, j, distance, label) in &relationships {
+                let name_a = if rows[i].filename.len() > 28 {
+                    format!("{}...", &rows[i].filename[..25])
+                } else {
+                    rows[i].filename.clone()
+                };
+                let name_b = if rows[j].filename.len() > 28 {
+                    format!("{}...", &rows[j].filename[..25])
+                } else {
+                    rows[j].filename.clone()
+                };
+                let rel_text = if distance > 0 {
+                    format!("{} (TLSH distance: {})", label, distance)
+                } else {
+                    format!("{}: {}", label, rows[i].family)
+                };
+                let rel_coloured = match label {
+                    "near-identical" => rel_text.red().bold(),
+                    "similar" => rel_text.yellow(),
+                    "same family" => rel_text.magenta(),
+                    _ => rel_text.white().dimmed(),
+                };
+                println!(
+                    "{:<30} {} {:<30} {}",
+                    name_a,
+                    "<->".dimmed(),
+                    name_b,
+                    rel_coloured
+                );
+            }
+        }
+
         return Ok(());
     }
 
@@ -1260,6 +1461,8 @@ fn analyse_directory(
             min_string_length,
             effective_json,
             effective_html: false,
+            effective_pdf: false,
+            effective_markdown: false,
             packed_entropy,
             suspicious_entropy,
             cases_dir_override,
@@ -1617,6 +1820,249 @@ fn print_entropy(data: &[u8], packed_threshold: f64, suspicious_threshold: f64) 
 /// # Arguments
 ///
 /// * `data` - The file data to analyse
+// ═══════════════════════════════════════════════════════════════════════════════
+// Benchmark command
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fn run_benchmark(
+    directory: &std::path::Path,
+    recursive: bool,
+    workers_override: Option<usize>,
+    use_max: bool,
+    ground_truth: Option<&str>,
+    output_json: bool,
+) -> Result<()> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    // Auto-detect worker count
+    let available_cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let workers = if use_max {
+        available_cores
+    } else {
+        workers_override.unwrap_or_else(|| available_cores.saturating_sub(1).max(1))
+    };
+
+    // Find files
+    let files = find_executable_files(directory, recursive)?;
+    if files.is_empty() {
+        anyhow::bail!("No files found in '{}'", directory.display());
+    }
+
+    if !output_json {
+        println!("\n{}", "ANYA BENCHMARK".bold().cyan());
+        println!("  {}   {}", "Directory:".bold(), directory.display());
+        println!("  {}       {} files", "Files:".bold(), files.len());
+        println!("  {}     {} (of {} available)", "Workers:".bold(), workers, available_cores);
+        if let Some(gt) = ground_truth {
+            println!("  {} {}", "Ground truth:".bold(), gt);
+        }
+        println!();
+    }
+
+    // Benchmark counters
+    let analysed = Arc::new(AtomicUsize::new(0));
+    let failed = Arc::new(AtomicUsize::new(0));
+    let malicious = Arc::new(AtomicUsize::new(0));
+    let suspicious = Arc::new(AtomicUsize::new(0));
+    let clean = Arc::new(AtomicUsize::new(0));
+    let yara_matches = Arc::new(AtomicUsize::new(0));
+
+    // Progress bar
+    let pb = if !output_json {
+        let pb = ProgressBar::new(files.len() as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{bar:40.cyan/dim}] {pos}/{len} ({per_sec}) ETA {eta}")
+                .expect("progress style")
+                .progress_chars("━━╌"),
+        );
+        Some(pb)
+    } else {
+        None
+    };
+
+    let start = Instant::now();
+
+    // Run analysis with rayon thread pool
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(workers)
+        .build()
+        .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
+
+    pool.scope(|s| {
+        for file_path in &files {
+            let analysed = Arc::clone(&analysed);
+            let failed = Arc::clone(&failed);
+            let malicious = Arc::clone(&malicious);
+            let suspicious = Arc::clone(&suspicious);
+            let clean = Arc::clone(&clean);
+            let yara_matches = Arc::clone(&yara_matches);
+            let pb = pb.clone();
+
+            s.spawn(move |_| {
+                match analyse_file(file_path, 4) {
+                    Ok(result) => {
+                        analysed.fetch_add(1, Ordering::Relaxed);
+                        let json_result = to_json_output(&result);
+                        let (verdict_word, _) = compute_verdict(&json_result);
+
+                        match verdict_word.as_str() {
+                            "MALICIOUS" => { malicious.fetch_add(1, Ordering::Relaxed); }
+                            "SUSPICIOUS" => { suspicious.fetch_add(1, Ordering::Relaxed); }
+                            _ => { clean.fetch_add(1, Ordering::Relaxed); }
+                        }
+
+                        if !json_result.yara_matches.is_empty() {
+                            yara_matches.fetch_add(json_result.yara_matches.len(), Ordering::Relaxed);
+                        }
+                    }
+                    Err(_) => {
+                        failed.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                if let Some(ref pb) = pb {
+                    pb.inc(1);
+                }
+            });
+        }
+    });
+
+    if let Some(pb) = pb {
+        pb.finish_and_clear();
+    }
+
+    let duration = start.elapsed();
+    let total = files.len();
+    let analysed_count = analysed.load(Ordering::Relaxed);
+    let failed_count = failed.load(Ordering::Relaxed);
+    let malicious_count = malicious.load(Ordering::Relaxed);
+    let suspicious_count = suspicious.load(Ordering::Relaxed);
+    let clean_count = clean.load(Ordering::Relaxed);
+    let yara_count = yara_matches.load(Ordering::Relaxed);
+    let detected = malicious_count + suspicious_count;
+    let files_per_sec = if duration.as_secs_f64() > 0.0 {
+        analysed_count as f64 / duration.as_secs_f64()
+    } else {
+        0.0
+    };
+
+    // Detection rate calculation
+    let detection_rate = if let Some(gt) = ground_truth {
+        match gt {
+            "malware" => {
+                if analysed_count > 0 {
+                    Some(detected as f64 / analysed_count as f64 * 100.0)
+                } else {
+                    None
+                }
+            }
+            "benign" => {
+                // FP rate: how many benign files were flagged
+                if analysed_count > 0 {
+                    Some(detected as f64 / analysed_count as f64 * 100.0)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    if output_json {
+        let result = serde_json::json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "directory": directory.to_string_lossy(),
+            "total_files": total,
+            "analysed": analysed_count,
+            "failed": failed_count,
+            "verdicts": {
+                "malicious": malicious_count,
+                "suspicious": suspicious_count,
+                "clean": clean_count,
+            },
+            "detected": detected,
+            "yara_matches": yara_count,
+            "duration_secs": duration.as_secs_f64(),
+            "files_per_sec": files_per_sec,
+            "workers": workers,
+            "available_cores": available_cores,
+            "ground_truth": ground_truth,
+            "detection_rate": detection_rate,
+            "fp_rate": if ground_truth == Some("benign") { detection_rate } else { serde_json::Value::Null.as_f64() },
+        });
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("\n{}", "BENCHMARK RESULTS".bold().cyan());
+        println!("  {}   {:.1}s ({:.1} files/sec)", "Duration:".bold(), duration.as_secs_f64(), files_per_sec);
+        println!("  {}    {}/{} ({} failed)", "Analysed:".bold(), analysed_count, total, failed_count);
+        println!("  {}    {} (of {} available)", "Workers:".bold(), workers, available_cores);
+        println!();
+
+        // Verdict breakdown
+        println!("  {}", "Verdict Breakdown:".bold());
+        println!("    {}  {}", "MALICIOUS".red().bold(), malicious_count);
+        println!("    {} {}", "SUSPICIOUS".yellow().bold(), suspicious_count);
+        println!("    {}      {}", "CLEAN".green(), clean_count);
+        println!("    {}    {} total", "Detected:".bold(), detected);
+
+        if yara_count > 0 {
+            println!("    {} {} rule match(es)", "YARA:".bold().magenta(), yara_count);
+        }
+
+        // Detection metrics
+        if let Some(gt) = ground_truth {
+            println!();
+            match gt {
+                "malware" => {
+                    if let Some(rate) = detection_rate {
+                        let color = if rate >= 99.0 {
+                            "green"
+                        } else if rate >= 90.0 {
+                            "yellow"
+                        } else {
+                            "red"
+                        };
+                        let rate_str = format!("{:.1}%", rate);
+                        let colored_rate = match color {
+                            "green" => rate_str.green().bold(),
+                            "yellow" => rate_str.yellow().bold(),
+                            _ => rate_str.red().bold(),
+                        };
+                        println!("  {} {}", "Detection rate:".bold(), colored_rate);
+                        let fn_count = analysed_count - detected;
+                        println!("  {} {} ({:.1}%)", "False negatives:".bold(), fn_count, fn_count as f64 / analysed_count as f64 * 100.0);
+                    }
+                }
+                "benign" => {
+                    if let Some(rate) = detection_rate {
+                        let fp_str = format!("{:.1}%", rate);
+                        let colored_fp = if rate <= 1.0 {
+                            fp_str.green().bold()
+                        } else if rate <= 5.0 {
+                            fp_str.yellow().bold()
+                        } else {
+                            fp_str.red().bold()
+                        };
+                        println!("  {} {} ({} of {} benign files flagged)", "False positive rate:".bold(), colored_fp, detected, analysed_count);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        println!();
+        println!("  Anya v{} — privacy-first malware analysis", env!("CARGO_PKG_VERSION"));
+    }
+
+    Ok(())
+}
+
 fn print_quiet_summary(data: &[u8], packed_threshold: f64) {
     // Calculate entropy
     let mut frequency = [0u64; 256];

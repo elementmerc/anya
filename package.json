@@ -1,7 +1,7 @@
 {
   "name": "anya",
   "private": true,
-  "version": "1.2.6",
+  "version": "2.0.0-beta",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -30,7 +30,7 @@
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-force-graph-3d": "^1.24.0",
+    "react-force-graph-3d": "^1.29.1",
     "recharts": "^2.13.3",
     "tailwind-merge": "^2.5.4"
   },

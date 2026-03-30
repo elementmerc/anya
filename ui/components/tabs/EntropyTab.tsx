@@ -34,6 +34,57 @@ function entropyLabel(e: number, suspicious: number, packed: number): string {
   return "Normal";
 }
 
+function HistogramAnalysis({ data, fileEntropy }: { data: number[]; fileEntropy: number }) {
+  // Coefficient of variation: stddev / mean — low CV = flat distribution = likely encrypted/packed
+  const total = data.reduce((a, b) => a + b, 0);
+  if (total === 0) return null;
+  const mean = total / 256;
+  const variance = data.reduce((sum, v) => sum + (v - mean) ** 2, 0) / 256;
+  const stddev = Math.sqrt(variance);
+  const cv = mean > 0 ? stddev / mean : 0;
+
+  // Classify: CV < 0.15 with high entropy = very flat (encrypted/compressed)
+  // CV < 0.3 = moderately flat, CV >= 0.3 = normal variation
+  const isVeryFlat = cv < 0.15 && fileEntropy >= 7.0;
+  const isModeratelyFlat = cv < 0.3 && cv >= 0.15 && fileEntropy >= 6.0;
+
+  const flatnessLabel = isVeryFlat
+    ? "Very flat — consistent with encryption or compression"
+    : isModeratelyFlat
+      ? "Moderately flat — may indicate packed or compressed content"
+      : "Normal variation — typical of standard executables";
+
+  const flatnessColor = isVeryFlat
+    ? "var(--entropy-encrypted)"
+    : isModeratelyFlat
+      ? "var(--entropy-packed)"
+      : "var(--entropy-safe)";
+
+  return (
+    <div
+      style={{
+        marginTop: 16,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "8px 14px",
+        borderRadius: "var(--radius)",
+        background: "var(--bg-surface)",
+        border: "1px solid var(--border)",
+        fontSize: "var(--font-size-sm)",
+      }}
+    >
+      <span style={{ color: "var(--text-muted)" }}>Distribution flatness:</span>
+      <strong style={{ color: flatnessColor, fontFamily: "var(--font-mono)" }}>
+        {cv.toFixed(3)}
+      </strong>
+      <span style={{ color: "var(--text-muted)", fontSize: "var(--font-size-xs)" }}>
+        CV — {flatnessLabel}
+      </span>
+    </div>
+  );
+}
+
 function ByteHistogram({ data }: { data: number[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
@@ -263,7 +314,10 @@ export default function EntropyTab({ result, suspiciousEntropy = 5.0, packedEntr
 
         {/* Byte histogram */}
         {result.byte_histogram && result.byte_histogram.length === 256 && (
-          <ByteHistogram data={result.byte_histogram} />
+          <>
+            <ByteHistogram data={result.byte_histogram} />
+            <HistogramAnalysis data={result.byte_histogram} fileEntropy={fileEntropy} />
+          </>
         )}
 
         {/* Legend */}

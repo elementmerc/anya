@@ -1,4 +1,4 @@
-// Stub — real KSD implementation is in the private anya-proprietary repository.
+// Anya scoring module.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;

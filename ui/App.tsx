@@ -40,6 +40,7 @@ const SectionsTab  = lazy(() => import("@/components/tabs/SectionsTab"));
 const StringsTab   = lazy(() => import("@/components/tabs/StringsTab"));
 const SecurityTab  = lazy(() => import("@/components/tabs/SecurityTab"));
 const MitreTab     = lazy(() => import("@/components/tabs/MitreTab"));
+const FormatAnalysisTab = lazy(() => import("@/components/tabs/FormatAnalysisTab"));
 
 function TabFallback() {
   return (
@@ -56,14 +57,30 @@ function tabHasBadge(id: TabName, result: AnalysisResult | null): boolean {
   if (!result) return false;
   // Identity tab badges for any file type
   if (id === "identity") return !!result.ksd_match;
+  // Format tab: badge if any format-specific analysis found suspicious content
+  if (id === "format") return !!(
+    result.javascript_analysis?.has_eval ||
+    result.powershell_analysis?.has_encoded_command ||
+    result.powershell_analysis?.has_amsi_bypass ||
+    result.vbscript_analysis?.has_shell_exec ||
+    result.html_analysis?.has_hidden_iframes ||
+    result.xml_analysis?.has_external_entities ||
+    result.ole_analysis?.has_auto_execute ||
+    result.rtf_analysis?.contains_pe_bytes ||
+    result.zip_analysis?.has_double_extensions ||
+    result.lnk_analysis?.has_suspicious_target ||
+    result.iso_analysis?.has_autorun
+  );
+  // MITRE badges work for all file types
+  if (id === "mitre") return (result.mitre_techniques?.length ?? 0) > 0;
+  // Security tab: YARA matches badge for all file types
+  if (id === "security") return (result.yara_matches?.length ?? 0) > 0 || !!result.ksd_match;
   if (!result.pe_analysis) return false;
   const pe = result.pe_analysis;
   switch (id) {
     case "imports":  return pe.imports.suspicious_api_count > 0 || pe.anti_analysis.length > 0;
     case "sections": return pe.sections.some((s) => s.is_wx);
-    case "security": return !pe.security.aslr_enabled || !pe.security.dep_enabled || !!result.ksd_match;
     case "entropy":  return pe.sections.some((s) => s.entropy > 7.0);
-    case "mitre":    return (result.mitre_techniques?.length ?? 0) > 0;
     default:         return false;
   }
 }
@@ -250,8 +267,8 @@ export default function App() {
 
   useEffect(() => {
     if (launchMode !== "normal") return;
-    invoke<boolean>("is_first_run")
-      .then(setFirstRun)
+    invoke<string>("is_first_run")
+      .then((status) => setFirstRun(status === "first_run"))
       .catch(() => setFirstRun(false));
   }, [launchMode]);
 
@@ -428,16 +445,32 @@ export default function App() {
     if (result) {
       setActiveTab("overview");
       setPinnedFindings([]);  // Clear pinned findings on new analysis
-      // Dynamically add/remove Identity tab based on content
+      // Dynamically add/remove conditional tabs based on content
       const hasIdentity = result.ksd_match || result.pe_analysis?.dotnet_metadata;
+      const hasFormat = !!(
+        result.javascript_analysis || result.powershell_analysis ||
+        result.vbscript_analysis || result.shell_script_analysis ||
+        result.python_analysis || result.ole_analysis || result.rtf_analysis ||
+        result.zip_analysis || result.html_analysis || result.xml_analysis ||
+        result.image_analysis || result.lnk_analysis || result.iso_analysis ||
+        result.cab_analysis || result.msi_analysis ||
+        result.pdf_analysis || result.office_analysis
+      );
       setTabOrder((prev) => {
-        const without = prev.filter((t) => t !== "identity");
+        let tabs: TabName[] = prev.filter((t) => t !== "identity" && t !== "format");
         if (hasIdentity) {
-          // Insert after "overview"
-          const idx = without.indexOf("overview");
-          return [...without.slice(0, idx + 1), "identity", ...without.slice(idx + 1)];
+          const idx = tabs.indexOf("overview");
+          tabs = [...tabs.slice(0, idx + 1), "identity" as TabName, ...tabs.slice(idx + 1)];
         }
-        return without;
+        if (hasFormat) {
+          const mitreIdx = tabs.indexOf("mitre");
+          if (mitreIdx >= 0) {
+            tabs = [...tabs.slice(0, mitreIdx), "format" as TabName, ...tabs.slice(mitreIdx)];
+          } else {
+            tabs.push("format");
+          }
+        }
+        return tabs;
       });
     }
   }, [result?.file_info.path]);
@@ -552,7 +585,7 @@ export default function App() {
               <main style={{ flex: 1, overflow: "auto", position: "relative" }}>
                 {batchState.selectedIndex !== null && batchSelectedResult?.result ? (
                   <Suspense fallback={<TabFallback />}>
-                    {activeTab === "overview"  && <OverviewTab  result={activeResult!} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} />}
+                    {activeTab === "overview"  && <OverviewTab  result={activeResult!} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} theme={theme} />}
                     {activeTab === "identity"  && <IdentityTab  result={activeResult!} />}
                     {activeTab === "entropy"   && <EntropyTab   result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
                     {activeTab === "imports"   && (
@@ -565,6 +598,7 @@ export default function App() {
                     {activeTab === "sections"  && <SectionsTab  result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} onPin={handlePin} />}
                     {activeTab === "strings"   && <StringsTab   result={activeResult!} onPin={handlePin} />}
                     {activeTab === "security"  && <SecurityTab  result={activeResult!} packedEntropy={thresholds.packed_entropy} />}
+                    {activeTab === "format"    && <FormatAnalysisTab result={activeResult!} />}
                     {activeTab === "mitre"     && (
                       <MitreTab
                         result={activeResult!}
@@ -574,7 +608,7 @@ export default function App() {
                     )}
                   </Suspense>
                 ) : (
-                  <BatchDashboard state={batchState} />
+                  <BatchDashboard state={batchState} theme={theme} onNodeClick={(idx) => setBatchState((prev) => ({ ...prev, selectedIndex: prev.selectedIndex === idx ? null : idx }))} />
                 )}
               </main>
               <TeacherSidebar />
@@ -597,7 +631,7 @@ export default function App() {
             <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "row" }}>
               <main style={{ flex: 1, overflow: "hidden", position: "relative" }}>
                 <Suspense fallback={<TabFallback />}>
-                  {activeTab === "overview"  && <OverviewTab  result={activeResult!} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} />}
+                  {activeTab === "overview"  && <OverviewTab  result={activeResult!} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} theme={theme} />}
                   {activeTab === "identity"  && <IdentityTab  result={activeResult!} />}
                   {activeTab === "entropy"   && <EntropyTab   result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
                   {activeTab === "imports"   && (
@@ -610,6 +644,7 @@ export default function App() {
                   {activeTab === "sections"  && <SectionsTab  result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} onPin={handlePin} />}
                   {activeTab === "strings"   && <StringsTab   result={activeResult!} onPin={handlePin} />}
                   {activeTab === "security"  && <SecurityTab  result={activeResult!} packedEntropy={thresholds.packed_entropy} />}
+                  {activeTab === "format"    && <FormatAnalysisTab result={activeResult!} />}
                   {activeTab === "mitre"     && (
                     <MitreTab
                       result={activeResult!}

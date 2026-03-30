@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState } from "react";
-import { Copy, Check, Pin } from "lucide-react";
+import { useEffect, useRef, useState, lazy, Suspense } from "react";
+import { Copy, Check, Pin, Maximize2, Minimize2 } from "lucide-react";
 import { formatBytes, copyToClipboard } from "@/lib/utils";
 import { getRiskLabel, getRiskColor, getDetectionTags, type DetectionTag } from "@/lib/risk";
 import CopyButton from "@/components/CopyButton";
+import { getKsdNeighborhood } from "@/lib/tauri-bridge";
+import type { GraphData, GraphNode } from "@/types/analysis";
+
+const BatchGraph = lazy(() => import("@/components/BatchGraph"));
 
 const SEVERITY_COLOR: Record<DetectionTag["severity"], string> = {
   critical: "var(--risk-critical)",
@@ -25,6 +29,7 @@ interface Props {
   pinnedFindings?: PinnedFinding[];
   onPin?: (finding: PinnedFinding) => void;
   onUnpin?: (index: number) => void;
+  theme?: "dark" | "light";
 }
 
 // ── SVG risk ring ─────────────────────────────────────────────────────────────
@@ -138,10 +143,58 @@ function CopyBtn({ text }: { text: string }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function OverviewTab({ result, riskScore, onMitreNavigate, pinnedFindings, onPin, onUnpin }: Props) {
+export default function OverviewTab({ result, riskScore, onMitreNavigate, pinnedFindings, onPin, onUnpin, theme = "dark" }: Props) {
   const label = getRiskLabel(riskScore);
   const color = getRiskColor(riskScore);
   const tags = getDetectionTags(result);
+
+  // KSD neighborhood graph data
+  const [ksdGraph, setKsdGraph] = useState<GraphData | null>(null);
+  const [graphExpanded, setGraphExpanded] = useState(false);
+  const ksdLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!result.ksd_match || !result.hashes.tlsh || ksdLoadedRef.current) return;
+    ksdLoadedRef.current = true;
+    getKsdNeighborhood(result.hashes.tlsh, result.ksd_match.family, 15)
+      .then((resp) => {
+        if (resp.neighbors.length === 0) return;
+        // Build graph: center node = this file, neighbors = KSD entries
+        const nodes: GraphNode[] = [
+          {
+            id: 0,
+            name: fi.path.split(/[\\/]/).pop() ?? "This file",
+            color: riskScore >= 70 ? "#ef4444" : riskScore >= 40 ? "#eab308" : "#22c55e",
+            verdict: result.verdict_summary ?? "UNKNOWN",
+            tlsh: result.hashes.tlsh ?? "",
+            family: result.ksd_match?.family ?? "",
+            val: 2,
+          },
+        ];
+        const links: GraphData["links"] = [];
+        for (let i = 0; i < resp.neighbors.length; i++) {
+          const n = resp.neighbors[i];
+          nodes.push({
+            id: i + 1,
+            name: `${n.family} (${n.sha256.slice(0, 8)}...)`,
+            color: "#ef4444",
+            verdict: `KSD: ${n.family}`,
+            tlsh: n.tlsh,
+            family: n.family,
+            val: 1,
+          });
+          const strength = Math.max(0, 1 - n.distance / 200);
+          links.push({
+            source: 0,
+            target: i + 1,
+            distance: n.distance,
+            strength,
+            label: n.distance <= 30 ? "near-identical" : n.distance <= 80 ? "similar" : "related",
+          });
+        }
+        setKsdGraph({ nodes, links });
+      })
+      .catch(() => { /* ignore — non-critical feature */ });
+  }, [result.ksd_match, result.hashes.tlsh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pe = result.pe_analysis;
   const fi = result.file_info;
@@ -173,6 +226,50 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate, pinned
 
   if (result.hashes.tlsh) hashRows.push(["TLSH", result.hashes.tlsh]);
   if (pe?.imphash) hashRows.push(["ImpHash", pe.imphash]);
+
+  // Expanded graph view — replaces all overview content
+  if (graphExpanded && ksdGraph) {
+    return (
+      <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "10px 16px", flexShrink: 0,
+          background: "var(--bg-surface)", borderBottom: "1px solid var(--border-subtle)",
+        }}>
+          <span style={{
+            fontSize: "var(--font-size-xs)", fontWeight: 600,
+            textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)",
+          }}>
+            KSD Neighborhood — {ksdGraph.nodes.length} samples, {ksdGraph.links.length} relationships
+          </span>
+          <button
+            onClick={() => setGraphExpanded(false)}
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              background: "none", border: "none", cursor: "pointer",
+              color: "var(--text-muted)", fontSize: "var(--font-size-xs)",
+              padding: "4px 8px", borderRadius: 4,
+              transition: "color 150ms ease-out",
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "var(--text-primary)"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)"; }}
+          >
+            <Minimize2 size={11} />
+            Collapse
+          </button>
+        </div>
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <Suspense fallback={
+            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
+              <span style={{ fontSize: "var(--font-size-sm)" }}>Loading 3D engine...</span>
+            </div>
+          }>
+            <BatchGraph data={ksdGraph} theme={theme} />
+          </Suspense>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ height: "100%", overflow: "auto", padding: 24 }}>
@@ -297,6 +394,104 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate, pinned
               <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>
                 {Math.max(0, (1 - result.ksd_match.distance / 200) * 100).toFixed(0)}% match
               </span>
+            </div>
+          )}
+
+          {/* Forensic fragment annotation */}
+          {result.forensic_fragment && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                padding: "10px 16px",
+                borderRadius: "var(--radius)",
+                border: "1px solid var(--border)",
+                borderLeft: "3px solid var(--risk-medium)",
+                background: "var(--bg-surface)",
+                animation: "settings-panel-in 300ms ease-out",
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <span style={{
+                    fontSize: "var(--font-size-xs)",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    color: "var(--risk-medium)",
+                  }}>
+                    Forensic Fragment
+                  </span>
+                  <span style={{
+                    fontSize: "var(--font-size-xs)",
+                    padding: "1px 6px",
+                    borderRadius: 999,
+                    background: "rgba(250,204,21,0.12)",
+                    color: "var(--risk-medium)",
+                    border: "1px solid rgba(250,204,21,0.3)",
+                  }}>
+                    {result.forensic_fragment.associated_family}
+                  </span>
+                </div>
+                <p style={{
+                  margin: 0,
+                  fontSize: "var(--font-size-xs)",
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.5,
+                }}>
+                  {result.forensic_fragment.explanation}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* KSD Neighborhood Graph */}
+          {ksdGraph && ksdGraph.nodes.length > 1 && !graphExpanded && (
+            <div style={{ borderRadius: "var(--radius)", overflow: "hidden", border: "1px solid var(--border)" }}>
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "8px 12px",
+                background: "var(--bg-surface)",
+                borderBottom: "1px solid var(--border-subtle)",
+              }}>
+                <span style={{
+                  fontSize: "var(--font-size-xs)",
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  color: "var(--text-muted)",
+                }}>
+                  KSD Neighborhood
+                </span>
+                <button
+                  onClick={() => setGraphExpanded(true)}
+                  title="Expand graph"
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    background: "none", border: "none", cursor: "pointer",
+                    color: "var(--text-muted)", fontSize: "var(--font-size-xs)",
+                    padding: "2px 6px", borderRadius: 4,
+                    transition: "color 150ms ease-out",
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "var(--text-primary)"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)"; }}
+                >
+                  <Maximize2 size={11} />
+                  Expand
+                </button>
+              </div>
+              <div style={{ height: 250 }}>
+                <Suspense fallback={
+                  <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
+                    <span style={{ fontSize: "var(--font-size-xs)" }}>Loading...</span>
+                  </div>
+                }>
+                  <BatchGraph data={ksdGraph} theme={theme} compact />
+                </Suspense>
+              </div>
             </div>
           )}
 

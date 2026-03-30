@@ -988,6 +988,7 @@ fn print_pe_summary(
 ) {
     let _ = imphash;
     let _ = rich;
+    let _ = version_info;
 
     let mut critical: Vec<String> = Vec::new();
     let mut high: Vec<String> = Vec::new();
@@ -1142,14 +1143,8 @@ fn print_pe_summary(
         }
     }
 
-    // Filename mismatch between OriginalFilename and actual filename on disk
-    if let Some(vi) = version_info
-        && let Some(orig) = &vi.original_filename
-    {
-        // Only check if we have a path to compare against
-        // (we don't store the on-disk filename here — leave to future integration)
-        let _ = orig; // TODO: compare against actual filename when path is available
-    }
+    // Filename mismatch is now checked in analyse_bytes() where both the
+    // PE result and the file path are available.
 
     // No Authenticode signature on an EXE is informational
     let is_dll = pe.header.coff_header.characteristics & 0x2000 != 0;

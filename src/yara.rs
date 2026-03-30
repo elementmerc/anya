@@ -246,6 +246,231 @@ pub fn from_strings(
 }
 
 // ---------------------------------------------------------------------------
+// YARA-X scanning engine (requires `yara` feature)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "yara")]
+pub mod scanner {
+    use crate::output::{YaraMatchResult, YaraStringMatch};
+    use std::path::PathBuf;
+    use std::sync::LazyLock;
+    use std::sync::Mutex;
+
+    /// Default rules directory: ~/.config/anya/rules/
+    pub fn default_rules_dir() -> PathBuf {
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("anya")
+            .join("rules")
+    }
+
+    /// Compiled YARA-X rules, loaded once and cached.
+    /// Thread-safe via Mutex (scanning is CPU-bound anyway).
+    static COMPILED_RULES: LazyLock<Mutex<Option<yara_x::Rules>>> = LazyLock::new(|| {
+        Mutex::new(load_and_compile_rules().ok())
+    });
+
+    /// Load all .yar/.yara files from the rules directory and compile them.
+    fn load_and_compile_rules() -> Result<yara_x::Rules, String> {
+        let rules_dir = default_rules_dir();
+        if !rules_dir.exists() {
+            return Err(format!("Rules directory not found: {}", rules_dir.display()));
+        }
+
+        let mut compiler = yara_x::Compiler::new();
+
+        let mut rule_count = 0;
+        let mut error_count = 0;
+
+        for entry in walkdir::WalkDir::new(&rules_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy();
+                name.ends_with(".yar") || name.ends_with(".yara")
+            })
+        {
+            match std::fs::read_to_string(entry.path()) {
+                Ok(source) => {
+                    let namespace = entry
+                        .path()
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "default".to_string());
+
+                    match compiler.new_namespace(&namespace).add_source(source.as_str()) {
+                        Ok(_) => rule_count += 1,
+                        Err(e) => {
+                            tracing::warn!(
+                                "YARA compile error in {}: {}",
+                                entry.path().display(),
+                                e
+                            );
+                            error_count += 1;
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to read {}: {}", entry.path().display(), e);
+                    error_count += 1;
+                }
+            }
+        }
+
+        if rule_count == 0 {
+            return Err("No YARA rules compiled successfully".to_string());
+        }
+
+        tracing::info!(
+            "YARA: compiled {} rule file(s) ({} errors) from {}",
+            rule_count,
+            error_count,
+            rules_dir.display()
+        );
+
+        Ok(compiler.build())
+    }
+
+    /// Force-reload rules from disk (e.g. after user adds new rules).
+    pub fn reload_rules() -> Result<usize, String> {
+        let rules = load_and_compile_rules()?;
+        let count = rules.iter().count();
+        if let Ok(mut guard) = COMPILED_RULES.lock() {
+            *guard = Some(rules);
+        }
+        Ok(count)
+    }
+
+    /// Scan raw bytes against compiled YARA rules.
+    /// Returns a list of matching rules with metadata and string matches.
+    pub fn scan_bytes(data: &[u8]) -> Vec<YaraMatchResult> {
+        let guard = match COMPILED_RULES.lock() {
+            Ok(g) => g,
+            Err(_) => return Vec::new(),
+        };
+
+        let rules = match guard.as_ref() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
+
+        let mut scanner = yara_x::Scanner::new(rules);
+        let scan_results = match scanner.scan(data) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("YARA scan error: {}", e);
+                return Vec::new();
+            }
+        };
+
+        scan_results
+            .matching_rules()
+            .map(|rule| {
+                // Extract meta fields — metadata() yields (&str, MetaValue) tuples
+                let description = rule.metadata()
+                    .find(|(id, _)| *id == "description")
+                    .and_then(|(_, val)| match val {
+                        yara_x::MetaValue::String(s) => Some(s.to_string()),
+                        _ => None,
+                    });
+
+                let author = rule.metadata()
+                    .find(|(id, _)| *id == "author")
+                    .and_then(|(_, val)| match val {
+                        yara_x::MetaValue::String(s) => Some(s.to_string()),
+                        _ => None,
+                    });
+
+                let tags: Vec<String> = rule.tags().map(|t| t.identifier().to_string()).collect();
+
+                // Extract matched patterns
+                let mut matched_strings: Vec<YaraStringMatch> = Vec::new();
+                for pattern in rule.patterns() {
+                    let ident = pattern.identifier().to_string();
+                    for m in pattern.matches() {
+                        let range = m.range();
+                        let match_data = m.data();
+                        let preview_len = match_data.len().min(64);
+                        let preview = hex::encode(&match_data[..preview_len]);
+
+                        matched_strings.push(YaraStringMatch {
+                            identifier: ident.clone(),
+                            offset: range.start as u64,
+                            length: range.len() as u64,
+                            data_preview: preview,
+                        });
+                    }
+                }
+
+                YaraMatchResult {
+                    rule_name: rule.identifier().to_string(),
+                    namespace: rule.namespace().to_string(),
+                    description,
+                    author,
+                    tags,
+                    matched_strings,
+                }
+            })
+            .collect()
+    }
+
+    /// Check if YARA rules are loaded and available.
+    pub fn is_available() -> bool {
+        COMPILED_RULES
+            .lock()
+            .map(|g| g.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Get the count of loaded rule files.
+    pub fn rule_file_count() -> usize {
+        let rules_dir = default_rules_dir();
+        if !rules_dir.exists() {
+            return 0;
+        }
+        walkdir::WalkDir::new(&rules_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy();
+                e.file_type().is_file() && (name.ends_with(".yar") || name.ends_with(".yara"))
+            })
+            .count()
+    }
+}
+
+/// Stub scanner when yara feature is disabled — returns empty results.
+#[cfg(not(feature = "yara"))]
+pub mod scanner {
+    use crate::output::YaraMatchResult;
+    use std::path::PathBuf;
+
+    pub fn default_rules_dir() -> PathBuf {
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("anya")
+            .join("rules")
+    }
+
+    pub fn scan_bytes(_data: &[u8]) -> Vec<YaraMatchResult> {
+        Vec::new()
+    }
+
+    pub fn is_available() -> bool {
+        false
+    }
+
+    pub fn rule_file_count() -> usize {
+        0
+    }
+
+    pub fn reload_rules() -> Result<usize, String> {
+        Err("YARA support not compiled (enable 'yara' feature)".to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

@@ -9,3 +9,7 @@ description = "Internal scoring engine for Anya (private)"
 [dependencies]
 regex = "1"
 serde = { version = "1", features = ["derive"] }
+# Align with proprietary crate dependency graph to prevent Cargo path-override warnings
+serde_json = "1.0"
+obfstr = "0.4"
+tlsh2 = { version = "1.1", features = ["diff"] }

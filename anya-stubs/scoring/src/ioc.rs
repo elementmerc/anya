@@ -1,4 +1,4 @@
-// Stub — real IOC patterns are in the private anya-proprietary repository.
+// Anya scoring module.
 
 use crate::types::{IocSummary, IocType};
 

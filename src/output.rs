@@ -20,14 +20,26 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+fn default_schema_version() -> String {
+    ANALYSIS_SCHEMA_VERSION.to_string()
+}
+
 // Re-export scoring types from anya-scoring so existing code continues to work
 pub use anya_scoring::types::{
     ConfidenceLevel, ExtractedString, IocSummary, IocType, MismatchSeverity,
 };
 
+/// Schema version for forward/backward compatibility.
+/// Bump when fields are added, renamed, or semantics change.
+pub const ANALYSIS_SCHEMA_VERSION: &str = "2.0.0";
+
 /// Complete analysis result
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AnalysisResult {
+    /// Schema version — readers can check this before attempting deserialization.
+    #[serde(default = "default_schema_version")]
+    pub schema_version: String,
+
     /// File information
     pub file_info: FileInfo,
 
@@ -183,6 +195,44 @@ pub struct AnalysisResult {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub msi_analysis: Option<MsiAnalysis>,
+
+    /// YARA rule match results (requires `yara` feature)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub yara_matches: Vec<YaraMatchResult>,
+}
+
+/// A YARA rule that matched during scanning
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YaraMatchResult {
+    /// Rule identifier (e.g. "APT_Lazarus_Loader")
+    pub rule_name: String,
+    /// Rule namespace / source file
+    pub namespace: String,
+    /// Rule description from meta section
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Rule author from meta section
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Tags attached to the rule
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    /// Matched strings with their identifiers and offsets
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub matched_strings: Vec<YaraStringMatch>,
+}
+
+/// A single string match within a YARA rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YaraStringMatch {
+    /// String identifier (e.g. "$s0", "$hex1")
+    pub identifier: String,
+    /// Byte offset where the match occurred
+    pub offset: u64,
+    /// Length of the match in bytes
+    pub length: u64,
+    /// Matched data (truncated to 64 bytes, hex-encoded for binary safety)
+    pub data_preview: String,
 }
 
 /// A single top finding for JSON output
@@ -195,7 +245,7 @@ pub struct TopFinding {
 }
 
 /// File metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FileInfo {
     /// File path
     pub path: String,
@@ -216,7 +266,7 @@ pub struct FileInfo {
 }
 
 /// Cryptographic hashes
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Hashes {
     /// MD5 hash (hex)
     pub md5: String,
@@ -233,7 +283,7 @@ pub struct Hashes {
 }
 
 /// Entropy analysis results
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EntropyInfo {
     /// Shannon entropy value (0.0 - 8.0)
     pub value: f64,
@@ -250,7 +300,7 @@ pub struct EntropyInfo {
 }
 
 /// String extraction results
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StringsInfo {
     /// Minimum string length used
     pub min_length: usize,
@@ -1174,6 +1224,10 @@ pub struct ClassifiedString {
     pub category: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<String>,
+    /// True if this IOC matches known benign infrastructure (CDNs, cloud providers, package registries).
+    /// Frontend should grey these out rather than highlighting them as threats.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_benign: bool,
 }
 
 #[cfg(test)]
@@ -1183,6 +1237,7 @@ mod tests {
     #[test]
     fn test_analysis_result_serialization() {
         let result = AnalysisResult {
+            schema_version: ANALYSIS_SCHEMA_VERSION.to_string(),
             file_info: FileInfo {
                 path: "test.exe".to_string(),
                 size_bytes: 1024,
@@ -1250,6 +1305,7 @@ mod tests {
             iso_analysis: None,
             cab_analysis: None,
             msi_analysis: None,
+            yara_matches: Vec::new(),
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -1456,6 +1512,7 @@ mod tests {
     fn test_optional_fields_omitted() {
         // Test that None fields don't appear in JSON
         let result = AnalysisResult {
+            schema_version: ANALYSIS_SCHEMA_VERSION.to_string(),
             file_info: FileInfo {
                 path: "test.bin".to_string(),
                 size_bytes: 100,
@@ -1522,6 +1579,7 @@ mod tests {
             iso_analysis: None,
             cab_analysis: None,
             msi_analysis: None,
+            yara_matches: Vec::new(),
         };
 
         let json = serde_json::to_string(&result).unwrap();

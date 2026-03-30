@@ -9,8 +9,8 @@ pub struct AppSettings {
     pub db_path: String,
     /// "dark" | "light"
     pub theme: String,
-    /// Hard-coded false. Field exists for future tooling compatibility but is
-    /// never settable. The UI must render it as a locked-off status display.
+    /// Always false. Anya makes zero network calls. This field exists in the
+    /// settings struct for schema completeness but is never settable.
     pub telemetry_enabled: bool,
 }
 
@@ -24,8 +24,14 @@ impl AppSettings {
     }
 }
 
+/// IPC API version — bump when response shapes change.
+/// Frontend can check this to handle version skew gracefully.
+pub const API_VERSION: &str = "2.0.0";
+
 #[derive(Debug, Serialize)]
 pub struct AnalyzeResponse {
+    /// IPC API version for frontend/backend compatibility checking
+    pub api_version: &'static str,
     pub result: serde_json::Value,
     pub risk_score: i64,
     pub is_suspicious: bool,
@@ -166,6 +172,7 @@ pub mod commands {
             serde_json::to_value(&json_result).map_err(|e| format!("Serialise error: {e}"))?;
 
         Ok(AnalyzeResponse {
+            api_version: API_VERSION,
             result: json_value,
             risk_score,
             is_suspicious,
@@ -494,215 +501,22 @@ pub mod commands {
 
     // ── HTML report export ─────────────────────────────────────────────────
 
-    /// Generate a standalone HTML report from a previously-computed analysis
-    /// result and write it to `output_path`.
+    /// Generate a standalone HTML report. Delegates to the shared generator
+    /// in anya-security-core::report — single source of truth for all report formats.
     #[tauri::command]
     pub async fn export_html_report(
         result: serde_json::Value,
         output_path: String,
     ) -> Result<(), String> {
         let canonical = validate_export_path(&output_path, "html")?;
-
-        // Compute risk score the same way the GUI does
         let json_result: anya_security_core::output::AnalysisResult =
-            serde_json::from_value(result.clone()).map_err(|e| format!("Parse error: {e}"))?;
-        let risk_score = compute_risk_score(&json_result);
-
-        fn esc(s: &str) -> String {
-            s.replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;")
-                .replace('"', "&quot;")
-        }
-
-        let file_name = json_result
-            .file_info
-            .path
-            .split(['/', '\\'])
-            .next_back()
-            .unwrap_or("Unknown");
-        let file_path = &json_result.file_info.path;
-        let file_size_kb = json_result.file_info.size_kb;
-        let file_format = &json_result.file_format;
-        let entropy_val = json_result.entropy.value;
-
-        // Risk score colour
-        let (score_bg, score_color) = if risk_score >= 70 {
-            ("rgba(239,68,68,0.15)", "#ef4444") // red
-        } else if risk_score >= 40 {
-            ("rgba(234,179,8,0.15)", "#eab308") // yellow
-        } else {
-            ("rgba(74,222,128,0.15)", "#4ade80") // green
-        };
-
-        // Verdict
-        let verdict = json_result.verdict_summary.as_deref().unwrap_or("Unknown");
-
-        // Hashes
-        let md5 = &json_result.hashes.md5;
-        let sha1 = &json_result.hashes.sha1;
-        let sha256 = &json_result.hashes.sha256;
-
-        // Top findings
-        let mut findings_html = String::new();
-        for f in &json_result.top_findings {
-            let badge_color = match f.confidence {
-                anya_security_core::output::ConfidenceLevel::Critical => "#ef4444",
-                anya_security_core::output::ConfidenceLevel::High => "#f97316",
-                anya_security_core::output::ConfidenceLevel::Medium => "#eab308",
-                anya_security_core::output::ConfidenceLevel::Low => "#94a3b8",
-            };
-            findings_html.push_str(&format!(
-                r#"<div class="finding"><span class="badge" style="background:{bc}22;color:{bc};">{conf:?}</span> {label}</div>"#,
-                bc = badge_color, conf = f.confidence, label = esc(&f.label),
-            ));
-        }
-
-        // MITRE techniques
-        let mut mitre_html = String::new();
-        for t in &json_result.mitre_techniques {
-            mitre_html.push_str(&format!(
-                r#"<span class="tag">{id} — {name}</span>"#,
-                id = esc(&format!(
-                    "{}{}",
-                    t.technique_id,
-                    t.sub_technique_id
-                        .as_ref()
-                        .map(|s| format!(".{s}"))
-                        .unwrap_or_default()
-                )),
-                name = esc(&t.technique_name),
-            ));
-        }
-
-        // Security features (PE)
-        let mut security_html = String::new();
-        if let Some(pe) = &json_result.pe_analysis {
-            let features = [
-                ("ASLR", pe.security.aslr_enabled),
-                ("DEP/NX", pe.security.dep_enabled),
-            ];
-            for (name, enabled) in features {
-                let (icon, color) = if enabled {
-                    ("&#10003;", "#4ade80")
-                } else {
-                    ("&#10007;", "#ef4444")
-                };
-                security_html.push_str(&format!(
-                    r#"<span class="sec-badge" style="color:{color};">{icon} {name}</span>"#,
-                ));
-            }
-        }
-
-        let html = format!(
-            r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Anya Report — {file_name_esc}</title>
-<style>
-  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-  body {{ font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #111118; color: #e8e8ef; line-height: 1.6; }}
-  .page {{ max-width: 900px; margin: 0 auto; padding: 40px 24px; }}
-  .header {{ display: flex; align-items: center; gap: 20px; margin-bottom: 32px; padding-bottom: 20px; border-bottom: 1px solid #2a2a35; }}
-  .score-ring {{ width: 72px; height: 72px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5em; font-weight: 700; border: 3px solid {score_color}; background: {score_bg}; color: {score_color}; flex-shrink: 0; }}
-  .header-text h1 {{ font-size: 1.3em; font-weight: 600; color: #f0f0f8; }}
-  .header-text .sub {{ font-size: 0.8em; color: #888; margin-top: 2px; }}
-  .verdict {{ font-size: 0.85em; margin-top: 4px; color: {score_color}; font-weight: 600; }}
-  .card {{ background: #1a1a24; border: 1px solid #2a2a35; border-radius: 10px; padding: 20px; margin-bottom: 16px; }}
-  .card h2 {{ font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.08em; color: #666; margin-bottom: 12px; }}
-  .hash-row {{ display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #222230; font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 0.78em; }}
-  .hash-row:last-child {{ border-bottom: none; }}
-  .hash-label {{ color: #888; width: 60px; flex-shrink: 0; }}
-  .hash-value {{ color: #c8c8d8; word-break: break-all; }}
-  .info-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }}
-  .info-item {{ display: flex; justify-content: space-between; padding: 6px 0; font-size: 0.85em; }}
-  .info-label {{ color: #888; }}
-  .info-value {{ color: #d0d0dd; font-weight: 500; }}
-  .finding {{ padding: 10px 14px; background: #15151e; border-radius: 8px; margin-bottom: 8px; font-size: 0.85em; display: flex; align-items: center; gap: 10px; }}
-  .badge {{ padding: 2px 10px; border-radius: 4px; font-size: 0.75em; font-weight: 600; flex-shrink: 0; }}
-  .tag {{ display: inline-block; padding: 4px 10px; margin: 3px; border-radius: 6px; font-size: 0.75em; background: #1e1e2e; border: 1px solid #333; color: #a0a0b8; }}
-  .sec-badge {{ display: inline-block; padding: 4px 12px; margin: 3px; font-size: 0.8em; font-weight: 500; }}
-  .footer {{ margin-top: 40px; padding-top: 16px; border-top: 1px solid #2a2a35; color: #555; font-size: 0.72em; text-align: center; }}
-</style>
-</head>
-<body>
-<div class="page">
-  <div class="header">
-    <div class="score-ring">{risk_score}</div>
-    <div class="header-text">
-      <h1>{file_name_esc}</h1>
-      <div class="sub">{file_path_esc} &middot; {file_size_kb:.1} KB &middot; {file_format}</div>
-      <div class="verdict">{verdict_esc}</div>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Hashes</h2>
-    <div class="hash-row"><span class="hash-label">MD5</span><span class="hash-value">{md5}</span></div>
-    <div class="hash-row"><span class="hash-label">SHA1</span><span class="hash-value">{sha1}</span></div>
-    <div class="hash-row"><span class="hash-label">SHA256</span><span class="hash-value">{sha256}</span></div>
-  </div>
-
-  <div class="card">
-    <h2>File Info</h2>
-    <div class="info-grid">
-      <div class="info-item"><span class="info-label">Format</span><span class="info-value">{file_format}</span></div>
-      <div class="info-item"><span class="info-label">Entropy</span><span class="info-value">{entropy_val:.4} / 8.0</span></div>
-      <div class="info-item"><span class="info-label">Risk Score</span><span class="info-value" style="color:{score_color};">{risk_score} / 100</span></div>
-    </div>
-  </div>
-
-  {findings_section}
-
-  {mitre_section}
-
-  {security_section}
-
-  <div class="footer">Generated by Anya &middot; Static analysis only &middot; No files were executed</div>
-</div>
-</body>
-</html>"#,
-            file_name_esc = esc(file_name),
-            file_path_esc = esc(file_path),
-            file_size_kb = file_size_kb,
-            file_format = esc(file_format),
-            risk_score = risk_score,
-            score_bg = score_bg,
-            score_color = score_color,
-            verdict_esc = esc(verdict),
-            md5 = md5,
-            sha1 = sha1,
-            sha256 = sha256,
-            entropy_val = entropy_val,
-            findings_section = if findings_html.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    r#"<div class="card"><h2>Key Findings</h2>{}</div>"#,
-                    findings_html
-                )
-            },
-            mitre_section = if mitre_html.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    r#"<div class="card"><h2>MITRE ATT&amp;CK</h2>{}</div>"#,
-                    mitre_html
-                )
-            },
-            security_section = if security_html.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    r#"<div class="card"><h2>Security Features</h2>{}</div>"#,
-                    security_html
-                )
-            },
-        );
-
-        std::fs::write(&canonical, html).map_err(|e| format!("Write error: {e}"))
+            serde_json::from_value(result).map_err(|e| format!("Parse error: {e}"))?;
+        tokio::task::spawn_blocking(move || {
+            anya_security_core::report::generate_html_report(&json_result, &canonical)
+                .map_err(|e| format!("HTML generation error: {e}"))
+        })
+        .await
+        .map_err(|e| format!("{e}"))?
     }
 
     // ── Case management commands ──────────────────────────────────────────────
@@ -739,6 +553,24 @@ pub mod commands {
             .await
             .map_err(|e| format!("{e}"))?
             .map_err(|e| format!("{e}"))
+    }
+
+    /// Generate a PDF report from analysis results.
+    #[tauri::command]
+    pub async fn export_pdf_report(
+        result: serde_json::Value,
+        output_path: String,
+    ) -> Result<(), String> {
+        let canonical = validate_export_path(&output_path, "pdf")?;
+        let json_result: anya_security_core::output::AnalysisResult =
+            serde_json::from_value(result).map_err(|e| format!("Parse error: {e}"))?;
+
+        tokio::task::spawn_blocking(move || {
+            anya_security_core::report::generate_pdf_report(&json_result, &canonical)
+                .map_err(|e| format!("PDF generation error: {e}"))
+        })
+        .await
+        .map_err(|e| format!("{e}"))?
     }
 
     #[tauri::command]
@@ -897,20 +729,151 @@ pub mod commands {
         .map_err(|e| format!("{e}"))?
     }
 
+    /// Get KSD neighborhood for a single file — returns nearby known samples
+    /// for the 3D relationship graph in single-file mode.
+    #[tauri::command]
+    pub async fn get_ksd_neighborhood(
+        tlsh_hash: String,
+        family: Option<String>,
+        max_results: Option<usize>,
+    ) -> Result<serde_json::Value, String> {
+        tokio::task::spawn_blocking(move || {
+            let db = anya_scoring::ksd::KnownSampleDb::load(None);
+            let max = max_results.unwrap_or(20);
+            let mut neighbors: Vec<serde_json::Value> = Vec::new();
+
+            for sample in db.samples() {
+                if let Some(distance) =
+                    anya_security_core::tlsh_distance(&tlsh_hash, &sample.tlsh)
+                {
+                    if distance <= 200 {
+                        neighbors.push(serde_json::json!({
+                            "family": sample.family,
+                            "function": sample.function,
+                            "sha256": sample.sha256,
+                            "tlsh": sample.tlsh,
+                            "distance": distance,
+                            "tags": sample.tags,
+                        }));
+                    }
+                }
+            }
+
+            // Also include same-family samples even if TLSH distance is large
+            if let Some(ref fam) = family {
+                for sample in db.samples() {
+                    let already = neighbors.iter().any(|n| {
+                        n.get("sha256").and_then(|s| s.as_str()) == Some(&sample.sha256)
+                    });
+                    if !already && sample.family == *fam {
+                        neighbors.push(serde_json::json!({
+                            "family": sample.family,
+                            "function": sample.function,
+                            "sha256": sample.sha256,
+                            "tlsh": sample.tlsh,
+                            "distance": anya_security_core::tlsh_distance(&tlsh_hash, &sample.tlsh).unwrap_or(999),
+                            "tags": sample.tags,
+                        }));
+                    }
+                }
+            }
+
+            // Sort by distance and limit
+            neighbors.sort_by_key(|n| {
+                n.get("distance").and_then(|d| d.as_u64()).unwrap_or(999)
+            });
+            neighbors.truncate(max);
+
+            Ok(serde_json::json!({ "neighbors": neighbors }))
+        })
+        .await
+        .map_err(|e| format!("{e}"))?
+    }
+
     // ── Installer / first-run commands ────────────────────────────────────────
 
-    /// Check whether this is a first run by looking for the `.anya_configured`
-    /// marker file in the app config directory.
-    // TODO v1.1.0: Compare stored version in .anya_configured against
-    // current app version to show the shorter update installer flow.
+    /// Check whether this is a first run or an upgrade.
+    /// Returns "first_run", "upgrade", or "current" as a string.
     #[tauri::command]
-    pub async fn is_first_run(app: tauri::AppHandle) -> bool {
+    pub async fn is_first_run(app: tauri::AppHandle) -> String {
         let config_dir = app
             .path()
             .app_config_dir()
             .unwrap_or_else(|_| std::path::PathBuf::from("."));
         let marker = config_dir.join(".anya_configured");
-        !marker.exists()
+        if !marker.exists() {
+            return "first_run".to_string();
+        }
+        // Compare stored version against current app version
+        let stored = std::fs::read_to_string(&marker).unwrap_or_default();
+        let current = env!("CARGO_PKG_VERSION");
+        if stored.trim() == current {
+            "current".to_string()
+        } else {
+            "upgrade".to_string()
+        }
+    }
+
+    /// Install bundled YARA rules from the app resources to the user's rules directory.
+    /// Called on first run or when user explicitly requests rule installation.
+    #[tauri::command]
+    pub async fn install_bundled_yara_rules(app: tauri::AppHandle) -> Result<String, String> {
+        let rules_dest = anya_security_core::yara::scanner::default_rules_dir();
+
+        // Skip if rules already exist
+        if rules_dest.exists() {
+            let has_rules = std::fs::read_dir(&rules_dest)
+                .map(|entries| {
+                    entries.filter_map(|e| e.ok()).any(|e| {
+                        let name = e.file_name().to_string_lossy().to_string();
+                        name.ends_with(".yar") || name.ends_with(".yara")
+                    })
+                })
+                .unwrap_or(false);
+            if has_rules {
+                return Ok("Rules already installed".to_string());
+            }
+        }
+
+        // Resolve bundled rules from Tauri resources
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|e| format!("Resource dir error: {e}"))?
+            .join("rules");
+
+        if !resource_dir.exists() {
+            return Err("No bundled YARA rules found in installer package. Run prep-yara-rules.sh before building.".to_string());
+        }
+
+        // Create destination directory
+        std::fs::create_dir_all(&rules_dest)
+            .map_err(|e| format!("Failed to create rules directory: {e}"))?;
+
+        // Copy all .yar/.yara files
+        let mut copied = 0usize;
+        for entry in walkdir::WalkDir::new(&resource_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy();
+                e.file_type().is_file() && (name.ends_with(".yar") || name.ends_with(".yara"))
+            })
+        {
+            let rel_path = entry.path().strip_prefix(&resource_dir).unwrap_or(entry.path());
+            let dest_file = rules_dest.join(rel_path);
+            if let Some(parent) = dest_file.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
+            if std::fs::copy(entry.path(), &dest_file).is_ok() {
+                copied += 1;
+            }
+        }
+
+        // Reload the YARA scanner with the new rules
+        let _ = anya_security_core::yara::scanner::reload_rules();
+
+        Ok(format!("Installed {} YARA rule files to {}", copied, rules_dest.display()))
     }
 
     /// Write the first-run marker and persist installer preferences.
@@ -925,11 +888,14 @@ pub mod commands {
         let _ = dark_theme;
         let _ = teacher_mode;
 
+        // Install bundled YARA rules on first run
+        let _ = install_bundled_yara_rules(app.clone()).await;
+
         let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
         std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
 
         let marker = config_dir.join(".anya_configured");
-        std::fs::write(&marker, "1").map_err(|e| e.to_string())?;
+        std::fs::write(&marker, env!("CARGO_PKG_VERSION")).map_err(|e| e.to_string())?;
 
         Ok(())
     }
@@ -1025,6 +991,7 @@ pub fn run() {
             commands::analyze_directory,
             commands::export_json,
             commands::export_html_report,
+            commands::export_pdf_report,
             commands::get_settings,
             commands::save_settings,
             commands::get_triggered_lessons,
@@ -1044,6 +1011,8 @@ pub fn run() {
             commands::delete_case,
             commands::get_cases_dir,
             commands::get_batch_graph_data,
+            commands::get_ksd_neighborhood,
+            commands::install_bundled_yara_rules,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Anya");

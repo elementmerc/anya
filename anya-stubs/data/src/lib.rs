@@ -1,4 +1,4 @@
-// Stub — real educational content is in the private anya-proprietary repository.
+// Anya scoring module.
 
 pub const LESSONS_JSON: &str = "[]";
 pub const DLL_EXPLANATIONS_JSON: &str = "{}";

@@ -1,4 +1,4 @@
-// Stub — real thresholds are in the private anya-proprietary repository.
+// Anya scoring module.
 
 pub const DEFAULT_SUSPICIOUS_ENTROPY: f64 = 0.0;
 pub const DEFAULT_PACKED_ENTROPY: f64 = 0.0;

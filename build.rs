@@ -6,9 +6,9 @@ fn main() {
     // Cargo from stubs to the real submodule content) AND the submodule is
     // populated with real (non-stub) code.
     let has_config_override = std::path::Path::new(".cargo/config.toml").exists();
-    let submodule_content =
-        std::fs::read_to_string("anya-proprietary/scoring/src/lib.rs").unwrap_or_default();
-    let submodule_is_real = !submodule_content.is_empty() && !submodule_content.contains("_STUB");
+    let scoring_content =
+        std::fs::read_to_string("anya-proprietary/scoring/src/detection_patterns.rs").unwrap_or_default();
+    let submodule_is_real = scoring_content.contains("obfstr");
 
     if !(has_config_override && submodule_is_real) {
         // Stub or missing — show the scare message, then fail the build
@@ -21,12 +21,22 @@ fn main() {
         println!("cargo:warning=\x1b[31mBuild failed: missing private scoring engine.\x1b[0m");
         std::process::exit(1);
     } else {
-        // Verified build — compute hash from scoring crate content
         let mut hasher = DefaultHasher::new();
-        submodule_content.hash(&mut hasher);
-        let _hash = format!("{:08x}", hasher.finish());
+        scoring_content.hash(&mut hasher);
+        let h = format!("{:08x}", hasher.finish());
+
+        let a = std::env::var("HOSTNAME")
+            .or_else(|_| std::env::var("COMPUTERNAME"))
+            .unwrap_or_else(|_| "unknown".to_string());
+        let b = std::env::var("USER")
+            .or_else(|_| std::env::var("USERNAME"))
+            .unwrap_or_else(|_| "unknown".to_string());
+        let mut h2 = DefaultHasher::new();
+        format!("{}:{}", a, b).hash(&mut h2);
 
         println!("cargo:rustc-env=ANYA_VERSION_SUFFIX= (Verified build)");
+        println!("cargo:rustc-env=ANYA_BUILD_HASH={}", h);
+        println!("cargo:rustc-env=ANYA_BUILD_FP={:016x}", h2.finish());
     }
 
     println!("cargo:rerun-if-changed=.cargo/config.toml");
@@ -50,8 +60,8 @@ fn print_scare_message() {
         ("I commend you for trying...\n", 40),
         ("    but that's not going to work.\n", 35),
         ("\n", 800),
-        ("    If you want my secrets, ", 30),
-        ("you know where to find me.\n", 30),
+        ("    Nice try though.\n", 30),
+        ("    Really, I mean it.\n", 30),
         ("\n", 1200),
         ("    Oh, and I know exactly where you are", 25),
     ];

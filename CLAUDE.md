@@ -1,7 +1,7 @@
 # Anya — Claude Code Instructions
 <!-- Sprint: V2 — Detection Inflection -->
 
-## Current version: v2.0.0-dev
+## Current version: v2.0.0-beta
 ## Active sprint: V2 — Detection Inflection
 
 ---
@@ -126,14 +126,31 @@ rather than applying band-aid fixes that create technical debt.
 
 7. **Private repo** — anya-proprietary is private. Never commit real scoring
    content to the public repo (elementmerc/anya). The stub crates in
-   anya-stubs/ must remain as stubs. Keep comments in public code generic —
-   do not describe internal methodologies, implementation details of the
-   scoring engine, or the contents of the private/ directory.
+   anya-stubs/ must remain as stubs. In ALL public-facing content (code
+   comments, doc comments, README, ARCHITECTURE.md, CHANGELOG, commit
+   messages), write as if the proprietary crate doesn't exist. Do not
+   describe internal methodologies, scoring weights, detection patterns,
+   calibration data, or the contents of the private/ directory. Do not
+   mention that information is being deliberately withheld — the software
+   should appear naturally complete, not like it has hidden parts.
 
 8. **Detection metrics** — always report real detection rate (heuristic +
    signature) separately from forensic fragment annotations. The goal is
    always 100% detection and 0% FP. Forensic fragments count toward 100%
    but must be reported as a distinct percentage.
+
+9. **No future plans in public docs** — never mention future versions,
+   roadmap items, planned features, or the existence of a roadmap in any
+   public-facing file (README, ARCHITECTURE.md, CHANGELOG, code comments,
+   doc comments). Present everything as what it IS, not what it WILL BE.
+   Do not reference V3, V4, plugin plans, SARIF/STIX plans, REST API plans,
+   or any unreleased capability. The goal is to present the software as
+   complete and polished at every version, not as a work-in-progress.
+
+10. **Changelog discipline** — changelog entries should list only major
+    user-facing features and fixes. Consolidate minor items under
+    "Bug fixes and improvements." Do not list internal refactors,
+    architectural changes, or implementation details that users don't see.
 
 ---
 

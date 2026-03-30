@@ -68,10 +68,16 @@ export const saveJsonPicker = (): Promise<string | null> =>
 export const saveHtmlPicker = (): Promise<string | null> =>
   save({ filters: [{ name: "HTML", extensions: ["html"] }], defaultPath: "report.html" });
 
+export const savePdfPicker = (): Promise<string | null> =>
+  save({ filters: [{ name: "PDF", extensions: ["pdf"] }], defaultPath: "report.pdf" });
+
 // ─── HTML report export ─────────────────────────────────────────────────
 
 export const exportHtmlReport = (result: AnalysisResult, outputPath: string): Promise<void> =>
   withTimeout(invoke("export_html_report", { result, outputPath }), 30_000, "HTML export");
+
+export const exportPdfReport = (result: AnalysisResult, outputPath: string): Promise<void> =>
+  withTimeout(invoke("export_pdf_report", { result, outputPath }), 30_000, "PDF export");
 
 // ─── Drag-drop ─────────────────────────────────────────────────────────────
 
@@ -137,3 +143,23 @@ export const pickExistingCaseFolder = async (): Promise<string | null> => {
 /** Compute relationship graph from batch analysis results (server-side TLSH + KSD matching) */
 export const getBatchGraphData = (results: unknown[]): Promise<import("../types/analysis").GraphData> =>
   invoke("get_batch_graph_data", { results });
+
+/** Install bundled YARA rules from app resources to user's rules directory */
+export const installBundledYaraRules = (): Promise<string> =>
+  invoke("install_bundled_yara_rules");
+
+/** Get KSD neighborhood for a single file's TLSH hash (for single-file graph mode) */
+export interface KsdNeighbor {
+  family: string;
+  function: string;
+  sha256: string;
+  tlsh: string;
+  distance: number;
+  tags: string[];
+}
+export const getKsdNeighborhood = (
+  tlshHash: string,
+  family?: string,
+  maxResults?: number,
+): Promise<{ neighbors: KsdNeighbor[] }> =>
+  invoke("get_ksd_neighborhood", { tlshHash, family: family ?? null, maxResults: maxResults ?? null });

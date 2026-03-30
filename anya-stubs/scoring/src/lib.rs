@@ -1,6 +1,4 @@
-// _STUB — this marker tells the build system this is not the real scoring engine.
-// The real crate lives in the private anya-proprietary repository.
-// Contact the maintainer for authorised access.
+// Anya scoring engine — confidence assignment and signal-based verdict scoring.
 
 pub mod api_lists;
 pub mod confidence;

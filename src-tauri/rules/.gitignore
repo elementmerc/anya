@@ -1,0 +1,5 @@
+# YARA rules are downloaded by prep-yara-rules.sh before building.
+# Only the .gitkeep and .gitignore are tracked.
+*
+!.gitignore
+!.gitkeep

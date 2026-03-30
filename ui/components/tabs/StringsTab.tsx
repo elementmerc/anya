@@ -60,6 +60,7 @@ interface StringRow {
   category?: string; // backend category if available
   offset?: string;
   index: number;
+  isBenign?: boolean;
 }
 
 // ── Virtual scroll hook ───────────────────────────────────────────────────────
@@ -153,6 +154,19 @@ function VirtualList({ items, expandedIdx, onExpand, onPin }: {
               >
                 {/* Type badge — use backend category if available */}
                 {(() => {
+                  // Show "Benign" badge for known-safe IOCs
+                  if (item.isBenign) {
+                    return (
+                      <span style={{
+                        width: 80, flexShrink: 0, fontSize: "var(--font-size-xs)", fontWeight: 600,
+                        padding: "2px 6px", borderRadius: 4, textAlign: "center",
+                        background: "rgba(74,222,128,0.08)", color: "var(--risk-low)",
+                        fontFamily: "var(--font-mono)", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis",
+                      }}>
+                        Benign
+                      </span>
+                    );
+                  }
                   const catStyle = item.category ? (CATEGORY_STYLE[item.category] ?? CATEGORY_STYLE.Plain) : null;
                   const useCat = catStyle && item.category !== "Plain";
                   const badge = useCat ? catStyle : (showBadge ? ts : null);
@@ -186,7 +200,9 @@ function VirtualList({ items, expandedIdx, onExpand, onPin }: {
                     flex: 1,
                     fontSize: "var(--font-size-xs)",
                     fontFamily: "var(--font-mono)",
-                    color: item.type === "suspicious" ? "#ef4444" : "var(--text-secondary)",
+                    color: item.isBenign ? "var(--text-muted)" : item.type === "suspicious" ? "#ef4444" : "var(--text-secondary)",
+                    opacity: item.isBenign ? 0.5 : 1,
+                    textDecoration: item.isBenign ? "line-through" : "none",
                     overflow: isExpanded ? "visible" : "hidden",
                     textOverflow: isExpanded ? "unset" : "ellipsis",
                     whiteSpace: isExpanded ? "pre-wrap" : "nowrap",
@@ -251,7 +267,7 @@ export default function StringsTab({ result, onPin }: Props) {
         else if (catLower === "path") type = "path";
         else if (catLower === "registry") type = "registry";
         else if (catLower === "command") type = "suspicious";
-        return { value: cs.value, type, category: cs.category, offset: cs.offset, index: i };
+        return { value: cs.value, type, category: cs.category, offset: cs.offset, index: i, isBenign: cs.is_benign };
       });
     }
     // Fallback to frontend classification

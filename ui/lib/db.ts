@@ -24,60 +24,126 @@ export interface TeacherSettings {
 
 let _db: Database | null = null;
 
+// ─── Schema version ─────────────────────────────────────────────────────────
+// Increment SCHEMA_VERSION when adding migrations. Each migration runs once.
+/** Current schema version — exported for diagnostics/settings display */
+export const SCHEMA_VERSION = 2;
+
 async function getDb(): Promise<Database> {
   if (_db) return _db;
   _db = await Database.load("sqlite:anya.db");
-  await initSchema(_db);
+  await runMigrations(_db);
   return _db;
 }
 
-async function initSchema(db: Database): Promise<void> {
+// ─── Migration system ────────────────────────────────────────────────────────
+// Migrations are numbered sequentially. Each runs exactly once.
+// The schema_migrations table tracks which have been applied.
+
+interface Migration {
+  version: number;
+  description: string;
+  up: (db: Database) => Promise<void>;
+}
+
+const MIGRATIONS: Migration[] = [
+  {
+    version: 1,
+    description: "Initial schema — analyses, settings, teacher tables",
+    up: async (db) => {
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS analyses (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          file_name   TEXT NOT NULL,
+          file_path   TEXT NOT NULL,
+          file_hash   TEXT NOT NULL,
+          analysed_at TEXT NOT NULL,
+          risk_score  INTEGER NOT NULL,
+          result_json TEXT NOT NULL
+        )
+      `);
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS settings (
+          key   TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      `);
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS teacher_progress (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          lesson_id     TEXT NOT NULL UNIQUE,
+          completed_at  TEXT NOT NULL,
+          analysis_hash TEXT
+        )
+      `);
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS teacher_settings (
+          key   TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      `);
+      await db.execute(`
+        INSERT OR IGNORE INTO teacher_settings (key, value) VALUES
+          ('enabled',              'false'),
+          ('auto_show_on_trigger', 'true'),
+          ('show_beginner',        'true'),
+          ('show_intermediate',    'true'),
+          ('show_advanced',        'false')
+      `);
+      await db.execute(`
+        INSERT OR IGNORE INTO settings (key, value) VALUES
+          ('bible_verses_enabled', 'false')
+      `);
+    },
+  },
+  {
+    version: 2,
+    description: "V2 — add verdict column, YARA match count, schema version tracking",
+    up: async (db) => {
+      // Add verdict column to analyses (nullable for backward compat)
+      await db.execute(`ALTER TABLE analyses ADD COLUMN verdict TEXT`).catch(() => {
+        // Column may already exist — SQLite doesn't support IF NOT EXISTS for ALTER
+      });
+      // Add yara_match_count column
+      await db.execute(`ALTER TABLE analyses ADD COLUMN yara_match_count INTEGER DEFAULT 0`).catch(() => {});
+      // Add file_format column
+      await db.execute(`ALTER TABLE analyses ADD COLUMN file_format TEXT`).catch(() => {});
+    },
+  },
+  // Additional migrations are appended here as the schema evolves.
+];
+
+async function runMigrations(db: Database): Promise<void> {
+  // Create migrations tracking table
   await db.execute(`
-    CREATE TABLE IF NOT EXISTS analyses (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      file_name   TEXT NOT NULL,
-      file_path   TEXT NOT NULL,
-      file_hash   TEXT NOT NULL,
-      analysed_at TEXT NOT NULL,
-      risk_score  INTEGER NOT NULL,
-      result_json TEXT NOT NULL
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version     INTEGER PRIMARY KEY,
+      description TEXT NOT NULL,
+      applied_at  TEXT NOT NULL
     )
   `);
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS settings (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
-  // Teacher Mode tables
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS teacher_progress (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      lesson_id     TEXT NOT NULL UNIQUE,
-      completed_at  TEXT NOT NULL,
-      analysis_hash TEXT
-    )
-  `);
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS teacher_settings (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
-  // Seed teacher_settings defaults if not present
-  await db.execute(`
-    INSERT OR IGNORE INTO teacher_settings (key, value) VALUES
-      ('enabled',              'false'),
-      ('auto_show_on_trigger', 'true'),
-      ('show_beginner',        'true'),
-      ('show_intermediate',    'true'),
-      ('show_advanced',        'false')
-  `);
-  // Seed general settings defaults
-  await db.execute(`
-    INSERT OR IGNORE INTO settings (key, value) VALUES
-      ('bible_verses_enabled', 'false')
-  `);
+
+  // Get current schema version
+  const applied = await db.select<{ version: number }[]>(
+    "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1"
+  );
+  const currentVersion = applied.length > 0 ? applied[0].version : 0;
+
+  // Run pending migrations
+  for (const migration of MIGRATIONS) {
+    if (migration.version > currentVersion) {
+      try {
+        await migration.up(db);
+        await db.execute(
+          "INSERT INTO schema_migrations (version, description, applied_at) VALUES (?, ?, ?)",
+          [migration.version, migration.description, new Date().toISOString()]
+        );
+      } catch (e) {
+        console.error(`Migration ${migration.version} failed:`, e);
+        // Don't halt — the app should still work with partial migrations
+      }
+    }
+  }
 }
 
 // ─── Analysis storage ─────────────────────────────────────────────────────

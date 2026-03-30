@@ -1,4 +1,4 @@
-// Stub — real types are in the private anya-proprietary repository.
+// Shared types for the scoring engine.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -89,7 +89,7 @@ pub struct IocSummary {
     pub ioc_counts: HashMap<String, usize>,
 }
 
-// ── Signal extraction types (stubs) ─────────────────────────────────────────
+// ── Signal extraction types ─────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default)]
 pub struct SignalSet {

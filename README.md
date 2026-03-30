@@ -4,12 +4,18 @@
 
 # Anya
 
-**Fast static malware analysis**
+**Fast, offline static malware analysis platform**
 
-[![CI](https://github.com/elementmerc/anya/actions/workflows/ci.yml/badge.svg)](https://github.com/elementmerc/anya/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/elementmerc/anya)](https://github.com/elementmerc/anya/releases/latest)
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE.TXT)
-[![Docker](https://img.shields.io/docker/pulls/elementmerc/anya)](https://hub.docker.com/r/elementmerc/anya)
+<p>
+  <a href="https://github.com/elementmerc/anya/actions/workflows/ci.yml"><img src="https://github.com/elementmerc/anya/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/elementmerc/anya/releases/latest"><img src="https://img.shields.io/github/v/release/elementmerc/anya?color=blue" alt="Release" /></a>
+  <a href="LICENSE.TXT"><img src="https://img.shields.io/badge/license-AGPL--3.0%20%7C%20Commercial-blue" alt="AGPL-3.0 | Commercial" /></a>
+  <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform" /></a>
+  <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/any%20file-20%2B%20deep%20parsers-brightgreen" alt="Any file, 20+ deep parsers" /></a>
+  <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/detection-99.6%25-brightgreen" alt="99.6% detection" /></a>
+  <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/network-zero%20calls-success" alt="Zero network calls" /></a>
+  <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/MITRE%20ATT%26CK-mapped-blueviolet" alt="MITRE ATT&CK" /></a>
+</p>
 
 <img src="docs/demo.gif" alt="Anya GUI demo" width="720">
 
@@ -17,7 +23,7 @@
 
 ---
 
-Anya analyses files without executing them. Drop a PE, ELF, Mach-O, PDF, Office doc, or any file onto the GUI, or pipe files through the CLI. Get hashes, entropy, imports, sections, IOC indicators, MITRE ATT&CK mappings, a confidence-scored verdict, and a risk score. 200+ files per minute, entirely offline.
+Anya analyses files without executing them. Drop a PE, ELF, Mach-O, PDF, Office doc, script, archive, or any of 20+ supported formats onto the GUI, or pipe files through the CLI. Get hashes, entropy, imports, sections, IOC indicators, MITRE ATT&CK mappings, known malware family matching, a confidence-scored verdict, and a risk score. 200+ files per minute, entirely offline.
 
 **Anya** (AHN-yah) means "eye" in Igbo.
 
@@ -66,14 +72,8 @@ docker run --rm \
 
 ### Building from source
 
-Building from source is **not supported** for public users. Anya relies on
-a private git submodule (`anya-proprietary`) containing the scoring engine
-and educational data. The public repo includes stub crates that allow the
-workspace to resolve, but the build will fail without the real content.
-Use the install script, Docker image, or pre-built releases above.
-
-Attempting to build from source without authorised access may lead to
-*unexpected consequences*.
+> [!WARNING]
+> Seriously, just use the installer or grab a release. The source is here for transparency, not for building. If you clone and `cargo build` anyway — well, don't say I didn't warn you.
 
 ---
 
@@ -149,15 +149,16 @@ Launch Anya, drag a file onto the drop zone — or use the **+** button for sing
 
 | Tab | What it shows |
 |---|---|
-| Overview | Risk score ring, file metadata, hashes, "Why this verdict?" explanation |
-| Entropy | Full entropy chart + per-section breakdown with configurable thresholds |
+| Overview | Risk score ring, file metadata, hashes, KSD match, forensic fragment, 3D relationship graph |
+| Entropy | Full entropy chart + per-section breakdown, byte histogram, distribution flatness analysis |
 | Imports | DLL tree with expandable function lists and inline explanations |
 | Sections | Section permission analysis, per-section entropy, characteristics |
-| Strings | Extracted strings with indicator extraction and classification |
-| Security | ASLR, DEP, Authenticode, overlay, debug artifacts — click any card for explanations |
+| Strings | Extracted strings with IOC extraction, classification, and filtering |
+| Security | ASLR, DEP, Authenticode, overlay, debug artifacts, toolchain detection, certificate reputation |
+| Format | Format-specific analysis for JS, PowerShell, VBS, OLE, ZIP, HTML, XML, LNK, ISO, and more |
 | MITRE | Mapped ATT&CK techniques with tactic tagging and real-world attack examples |
 
-**Batch Analysis** — select a folder to scan all executables. Files appear in a collapsible sidebar with colour-coded verdicts. A summary dashboard shows verdict breakdown and a donut chart.
+**Batch Analysis** — select a folder to scan all executables. Files appear in a collapsible sidebar with colour-coded verdicts. A summary dashboard shows verdict breakdown, donut chart, and an interactive 3D relationship graph showing TLSH similarity and malware family connections between files.
 
 **Teacher Mode** (toggle in Settings → Learning) surfaces contextual lessons as you navigate. Click any DLL, security card, IOC block, or MITRE technique for beginner-friendly explanations with real-world examples.
 
@@ -183,16 +184,46 @@ Analysis history is stored in a local SQLite database. Nothing leaves your devic
 
 ## Why Anya?
 
-| | Anya | VirusTotal | Ghidra | CAPA |
-|---|---|---|---|---|
-| Offline | ✓ | ✗ | ✓ | ✓ |
-| No cloud upload | ✓ | ✗ | ✓ | ✓ |
-| Desktop GUI | ✓ | Browser | ✓ | ✗ |
-| < 1 s analysis | ✓ | Network-bound | ✗ | Seconds |
-| MITRE mapping | ✓ | Partial | ✗ | ✓ |
-| Beginner-friendly | ✓ | — | ✗ | — |
-| Batch analysis | ✓ | ✓ | ✗ | ✓ |
-| IOC extraction | ✓ | ✓ | ✗ | Partial |
+| | Anya | VirusTotal | PEStudio | CAPA | DIE |
+|---|---|---|---|---|---|
+| Offline / no upload | ✓ | ✗ | ✓ | ✓ | ✓ |
+| Formats | Any file (20+ deep) | Many | PE only | PE/ELF | PE/ELF/Mach-O |
+| Heuristic verdict | ✓ | Aggregates | ✗ | ✗ | ✗ |
+| MITRE ATT&CK | ✓ | Partial | ✗ | ✓ | ✗ |
+| YARA scanning | ✓ | ✓ (cloud) | ✗ | ✗ | ✗ |
+| GUI + CLI | Both | Browser | GUI only | CLI only | Both |
+| Batch analysis | ✓ | API | ✗ | Scriptable | Scriptable |
+| IOC extraction | ✓ | ✓ | ✗ | ✗ | ✗ |
+| Case management | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Cross-platform | ✓ | Web | Windows | ✓ | ✓ |
+| Price | Free / Commercial | Free / $10K+ | Free / €200+ | Free | Free |
+
+---
+
+## Calibration
+
+Anya's scoring engine is continuously calibrated against real malware and benign samples. Every release is tested before shipping.
+
+```mermaid
+xychart-beta
+    title "Detection & False Positive Rate"
+    x-axis ["v1.0", "v1.1", "v1.2", "v2.0-beta"]
+    y-axis "%" 0 --> 100
+    line "Detection" [73.0, 82.0, 87.5, 99.6]
+    line "FP rate (x10)" [27.0, 15.0, 3.0, 8.0]
+```
+
+*FP rate scaled 10x for visibility on the same axis.*
+
+| Version | Date | Malware | Benign | Total | Detection | FP Rate | Key changes |
+|---|---|---|---|---|---|---|---|
+| v1.0 | Feb 2026 | ~1,000 | ~500 | ~1,500 | 73.0% | 2.7% | Initial release — PE/ELF only |
+| v1.1 | Feb 2026 | ~1,100 | ~550 | ~1,650 | 82.0% | 1.5% | Improved PE scoring, .NET detection |
+| v1.2 | Mar 2026 | ~1,350 | ~650 | ~2,000 | 87.5% | 0.3% | 15 format parsers, known-product suppression |
+| **v2.0-beta** | **Apr 2026** | **~1,700** | **~5,400** | **~7,100** | **99.6%** | **0.8%** | **20 parsers, KSD, YARA-X, toolchain fingerprinting, import clustering** |
+| v2.0 (target) | — | 3,000+ | 10,000+ | 13,000+ | 100% | 0% | Full calibration pass |
+
+> **Verify independently:** `anya benchmark ./your-samples/ --ground-truth malware --json`
 
 ---
 

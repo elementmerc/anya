@@ -26,22 +26,47 @@ anya --file malware.exe --json | jq '.hashes.sha256'
 
 ```json
 {
+  "schema_version": "2.0.0",      // Schema version for compatibility
   "file_info": { ... },           // File metadata + MIME type
   "hashes": { ... },              // MD5, SHA1, SHA256, TLSH
   "entropy": { ... },             // Shannon entropy + confidence
-  "strings": { ... },             // Extracted strings with classification
+  "strings": { ... },             // Extracted strings with classification + benign marking
   "file_format": "string",        // Detected format
+  "byte_histogram": [0..255],     // 256-entry byte frequency distribution
   "pe_analysis": { ... },         // PE-specific analysis (optional)
   "elf_analysis": { ... },        // ELF-specific analysis (optional)
+  "mach_analysis": { ... },       // Mach-O analysis (optional)
   "file_type_mismatch": { ... },  // Extension vs magic bytes (optional)
   "ioc_summary": { ... },         // IOC indicators found (optional)
-  "mach_analysis": { ... },       // Mach-O-specific analysis (optional)
-  "pdf_analysis": { ... },        // PDF dangerous object detection (optional)
-  "office_analysis": { ... },     // Office macro/embedded object detection (optional)
+  "ksd_match": { ... },           // Known Sample Database match (optional)
+  "forensic_fragment": { ... },   // Fragment annotation for sub-100B files (optional)
+  "compiler_detection": { ... },  // Detected compiler/toolchain (optional)
+  "mitre_techniques": [ ... ],    // MITRE ATT&CK mappings
+  "plain_english_findings": [...], // Analyst-facing findings with explanations
+  "yara_matches": [ ... ],        // YARA rule matches (optional)
+  "javascript_analysis": { ... }, // Format-specific: JS (optional)
+  "powershell_analysis": { ... }, // Format-specific: PowerShell (optional)
+  "vbscript_analysis": { ... },   // Format-specific: VBScript (optional)
+  "shell_script_analysis": {...},  // Format-specific: Batch/Shell (optional)
+  "python_analysis": { ... },     // Format-specific: Python (optional)
+  "ole_analysis": { ... },        // Format-specific: OLE/Office 97 (optional)
+  "rtf_analysis": { ... },        // Format-specific: RTF (optional)
+  "zip_analysis": { ... },        // Format-specific: ZIP (optional)
+  "html_analysis": { ... },       // Format-specific: HTML/HTA (optional)
+  "xml_analysis": { ... },        // Format-specific: XML/SVG (optional)
+  "image_analysis": { ... },      // Format-specific: Image (optional)
+  "lnk_analysis": { ... },        // Format-specific: Windows shortcut (optional)
+  "iso_analysis": { ... },        // Format-specific: ISO 9660 (optional)
+  "cab_analysis": { ... },        // Format-specific: CAB (optional)
+  "msi_analysis": { ... },        // Format-specific: MSI (optional)
+  "pdf_analysis": { ... },        // Format-specific: PDF (optional)
+  "office_analysis": { ... },     // Format-specific: Office OOXML (optional)
   "verdict_summary": "string",    // e.g. "MALICIOUS — 2 critical, 1 high"
   "top_findings": [ ... ]         // Top N findings by confidence
 }
 ```
+
+All format-specific fields are omitted from the output when not applicable (the file wasn't that format). The `schema_version` field enables forward-compatible parsing.
 
 ### Complete Example
 

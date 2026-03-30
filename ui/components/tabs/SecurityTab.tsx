@@ -97,6 +97,7 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
   const teacherMode = useContext(TeacherModeContext);
   const pe  = result.pe_analysis;
   const elf = result.elf_analysis;
+  const cd  = result.compiler_detection;
 
   const versionInfoWide = pe?.version_info
     ? [
@@ -301,6 +302,43 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
           </section>
         )}
 
+        {/* ── Compiler / Toolchain Detection ──────────────────────── */}
+        {cd && (
+          <section>
+            <h2 style={SECTION_HEADER}>Toolchain Detection</h2>
+            <div style={GRID}>
+              <FeatureCard
+                title={cd.compiler}
+                description={`Detected ${cd.language} toolchain`}
+                status="na"
+                fullWidth={cd.evidence.length > 2}
+              >
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <InfoRow label="Language" value={cd.language} />
+                  <InfoRow label="Confidence" value={
+                    <span style={{
+                      color: cd.confidence === "High" ? "var(--risk-low)" : cd.confidence === "Medium" ? "var(--risk-medium)" : "var(--text-muted)",
+                      fontWeight: 600,
+                    }}>
+                      {cd.confidence}
+                    </span>
+                  } />
+                  {cd.evidence.length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>Evidence:</span>
+                      <ul style={{ margin: "4px 0 0", paddingLeft: 16, listStyle: "disc" }}>
+                        {cd.evidence.map((e, i) => (
+                          <li key={i} style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)", lineHeight: 1.6 }}>{e}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </FeatureCard>
+            </div>
+          </section>
+        )}
+
         {elf && (
           <section>
             <h2 style={SECTION_HEADER}>ELF Mitigations</h2>
@@ -313,6 +351,60 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
                   {elf.is_stripped ? "Symbols stripped" : "Symbols present"}
                 </span>
               </FeatureCard>
+            </div>
+          </section>
+        )}
+
+        {/* ── YARA Matches ──────────────────────────────────── */}
+        {result.yara_matches && result.yara_matches.length > 0 && (
+          <section>
+            <h2 style={SECTION_HEADER}>YARA Matches</h2>
+            <div style={GRID}>
+              {result.yara_matches.map((ym, i) => (
+                <FeatureCard
+                  key={i}
+                  title={ym.rule_name}
+                  description={ym.description ?? `Matched rule from ${ym.namespace}`}
+                  status="disabled"
+                  fullWidth={ym.matched_strings.length > 3}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <InfoRow label="Namespace" value={ym.namespace} />
+                    {ym.author && <InfoRow label="Author" value={ym.author} />}
+                    {ym.tags.length > 0 && (
+                      <InfoRow label="Tags" value={
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                          {ym.tags.map((t, j) => (
+                            <span key={j} style={{
+                              fontSize: "var(--font-size-xs)",
+                              padding: "1px 6px",
+                              borderRadius: 4,
+                              background: "rgba(99,102,241,0.1)",
+                              color: "rgb(129,140,248)",
+                              border: "1px solid rgba(99,102,241,0.25)",
+                            }}>
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      } />
+                    )}
+                    <InfoRow label="Matches" value={`${ym.matched_strings.length} string match(es)`} />
+                    {ym.matched_strings.slice(0, 5).map((ms, j) => (
+                      <div key={j} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                        <span style={{ fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)", color: "var(--risk-medium)", minWidth: 40 }}>{ms.identifier}</span>
+                        <span style={{ fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>@ 0x{ms.offset.toString(16).toUpperCase()}</span>
+                        <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>({ms.length}B)</span>
+                      </div>
+                    ))}
+                    {ym.matched_strings.length > 5 && (
+                      <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)", fontStyle: "italic" }}>
+                        +{ym.matched_strings.length - 5} more match(es)
+                      </span>
+                    )}
+                  </div>
+                </FeatureCard>
+              ))}
             </div>
           </section>
         )}

@@ -25,6 +25,10 @@
 /// - Default trait implementation
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+
+fn default_config_version() -> String {
+    CONFIG_SCHEMA_VERSION.to_string()
+}
 use std::fs;
 use std::path::PathBuf;
 
@@ -35,8 +39,16 @@ use std::path::PathBuf;
 /// - `Deserialize` - Can parse from TOML/JSON
 /// - `Debug` - Can print with {:?}
 /// - `Clone` - Can be duplicated
+/// Current config schema version. Bump when adding/changing fields.
+pub const CONFIG_SCHEMA_VERSION: &str = "2.0";
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
+    /// Config schema version — used for migration when upgrading Anya.
+    /// Old configs without this field get the default and work fine.
+    #[serde(default = "default_config_version")]
+    pub config_version: String,
+
     /// Analysis settings
     #[serde(default)]
     pub analysis: AnalysisConfig,
@@ -327,7 +339,7 @@ impl Config {
         })?;
 
         if let Err(msg) = config.thresholds.validate() {
-            eprintln!("Warning: invalid [thresholds] in config: {msg}. Using defaults.");
+            tracing::warn!("Invalid [thresholds] in config: {msg}. Using defaults.");
             config.thresholds = ThresholdConfig::default();
         }
 
@@ -345,7 +357,7 @@ impl Config {
             Some(p) => p,
             None => {
                 // Can't find config directory, use defaults
-                eprintln!("Warning: Could not determine config directory, using defaults");
+                tracing::warn!("Could not determine config directory, using defaults");
                 return Ok(Config::default());
             }
         };

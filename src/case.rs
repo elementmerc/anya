@@ -226,7 +226,7 @@ pub fn list_cases(cases_path: Option<&str>) -> Result<()> {
     for entry in &entries {
         let case_yaml = entry.path().join("case.yaml");
         if !case_yaml.exists() {
-            eprintln!(
+            tracing::debug!(
                 "Skipping {} — no case.yaml found",
                 entry.file_name().to_string_lossy()
             );
@@ -236,7 +236,7 @@ pub fn list_cases(cases_path: Option<&str>) -> Result<()> {
             Ok(contents) => match serde_yaml::from_str::<CaseFile>(&contents) {
                 Ok(cf) => cases.push(cf),
                 Err(e) => {
-                    eprintln!(
+                    tracing::warn!(
                         "Skipping {} — failed to parse case.yaml: {}",
                         entry.file_name().to_string_lossy(),
                         e
@@ -244,7 +244,7 @@ pub fn list_cases(cases_path: Option<&str>) -> Result<()> {
                 }
             },
             Err(e) => {
-                eprintln!(
+                tracing::warn!(
                     "Skipping {} — failed to read case.yaml: {}",
                     entry.file_name().to_string_lossy(),
                     e

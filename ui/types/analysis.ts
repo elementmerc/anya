@@ -27,6 +27,8 @@ export interface ClassifiedString {
   value: string;
   category: string;
   offset?: string;
+  /** True if this IOC matches known benign infrastructure (CDNs, cloud providers) */
+  is_benign?: boolean;
 }
 
 export interface SecurityFeatures {
@@ -318,6 +320,8 @@ export interface OfficeAnalysis {
 }
 
 export interface AnalysisResult {
+  /** Schema version for forward/backward compatibility (e.g. "2.0.0") */
+  schema_version?: string;
   file_info: FileInfo;
   hashes: Hashes;
   entropy: EntropyInfo;
@@ -362,6 +366,10 @@ export interface AnalysisResult {
   msi_analysis?: MsiAnalysis;
   // Known Sample Database match
   ksd_match?: KsdMatch;
+  // Forensic fragment annotation (sub-100B files associated with known malware)
+  forensic_fragment?: ForensicFragment;
+  // YARA rule matches
+  yara_matches?: YaraMatchResult[];
   // Verdict summary
   verdict_summary?: string;
   top_findings?: TopFinding[];
@@ -402,6 +410,8 @@ export interface DotNetMetadata {
 
 /** Wrapper returned by the analyze_file Tauri command */
 export interface AnalyzeResponse {
+  /** IPC API version for frontend/backend compatibility checking */
+  api_version?: string;
   result: AnalysisResult;
   risk_score: number;
   is_suspicious: boolean;
@@ -434,7 +444,8 @@ export type TabName =
   | "sections"
   | "strings"
   | "security"
-  | "mitre";
+  | "mitre"
+  | "format";
 
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 
@@ -711,4 +722,22 @@ export interface GraphData {
 export interface ForensicFragment {
   associated_family: string;
   explanation: string;
+}
+
+// ── YARA match results ──────────────────────────────────────────────
+
+export interface YaraMatchResult {
+  rule_name: string;
+  namespace: string;
+  description?: string;
+  author?: string;
+  tags: string[];
+  matched_strings: YaraStringMatch[];
+}
+
+export interface YaraStringMatch {
+  identifier: string;
+  offset: number;
+  length: number;
+  data_preview: string;
 }

@@ -1,4 +1,4 @@
-// Stub — real API lists are in the private anya-proprietary repository.
+// Anya scoring module.
 
 pub static SUSPICIOUS_APIS_TIER1: &[&str] = &[];
 pub static NOTEWORTHY_APIS: &[&str] = &[];

@@ -8,6 +8,7 @@ import {
   Shield,
   Crosshair,
   Fingerprint,
+  FileSearch,
 } from "lucide-react";
 import type { TabName } from "@/types/analysis";
 
@@ -32,6 +33,7 @@ const ALL_TABS: TabDef[] = [
   ...DEFAULT_TABS.slice(0, 1), // overview
   { id: "identity",  label: "Identity",  Icon: Fingerprint },
   ...DEFAULT_TABS.slice(1),    // rest
+  { id: "format",    label: "Format",    Icon: FileSearch },
 ];
 
 const TAB_MAP = new Map(ALL_TABS.map((t) => [t.id, t]));

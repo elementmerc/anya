@@ -66,7 +66,7 @@ pub fn watch_directory(
                     }
                 }
             }
-            Err(e) => eprintln!("{} Watch error: {}", "!".red().bold(), e),
+            Err(e) => tracing::error!("Watch error: {}", e),
         }
     }
     Ok(())

@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.0.0-beta] - 2026-03-30
+
+### Detection
+- 20 format parsers (PE, ELF, Mach-O, JS, PowerShell, VBS, Batch, Python, OLE, RTF, ZIP, HTML, XML, Image, LNK, ISO, CAB, MSI, PDF, Office)
+- YARA-X integration with rules loaded from `~/.config/anya/rules/`
+- Compiler/toolchain fingerprinting and import behavioural clustering
+- Known-product suppression, benign IOC marking, byte histogram analysis
+- TLSH Known Sample Database with forensic fragment annotation
+- 99.6% detection, 0.8% FP on ~7,100 samples
+
+### GUI
+- 3D force-directed network graph (batch + single-file modes)
+- Format Analysis tab with 17 format-specific cards
+- YARA matches, forensic fragments, toolchain detection in Security/Overview tabs
+- PDF export, histogram flatness, benign IOC marking
+
+### CLI
+- `anya benchmark` — detection rate and performance benchmarking
+- `--format pdf` and `--format markdown` report output
+- Batch `--summary` shows TLSH similarity relationships
+
+### Reports
+- PDF, Markdown, and HTML report generation
+- All formats include KSD match, MITRE ATT&CK, analyst findings
+
+### Other
+- Bug fixes and improvements
+
 ## [1.2.2] - 2026-03-27
 
 ### Scoring Engine

@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "anya-security-core"
-version = "1.2.6"
+version = "2.0.0-beta"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Daniel Iwugo <daniel@themalwarefiles.com>"]
@@ -56,6 +56,10 @@ hex = "0.4"
 # For better error handling
 anyhow = "1.0"
 
+# Structured logging — replaces raw println/eprintln across the codebase
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
 # For parsing PE/ELF/Mach-O files
 goblin = "0.8"
 
@@ -105,11 +109,28 @@ chrono = { version = "0.4", features = ["serde"] }
 # For finding user's home directory
 dirs = "5.0"
 
+# For PDF report generation (pure Rust, no system dependencies)
+printpdf = "0.7"
+
+# YARA-X: pure Rust YARA engine (BSD-3-Clause, by VirusTotal)
+# Minimal features — we only need rule compilation + scanning, not all modules
+yara-x = { version = "1", default-features = false, features = ["linkme", "constant-folding", "fast-regexp", "pe-module", "elf-module", "math-module", "hash-module", "string-module"], optional = true }
+
 # For Office document (ZIP-based) macro detection
 zip = "2"
 cms = "0.2.3"
 x509-cert = "0.2.5"
 const-oid = "0.10.2"
+
+[features]
+default = ["cli", "extended-parsers", "yara"]
+# CLI binary — disable for library-only builds
+cli = []
+# Extended format parsers (JS, PS, VBS, HTML, XML, OLE, RTF, ZIP, Image, LNK, ISO, CAB, MSI)
+# Core always includes PE, ELF, Mach-O, PDF, Office
+extended-parsers = []
+# YARA rule scanning support (V2) — backed by yara-x pure Rust engine
+yara = ["dep:yara-x"]
 
 [dev-dependencies]
 # For integration testing
@@ -134,3 +155,4 @@ opt-level = 3
 
 [profile.dev]
 opt-level = 1
+

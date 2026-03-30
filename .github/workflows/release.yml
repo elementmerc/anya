@@ -75,6 +75,15 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Prepare YARA rules (signature-base)
+        run: |
+          echo "Downloading Florian Roth signature-base..."
+          git clone --depth 1 https://github.com/Neo23x0/signature-base.git /tmp/signature-base
+          mkdir -p src-tauri/rules
+          cp -r /tmp/signature-base/yara/* src-tauri/rules/ 2>/dev/null || true
+          RULE_COUNT=$(find src-tauri/rules -name "*.yar" -o -name "*.yara" | wc -l)
+          echo "Bundled ${RULE_COUNT} YARA rule files"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:

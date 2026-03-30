@@ -675,7 +675,7 @@ fn simple_hash(s: &str) -> u32 {
 // ── Benign IOC validation ───────────────────────────────────────────────────
 
 /// Check if an IOC value matches known benign infrastructure.
-fn is_benign_ioc(value: &str) -> bool {
+pub fn is_benign_ioc(value: &str) -> bool {
     let lower = value.to_lowercase();
     // Known CDN/cloud/package domains
     let benign_domains = [
@@ -700,6 +700,9 @@ fn is_benign_ioc(value: &str) -> bool {
         "akamai.net",
         "akamaized.net",
         "fastly.net",
+        "jsdelivr.net",
+        "unpkg.com",
+        "cdnjs.cloudflare.com",
         "edgecastcdn.net",
         "digicert.com",
         "letsencrypt.org",
@@ -724,7 +727,7 @@ fn is_benign_ioc(value: &str) -> bool {
     ];
     benign_domains
         .iter()
-        .any(|d| lower.ends_with(d) || lower == *d)
+        .any(|d| lower.contains(d))
 }
 
 // ── Compiler/toolchain fingerprinting ────────────────────────────────────────
@@ -1034,6 +1037,7 @@ mod tests {
 
     fn empty_result() -> AnalysisResult {
         AnalysisResult {
+            schema_version: crate::output::ANALYSIS_SCHEMA_VERSION.to_string(),
             file_info: FileInfo {
                 path: "test.exe".to_string(),
                 size_bytes: 1000,
@@ -1100,6 +1104,7 @@ mod tests {
             iso_analysis: None,
             cab_analysis: None,
             msi_analysis: None,
+            yara_matches: Vec::new(),
         }
     }
 

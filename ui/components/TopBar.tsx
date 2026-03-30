@@ -1,7 +1,7 @@
 import { useState, useEffect, forwardRef } from "react";
 import { Sun, Moon, Download, Settings, Plus, FileCode, File, FolderSearch, Briefcase, GitCompare } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
-import { exportJson, saveJsonPicker, exportHtmlReport, saveHtmlPicker, saveToCase, listCases, pickNewCaseFolder, pickExistingCaseFolder } from "@/lib/tauri-bridge";
+import { exportJson, saveJsonPicker, exportHtmlReport, saveHtmlPicker, exportPdfReport, savePdfPicker, saveToCase, listCases, pickNewCaseFolder, pickExistingCaseFolder } from "@/lib/tauri-bridge";
 import { formatBytes } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
 import type { AnalysisResult, CaseSummary } from "@/types/analysis";
@@ -189,6 +189,19 @@ export default function TopBar({
     }
   }
 
+  async function handleExportPdf() {
+    if (!onExport || exporting) return;
+    const outputPath = await savePdfPicker();
+    if (!outputPath) return;
+    setExporting(true);
+    try {
+      await exportPdfReport(onExport, outputPath);
+      toast("PDF report exported", "success");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <header
       style={{
@@ -320,6 +333,20 @@ export default function TopBar({
               >
                 <FileCode size={14} style={{ color: "var(--text-muted)" }} />
                 Export HTML Report
+              </button>
+              <button
+                onClick={() => void handleExportPdf()}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10, width: "100%",
+                  padding: "8px 12px", border: "none", background: "transparent",
+                  borderRadius: 4, color: "var(--text-primary)", fontSize: "var(--font-size-sm)",
+                  cursor: "pointer", transition: "background 100ms ease",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-surface)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              >
+                <File size={14} style={{ color: "var(--text-muted)" }} />
+                Export PDF Report
               </button>
             </Popover.Content>
           </Popover.Portal>

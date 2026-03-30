@@ -23,7 +23,7 @@ export function useKeyboardShortcuts(actions: ShortcutActions, enabled: boolean)
       else if (mod && e.key === "e") { e.preventDefault(); actions.exportJson(); }
       else if (e.key === "Escape") { actions.closeModal(); }
       else if (e.key === "?" && !inInput) { e.preventDefault(); actions.showShortcuts(); }
-      else if (!inInput && !mod && e.key >= "1" && e.key <= "7") {
+      else if (!inInput && !mod && e.key >= "1" && e.key <= "9") {
         e.preventDefault();
         actions.switchTab(parseInt(e.key) - 1);
       }

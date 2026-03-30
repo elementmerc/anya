@@ -26,6 +26,8 @@ pub mod data;
 pub mod dotnet_parser;
 pub mod elf_parser;
 pub mod errors;
+pub mod events;
+pub mod export;
 pub mod guided_output;
 pub mod hash_check;
 pub mod html_parser;
@@ -38,6 +40,7 @@ pub mod macho_parser;
 pub mod msi_parser;
 pub mod ole_parser;
 pub mod output;
+pub mod parser_registry;
 pub mod pe_parser;
 pub mod ps_parser;
 pub mod python_parser;
@@ -113,6 +116,9 @@ pub struct FileAnalysisResult {
     pub iso_analysis: Option<output::IsoAnalysis>,
     pub cab_analysis: Option<output::CabAnalysis>,
     pub msi_analysis: Option<output::MsiAnalysis>,
+    pub yara_matches: Vec<output::YaraMatchResult>,
+    /// PE OriginalFilename vs actual filename mismatch (original, actual)
+    pub pe_filename_mismatch: Option<(String, String)>,
 }
 
 /// Batch analysis summary
@@ -641,10 +647,16 @@ fn classify_strings(strings: &[(String, usize)]) -> Vec<output::ClassifiedString
             } else {
                 classify_single_string(s)
             };
+            // Mark IOCs matching known benign infrastructure
+            let is_benign = matches!(
+                category.as_str(),
+                "URL" | "IP"
+            ) && confidence::is_benign_ioc(s);
             output::ClassifiedString {
                 value: s.clone(),
                 category,
                 offset: Some(format!("0x{:X}", offset)),
+                is_benign,
             }
         })
         .collect()
@@ -999,34 +1011,52 @@ fn detect_office_analysis(data: &[u8], path: &Path) -> Option<output::OfficeAnal
     })
 }
 
-/// Analyze a single file and return structured result
-pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysisResult> {
-    // Memory-map the file for zero-copy I/O (avoids allocating + copying the entire file)
-    let file = fs::File::open(path).with_context(|| {
-        format!(
-            "Couldn't read '{}'. Check that the file exists and you have read permission.",
-            path.display()
-        )
-    })?;
-    let file_size = file.metadata()?.len();
+/// Metadata about a file being analysed — used by `analyse_bytes()` when the
+/// caller already has the raw data (e.g. tests, in-memory pipelines).
+#[derive(Debug, Clone)]
+pub struct FileMetadata {
+    /// Display path (used for reports and error messages; need not exist on disk)
+    pub path: PathBuf,
+    /// File extension without the dot (lowercase), e.g. "exe", "js"
+    pub extension: String,
+    /// MIME type if known externally; None = auto-detect from bytes
+    pub mime_type: Option<String>,
+}
 
-    // Reject files larger than 1GB to prevent excessive memory mapping
-    const MAX_FILE_SIZE: u64 = 1_073_741_824; // 1GB
-    if file_size > MAX_FILE_SIZE {
-        anyhow::bail!(
-            "File is too large for analysis ({:.1} GB). Maximum supported size is 1 GB.",
-            file_size as f64 / 1_073_741_824.0
-        );
+impl FileMetadata {
+    /// Construct from a filesystem path (extracts extension automatically).
+    pub fn from_path(path: &Path) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            extension: path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase(),
+            mime_type: None,
+        }
     }
+}
 
-    // Reject empty files early
-    if file_size == 0 {
-        anyhow::bail!("This file is empty (0 bytes).");
-    }
-
-    let data = unsafe { Mmap::map(&file) }
-        .with_context(|| format!("Failed to memory-map '{}'.", path.display()))?;
+/// Analyze raw bytes with associated metadata.
+///
+/// This is the core analysis entry point — works on any byte slice, no filesystem
+/// required. Use this for in-memory pipelines, tests, and anywhere you
+/// already have the data loaded.
+///
+/// `analyse_file()` is a convenience wrapper that opens + mmaps a file, then
+/// delegates here.
+pub fn analyse_bytes(
+    data: &[u8],
+    metadata: &FileMetadata,
+    min_string_length: usize,
+) -> Result<FileAnalysisResult> {
+    let path = &metadata.path;
     let size_bytes = data.len();
+
+    if size_bytes == 0 {
+        anyhow::bail!("Cannot analyse empty data (0 bytes).");
+    }
 
     // Calculate hashes
     let hashes = calculate_hashes(&data);
@@ -1034,8 +1064,11 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
     // Calculate entropy + byte histogram in one pass
     let (entropy, histogram) = calculate_entropy_and_histogram(&data);
 
-    // MIME type detection (done early so we can conditionally suppress strings)
-    let mime_type = detect_mime_type(&data);
+    // MIME type detection — use externally provided type if available, else auto-detect
+    let mime_type = metadata
+        .mime_type
+        .clone()
+        .or_else(|| detect_mime_type(data));
     let is_image = mime_type
         .as_deref()
         .map(|m| m.starts_with("image/"))
@@ -1126,96 +1159,24 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
     let file_type_mismatch =
         detect_file_type_mismatch(&data, path.extension().and_then(|e| e.to_str()));
 
-    // PDF and Office analysis
-    let pdf_analysis = detect_pdf_analysis(&data);
-    let office_analysis = detect_office_analysis(&data, path);
-
-    // ── Format-specific analysis dispatch ────────────────────────────────
+    // ── Format-specific analysis dispatch (via parser registry) ─────────
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
-    let fmt = file_format.as_str();
 
-    // Script parsers
-    let javascript_analysis = if fmt == "JavaScript" || ext == "js" || ext == "jse" || ext == "mjs"
-    {
-        js_parser::detect_javascript_analysis(&data)
-    } else {
-        None
+    let parse_ctx = parser_registry::ParseContext {
+        data: &data,
+        extension: &ext,
+        format_label: file_format.as_str(),
+        mime_type: mime_type.as_deref(),
+        path,
+        is_image,
     };
-    let powershell_analysis = if ext == "ps1" || ext == "psm1" || ext == "psd1" {
-        ps_parser::detect_powershell_analysis(&data)
-    } else {
-        None
-    };
-    let vbscript_analysis = if ext == "vbs" || ext == "vbe" || ext == "wsf" {
-        vbs_parser::detect_vbscript_analysis(&data)
-    } else {
-        None
-    };
-    let shell_script_analysis =
-        if ext == "bat" || ext == "cmd" || ext == "sh" || ext == "bash" || fmt == "Shell Script" {
-            script_parser::detect_shell_script_analysis(&data)
-        } else {
-            None
-        };
-    let python_analysis = if ext == "py" || ext == "pyw" || fmt == "Python Script" {
-        python_parser::detect_python_analysis(&data)
-    } else {
-        None
-    };
+    let format_results = parser_registry::REGISTRY.analyze_all(&parse_ctx);
 
-    // Document & archive parsers
-    let ole_analysis = ole_parser::detect_ole_analysis(&data);
-    let rtf_analysis = rtf_parser::detect_rtf_analysis(&data);
-    let zip_analysis = if fmt == "ZIP Archive" || ext == "zip" {
-        zip_parser::detect_zip_analysis(&data)
-    } else {
-        None
-    };
-
-    // Media, markup & misc parsers
-    let html_analysis =
-        if fmt == "HTML Document" || fmt == "HTML" || ext == "html" || ext == "htm" || ext == "hta"
-        {
-            html_parser::detect_html_analysis(&data)
-        } else {
-            None
-        };
-    let xml_analysis = if fmt == "XML Document" || ext == "xml" || ext == "svg" || ext == "xsl" {
-        xml_parser::detect_xml_analysis(&data)
-    } else {
-        None
-    };
-    let image_analysis = if is_image {
-        image_parser::detect_image_analysis(&data)
-    } else {
-        None
-    };
-    let lnk_analysis = if ext == "lnk" || fmt == "Windows Shortcut" {
-        lnk_parser::detect_lnk_analysis(&data)
-    } else {
-        None
-    };
-    let iso_analysis = if fmt == "ISO 9660" || ext == "iso" {
-        iso_parser::detect_iso_analysis(&data)
-    } else {
-        None
-    };
-    let cab_analysis = if fmt == "Windows Cabinet" || ext == "cab" {
-        cab_parser::detect_cab_analysis(&data)
-    } else {
-        None
-    };
-    let msi_analysis = if ext == "msi" {
-        msi_parser::detect_msi_analysis(&data)
-    } else {
-        None
-    };
-
-    Ok(FileAnalysisResult {
+    let mut result = FileAnalysisResult {
         path: path.to_path_buf(),
         size_bytes,
         hashes,
@@ -1229,24 +1190,85 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
         file_type_mismatch,
         ioc_summary,
         mach_analysis,
-        pdf_analysis,
-        office_analysis,
-        javascript_analysis,
-        powershell_analysis,
-        vbscript_analysis,
-        shell_script_analysis,
-        python_analysis,
-        ole_analysis,
-        rtf_analysis,
-        zip_analysis,
-        html_analysis,
-        xml_analysis,
-        image_analysis,
-        lnk_analysis,
-        iso_analysis,
-        cab_analysis,
-        msi_analysis,
-    })
+        // Format-specific fields populated below by the parser registry
+        pdf_analysis: None,
+        office_analysis: None,
+        javascript_analysis: None,
+        powershell_analysis: None,
+        vbscript_analysis: None,
+        shell_script_analysis: None,
+        python_analysis: None,
+        ole_analysis: None,
+        rtf_analysis: None,
+        zip_analysis: None,
+        html_analysis: None,
+        xml_analysis: None,
+        image_analysis: None,
+        lnk_analysis: None,
+        iso_analysis: None,
+        cab_analysis: None,
+        msi_analysis: None,
+        yara_matches: Vec::new(),
+        pe_filename_mismatch: None,
+    };
+
+    // Apply all format-specific parser results
+    parser_registry::apply_format_results(format_results, &mut result);
+
+    // YARA scanning
+    result.yara_matches = yara::scanner::scan_bytes(data);
+
+    // PE OriginalFilename vs actual filename mismatch check
+    if let Some(ref pe) = result.pe_analysis {
+        if let Some(ref vi) = pe.version_info {
+            if let Some(ref orig) = vi.original_filename {
+                let actual = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                if !actual.is_empty()
+                    && !orig.is_empty()
+                    && orig.to_lowercase() != actual.to_lowercase()
+                {
+                    result.pe_filename_mismatch = Some((orig.clone(), actual));
+                }
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+/// Analyze a single file from disk. Convenience wrapper around `analyse_bytes()`.
+///
+/// Opens the file, memory-maps it, then delegates to `analyse_bytes()`.
+/// For in-memory analysis (tests, pipelines), call `analyse_bytes()` directly.
+pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysisResult> {
+    let file = fs::File::open(path).with_context(|| {
+        format!(
+            "Couldn't read '{}'. Check that the file exists and you have read permission.",
+            path.display()
+        )
+    })?;
+    let file_size = file.metadata()?.len();
+
+    const MAX_FILE_SIZE: u64 = 1_073_741_824; // 1GB
+    if file_size > MAX_FILE_SIZE {
+        anyhow::bail!(
+            "File is too large for analysis ({:.1} GB). Maximum supported size is 1 GB.",
+            file_size as f64 / 1_073_741_824.0
+        );
+    }
+
+    if file_size == 0 {
+        anyhow::bail!("This file is empty (0 bytes).");
+    }
+
+    let data = unsafe { Mmap::map(&file) }
+        .with_context(|| format!("Failed to memory-map '{}'.", path.display()))?;
+
+    let metadata = FileMetadata::from_path(path);
+    analyse_bytes(&data, &metadata, min_string_length)
 }
 
 /// Find all executable files in a directory
@@ -1361,6 +1383,7 @@ pub fn is_suspicious_file(result: &FileAnalysisResult) -> bool {
 /// Convert FileAnalysisResult to JSON output format
 pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
     let mut out = output::AnalysisResult {
+        schema_version: output::ANALYSIS_SCHEMA_VERSION.to_string(),
         file_info: output::FileInfo {
             path: result.path.to_string_lossy().to_string(),
             size_bytes: result.size_bytes as u64,
@@ -1511,6 +1534,7 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         iso_analysis: result.iso_analysis.clone(),
         cab_analysis: result.cab_analysis.clone(),
         msi_analysis: result.msi_analysis.clone(),
+        yara_matches: result.yara_matches.clone(),
     };
 
     // KSD lookup — find nearest known malware sample by TLSH similarity.
@@ -1857,6 +1881,8 @@ mod tests {
             iso_analysis: None,
             cab_analysis: None,
             msi_analysis: None,
+            yara_matches: Vec::new(),
+            pe_filename_mismatch: None,
         }
     }
 
@@ -2170,6 +2196,8 @@ mod tests {
             iso_analysis: None,
             cab_analysis: None,
             msi_analysis: None,
+            yara_matches: Vec::new(),
+            pe_filename_mismatch: None,
         };
 
         let json = to_json_output(&result);
