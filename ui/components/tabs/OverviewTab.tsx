@@ -42,7 +42,8 @@ function RiskRing({ score, color }: { score: number; color: string }) {
 
   useEffect(() => {
     // Respect prefers-reduced-motion: skip animation, show final value immediately
-    const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const prefersReduced = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (prefersReduced) {
       setAnimated(score);
       return;
