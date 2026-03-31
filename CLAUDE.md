@@ -1,7 +1,7 @@
 # Anya — Claude Code Instructions
 <!-- Sprint: V2 — Detection Inflection -->
 
-## Current version: v2.0.0-beta
+## Current version: v2.0.0
 ## Active sprint: V2 — Detection Inflection
 
 ---
