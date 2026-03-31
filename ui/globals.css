@@ -443,29 +443,32 @@ body {
 
 /* ─── Empty state SVG draw/undraw animation ──────────────────────────────── */
 @keyframes iconDraw {
-  0%   { stroke-dashoffset: var(--path-len); opacity: 0.15; }
-  15%  { opacity: 0.7; }
-  35%  { stroke-dashoffset: 0; opacity: 0.7; }
-  60%  { stroke-dashoffset: 0; opacity: 0.7; }
-  75%  { opacity: 0.15; }
-  100% { stroke-dashoffset: var(--path-len); opacity: 0.15; }
+  0%   { stroke-dashoffset: var(--path-len); opacity: 0; }
+  8%   { opacity: var(--draw-peak, 0.9); }
+  35%  { stroke-dashoffset: 0; opacity: var(--draw-peak, 0.9); }
+  55%  { stroke-dashoffset: 0; opacity: var(--draw-peak, 0.9); }
+  72%  { opacity: 0; }
+  100% { stroke-dashoffset: var(--path-len); opacity: 0; }
 }
+/* Primary icon strokes — dasharray/dashoffset set inline via getTotalLength() */
 .empty-icon-path {
+  animation: iconDraw 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+/* Decorative accent strokes — use CSS variable for length */
+.empty-icon-accent {
   fill: none;
-  stroke: var(--text-muted);
-  stroke-width: 1.5;
+  stroke: var(--icon-color, var(--text-muted));
+  stroke-width: 0.8;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-dasharray: var(--path-len);
   stroke-dashoffset: var(--path-len);
-  animation: iconDraw 3.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: iconDraw 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  --draw-peak: 0.3;
 }
 @media (prefers-reduced-motion: reduce) {
-  .empty-icon-path {
-    stroke-dashoffset: 0;
-    opacity: 0.5;
-    animation: none;
-  }
+  .empty-icon-path { stroke-dashoffset: 0 !important; opacity: 0.5; animation: none; }
+  .empty-icon-accent { stroke-dashoffset: 0; opacity: 0.25; animation: none; }
 }
 
 /* ─── Animation utility classes ──────────────────────────────────────────── */

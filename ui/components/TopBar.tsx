@@ -459,7 +459,7 @@ export default function TopBar({
               <button
                 onClick={() => { onNewFile(); }}
                 style={{
-                  display: "flex", alignItems: "center", gap: 10, width: "100%",
+                  display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
                   padding: "8px 12px", border: "none", background: "transparent",
                   borderRadius: 4, color: "var(--text-primary)", fontSize: "var(--font-size-sm)",
                   cursor: "pointer", transition: "background 100ms ease",
@@ -467,14 +467,16 @@ export default function TopBar({
                 onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-surface)")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
-                <File size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-                <span style={{ flex: 1 }}>Single File</span>
-                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-muted)", flexShrink: 0 }}>Ctrl+O</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <File size={15} style={{ color: "var(--text-muted)" }} />
+                  Single File
+                </span>
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>Ctrl+O</span>
               </button>
               <button
                 onClick={() => { onBatchAnalysis(); }}
                 style={{
-                  display: "flex", alignItems: "center", gap: 10, width: "100%",
+                  display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
                   padding: "8px 12px", border: "none", background: "transparent",
                   borderRadius: 4, color: "var(--text-primary)", fontSize: "var(--font-size-sm)",
                   cursor: "pointer", transition: "background 100ms ease",
@@ -482,15 +484,17 @@ export default function TopBar({
                 onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-surface)")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
-                <FolderSearch size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-                <span style={{ flex: 1 }}>Batch Analysis</span>
-                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-muted)", flexShrink: 0 }}>Ctrl+B</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <FolderSearch size={15} style={{ color: "var(--text-muted)" }} />
+                  Batch Analysis
+                </span>
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>Ctrl+B</span>
               </button>
               {onCompare && (
                 <button
                   onClick={() => { onCompare(); }}
                   style={{
-                    display: "flex", alignItems: "center", gap: 10, width: "100%",
+                    display: "flex", alignItems: "center", width: "100%",
                     padding: "8px 12px", border: "none", background: "transparent",
                     borderRadius: 4, color: "var(--text-primary)", fontSize: "var(--font-size-sm)",
                     cursor: "pointer", transition: "background 100ms ease",
@@ -498,8 +502,10 @@ export default function TopBar({
                   onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-surface)")}
                   onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
-                  <GitCompare size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-                  <span style={{ flex: 1 }}>Compare Two Files</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <GitCompare size={15} style={{ color: "var(--text-muted)" }} />
+                    Compare Two Files
+                  </span>
                 </button>
               )}
             </Popover.Content>

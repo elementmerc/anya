@@ -309,6 +309,7 @@ export default function BatchSidebar({
                   onClick={() => onSelectFile(file.index)}
                   onMouseEnter={() => setHoveredIndex(file.index)}
                   onMouseLeave={() => setHoveredIndex(null)}
+                  className="animate-row-in"
                   style={{
                     padding: "8px 12px",
                     cursor: "pointer",
@@ -321,7 +322,6 @@ export default function BatchSidebar({
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
-                    animation: "batch-row-enter 200ms ease-out",
                   }}
                 >
                   {/* File name */}
