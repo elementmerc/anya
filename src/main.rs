@@ -720,7 +720,8 @@ fn run() -> Result<()> {
     };
 
     // Merge --format with --json flag: --json is shorthand for --format json
-    let effective_json = args.json || args.json_compact || matches!(args.format, OutputFormat::Json);
+    let effective_json =
+        args.json || args.json_compact || matches!(args.format, OutputFormat::Json);
     let effective_html = matches!(args.format, OutputFormat::Html);
     let effective_pdf = matches!(args.format, OutputFormat::Pdf);
     let effective_markdown = matches!(args.format, OutputFormat::Markdown);
