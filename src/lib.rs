@@ -47,6 +47,7 @@ pub mod python_parser;
 pub mod rtf_parser;
 pub mod script_parser;
 pub mod vbs_parser;
+pub mod report;
 pub mod xml_parser;
 pub mod yara;
 pub mod zip_parser;

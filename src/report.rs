@@ -4,7 +4,7 @@
 // Copyright (C) 2026 Daniel Iwugo
 // Licensed under AGPL-3.0-or-later
 
-use anya_security_core::output;
+use crate::output;
 use printpdf::*;
 use std::path::Path;
 

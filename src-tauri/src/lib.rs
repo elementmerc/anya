@@ -172,7 +172,7 @@ pub mod commands {
             serde_json::to_value(&json_result).map_err(|e| format!("Serialise error: {e}"))?;
 
         Ok(AnalyzeResponse {
-            api_version: API_VERSION,
+            api_version: super::API_VERSION,
             result: json_value,
             risk_score,
             is_suspicious,
@@ -736,7 +736,7 @@ pub mod commands {
         max_results: Option<usize>,
     ) -> Result<serde_json::Value, String> {
         tokio::task::spawn_blocking(move || {
-            let db = anya_scoring::ksd::KnownSampleDb::load(None);
+            let db = anya_security_core::anya_scoring::ksd::KnownSampleDb::load(None);
             let max = max_results.unwrap_or(20);
             let mut neighbors: Vec<serde_json::Value> = Vec::new();
 

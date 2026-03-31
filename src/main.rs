@@ -32,8 +32,9 @@ use std::path::PathBuf; // For handling file paths // For progress indicators
 use walkdir::WalkDir; // For recursive directory traversal
 
 mod compare;
-mod report;
 mod watch;
+
+use anya_security_core::report;
 
 // Hashing libraries
 use md5::{Digest, Md5};
