@@ -648,10 +648,8 @@ fn classify_strings(strings: &[(String, usize)]) -> Vec<output::ClassifiedString
                 classify_single_string(s)
             };
             // Mark IOCs matching known benign infrastructure
-            let is_benign = matches!(
-                category.as_str(),
-                "URL" | "IP"
-            ) && confidence::is_benign_ioc(s);
+            let is_benign =
+                matches!(category.as_str(), "URL" | "IP") && confidence::is_benign_ioc(s);
             output::ClassifiedString {
                 value: s.clone(),
                 category,

@@ -295,9 +295,7 @@ impl_format_parser!(
     PdfParser,
     "PDF",
     |_ctx: &ParseContext| true, // PDF checks magic bytes internally
-    |ctx: &ParseContext| {
-        crate::detect_pdf_analysis(ctx.data).map(FormatAnalysis::Pdf)
-    }
+    |ctx: &ParseContext| { crate::detect_pdf_analysis(ctx.data).map(FormatAnalysis::Pdf) }
 );
 
 impl_format_parser!(
@@ -347,10 +345,7 @@ use std::sync::LazyLock;
 // ── Helper: apply FormatAnalysis results to FileAnalysisResult ───────────────
 
 /// Merge a list of format analysis results into the main analysis result fields.
-pub fn apply_format_results(
-    results: Vec<FormatAnalysis>,
-    result: &mut crate::FileAnalysisResult,
-) {
+pub fn apply_format_results(results: Vec<FormatAnalysis>, result: &mut crate::FileAnalysisResult) {
     for fa in results {
         match fa {
             FormatAnalysis::JavaScript(a) => result.javascript_analysis = Some(a),
@@ -381,7 +376,11 @@ mod tests {
     #[test]
     fn default_registry_has_all_parsers() {
         let reg = default_registry();
-        assert_eq!(reg.len(), 17, "Expected 17 format parsers in default registry");
+        assert_eq!(
+            reg.len(),
+            17,
+            "Expected 17 format parsers in default registry"
+        );
     }
 
     #[test]

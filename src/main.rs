@@ -647,7 +647,14 @@ fn run() -> Result<()> {
             ground_truth,
             json: bench_json,
         }) => {
-            run_benchmark(directory, *recursive, *workers, *max, ground_truth.as_deref(), *bench_json)?;
+            run_benchmark(
+                directory,
+                *recursive,
+                *workers,
+                *max,
+                ground_truth.as_deref(),
+                *bench_json,
+            )?;
             return Ok(());
         }
         None => {} // Continue to file/directory analysis
@@ -668,7 +675,11 @@ fn run() -> Result<()> {
             println!("  Place .yar/.yara files here for signature-based detection.");
         } else {
             let count = anya_security_core::yara::scanner::rule_file_count();
-            println!("✓ YARA rules directory: {} ({} rule files)", rules_dir.display(), count);
+            println!(
+                "✓ YARA rules directory: {} ({} rule files)",
+                rules_dir.display(),
+                count
+            );
         }
 
         println!("\nEdit the config to customise Anya's behaviour.");
@@ -721,8 +732,8 @@ fn run() -> Result<()> {
     }
 
     // When --format text (default) is used with --output, produce Markdown instead
-    let effective_markdown = effective_markdown
-        || (matches!(args.format, OutputFormat::Text) && args.output.is_some());
+    let effective_markdown =
+        effective_markdown || (matches!(args.format, OutputFormat::Text) && args.output.is_some());
 
     // Validate: --summary and --json are mutually exclusive
     if args.summary && effective_json {
@@ -1037,10 +1048,7 @@ fn analyse_single_file(
                     );
                 }
                 if ym.matched_strings.len() > 5 {
-                    println!(
-                        "    {} more match(es)...",
-                        ym.matched_strings.len() - 5
-                    );
+                    println!("    {} more match(es)...", ym.matched_strings.len() - 5);
                 }
             }
         }
@@ -1269,11 +1277,7 @@ fn analyse_directory(
                         }
                     }
 
-                    let tlsh = json_result
-                        .hashes
-                        .tlsh
-                        .clone()
-                        .unwrap_or_default();
+                    let tlsh = json_result.hashes.tlsh.clone().unwrap_or_default();
                     let family = json_result
                         .ksd_match
                         .as_ref()
@@ -1366,9 +1370,7 @@ fn analyse_directory(
                 if rj.tlsh.is_empty() {
                     continue;
                 }
-                if let Some(distance) =
-                    anya_security_core::tlsh_distance(&ri.tlsh, &rj.tlsh)
-                {
+                if let Some(distance) = anya_security_core::tlsh_distance(&ri.tlsh, &rj.tlsh) {
                     if distance <= 150 {
                         let label = if distance <= 30 {
                             "near-identical"
@@ -1832,8 +1834,8 @@ fn run_benchmark(
     ground_truth: Option<&str>,
     output_json: bool,
 ) -> Result<()> {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Instant;
 
     // Auto-detect worker count
@@ -1856,7 +1858,12 @@ fn run_benchmark(
         println!("\n{}", "ANYA BENCHMARK".bold().cyan());
         println!("  {}   {}", "Directory:".bold(), directory.display());
         println!("  {}       {} files", "Files:".bold(), files.len());
-        println!("  {}     {} (of {} available)", "Workers:".bold(), workers, available_cores);
+        println!(
+            "  {}     {} (of {} available)",
+            "Workers:".bold(),
+            workers,
+            available_cores
+        );
         if let Some(gt) = ground_truth {
             println!("  {} {}", "Ground truth:".bold(), gt);
         }
@@ -1911,13 +1918,20 @@ fn run_benchmark(
                         let (verdict_word, _) = compute_verdict(&json_result);
 
                         match verdict_word.as_str() {
-                            "MALICIOUS" => { malicious.fetch_add(1, Ordering::Relaxed); }
-                            "SUSPICIOUS" => { suspicious.fetch_add(1, Ordering::Relaxed); }
-                            _ => { clean.fetch_add(1, Ordering::Relaxed); }
+                            "MALICIOUS" => {
+                                malicious.fetch_add(1, Ordering::Relaxed);
+                            }
+                            "SUSPICIOUS" => {
+                                suspicious.fetch_add(1, Ordering::Relaxed);
+                            }
+                            _ => {
+                                clean.fetch_add(1, Ordering::Relaxed);
+                            }
                         }
 
                         if !json_result.yara_matches.is_empty() {
-                            yara_matches.fetch_add(json_result.yara_matches.len(), Ordering::Relaxed);
+                            yara_matches
+                                .fetch_add(json_result.yara_matches.len(), Ordering::Relaxed);
                         }
                     }
                     Err(_) => {
@@ -1999,9 +2013,25 @@ fn run_benchmark(
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
         println!("\n{}", "BENCHMARK RESULTS".bold().cyan());
-        println!("  {}   {:.1}s ({:.1} files/sec)", "Duration:".bold(), duration.as_secs_f64(), files_per_sec);
-        println!("  {}    {}/{} ({} failed)", "Analysed:".bold(), analysed_count, total, failed_count);
-        println!("  {}    {} (of {} available)", "Workers:".bold(), workers, available_cores);
+        println!(
+            "  {}   {:.1}s ({:.1} files/sec)",
+            "Duration:".bold(),
+            duration.as_secs_f64(),
+            files_per_sec
+        );
+        println!(
+            "  {}    {}/{} ({} failed)",
+            "Analysed:".bold(),
+            analysed_count,
+            total,
+            failed_count
+        );
+        println!(
+            "  {}    {} (of {} available)",
+            "Workers:".bold(),
+            workers,
+            available_cores
+        );
         println!();
 
         // Verdict breakdown
@@ -2012,7 +2042,11 @@ fn run_benchmark(
         println!("    {}    {} total", "Detected:".bold(), detected);
 
         if yara_count > 0 {
-            println!("    {} {} rule match(es)", "YARA:".bold().magenta(), yara_count);
+            println!(
+                "    {} {} rule match(es)",
+                "YARA:".bold().magenta(),
+                yara_count
+            );
         }
 
         // Detection metrics
@@ -2036,7 +2070,12 @@ fn run_benchmark(
                         };
                         println!("  {} {}", "Detection rate:".bold(), colored_rate);
                         let fn_count = analysed_count - detected;
-                        println!("  {} {} ({:.1}%)", "False negatives:".bold(), fn_count, fn_count as f64 / analysed_count as f64 * 100.0);
+                        println!(
+                            "  {} {} ({:.1}%)",
+                            "False negatives:".bold(),
+                            fn_count,
+                            fn_count as f64 / analysed_count as f64 * 100.0
+                        );
                     }
                 }
                 "benign" => {
@@ -2049,7 +2088,13 @@ fn run_benchmark(
                         } else {
                             fp_str.red().bold()
                         };
-                        println!("  {} {} ({} of {} benign files flagged)", "False positive rate:".bold(), colored_fp, detected, analysed_count);
+                        println!(
+                            "  {} {} ({} of {} benign files flagged)",
+                            "False positive rate:".bold(),
+                            colored_fp,
+                            detected,
+                            analysed_count
+                        );
                     }
                 }
                 _ => {}
@@ -2057,7 +2102,10 @@ fn run_benchmark(
         }
 
         println!();
-        println!("  Anya v{} — privacy-first malware analysis", env!("CARGO_PKG_VERSION"));
+        println!(
+            "  Anya v{} — privacy-first malware analysis",
+            env!("CARGO_PKG_VERSION")
+        );
     }
 
     Ok(())

@@ -51,14 +51,21 @@ pub fn assign_api_confidence(
     _api_category: &str,
     _categorize_fn: fn(&str) -> &'static str,
 ) -> ConfidenceLevel {
-    if all_api_names.len() > 20 { ConfidenceLevel::Medium }
-    else { ConfidenceLevel::Low }
+    if all_api_names.len() > 20 {
+        ConfidenceLevel::Medium
+    } else {
+        ConfidenceLevel::Low
+    }
 }
 
 pub fn assign_entropy_confidence(entropy: f64) -> ConfidenceLevel {
-    if entropy >= 7.9 { ConfidenceLevel::High }
-    else if entropy >= 7.5 { ConfidenceLevel::Medium }
-    else { ConfidenceLevel::Low }
+    if entropy >= 7.9 {
+        ConfidenceLevel::High
+    } else if entropy >= 7.5 {
+        ConfidenceLevel::Medium
+    } else {
+        ConfidenceLevel::Low
+    }
 }
 
 pub fn assign_section_confidence(
@@ -66,13 +73,21 @@ pub fn assign_section_confidence(
     entropy: f64,
     _name_anomaly: Option<&str>,
 ) -> ConfidenceLevel {
-    if is_wx && entropy > 7.0 { ConfidenceLevel::Medium }
-    else if is_wx { ConfidenceLevel::Low }
-    else { ConfidenceLevel::Low }
+    if is_wx && entropy > 7.0 {
+        ConfidenceLevel::Medium
+    } else if is_wx {
+        ConfidenceLevel::Low
+    } else {
+        ConfidenceLevel::Low
+    }
 }
 
 pub fn assign_overlay_confidence(high_entropy: bool, _has_authenticode: bool) -> ConfidenceLevel {
-    if high_entropy { ConfidenceLevel::Low } else { ConfidenceLevel::Low }
+    if high_entropy {
+        ConfidenceLevel::Low
+    } else {
+        ConfidenceLevel::Low
+    }
 }
 
 pub fn assign_ioc_confidence(_ioc_type: &IocType, _value: &str) -> ConfidenceLevel {
@@ -194,11 +209,20 @@ pub fn score_signals(signals: &SignalSet) -> ScoringResult {
     let risk_score = score.clamp(0, 100);
 
     let (verdict, summary) = if risk_score >= 65 {
-        ("MALICIOUS".to_string(), format!("MALICIOUS — {} indicators", detections.len()))
+        (
+            "MALICIOUS".to_string(),
+            format!("MALICIOUS — {} indicators", detections.len()),
+        )
     } else if risk_score >= 25 {
-        ("SUSPICIOUS".to_string(), format!("SUSPICIOUS — {} indicators", detections.len()))
+        (
+            "SUSPICIOUS".to_string(),
+            format!("SUSPICIOUS — {} indicators", detections.len()),
+        )
     } else {
-        ("CLEAN".to_string(), "CLEAN — no significant indicators".to_string())
+        (
+            "CLEAN".to_string(),
+            "CLEAN — no significant indicators".to_string(),
+        )
     };
 
     ScoringResult {

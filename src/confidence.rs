@@ -725,9 +725,7 @@ pub fn is_benign_ioc(value: &str) -> bool {
         "0.0.0.0",
         "::1",
     ];
-    benign_domains
-        .iter()
-        .any(|d| lower.contains(d))
+    benign_domains.iter().any(|d| lower.contains(d))
 }
 
 // ── Compiler/toolchain fingerprinting ────────────────────────────────────────

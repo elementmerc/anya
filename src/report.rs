@@ -254,7 +254,9 @@ pub fn generate_html_report(
                 <tr><th>TLSH Distance</th><td>{}</td></tr>
                 <tr><th>Confidence</th><td>{}</td></tr>
                 </table></div>"#,
-                escape_html(&k.family), k.distance, escape_html(&k.confidence)
+                escape_html(&k.family),
+                k.distance,
+                escape_html(&k.confidence)
             )
         })
         .unwrap_or_default();
@@ -273,14 +275,20 @@ pub fn generate_html_report(
 
     // MITRE ATT&CK techniques
     let mitre_html: String = if !result.mitre_techniques.is_empty() {
-        let rows: String = result.mitre_techniques.iter().map(|t| {
-            let conf_str = format!("{}", t.confidence);
-            format!(
-                "<tr><td class=\"mono\">{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
-                escape_html(&t.technique_id), escape_html(&t.technique_name),
-                escape_html(&t.tactic), escape_html(&conf_str)
-            )
-        }).collect();
+        let rows: String = result
+            .mitre_techniques
+            .iter()
+            .map(|t| {
+                let conf_str = format!("{}", t.confidence);
+                format!(
+                    "<tr><td class=\"mono\">{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                    escape_html(&t.technique_id),
+                    escape_html(&t.technique_name),
+                    escape_html(&t.tactic),
+                    escape_html(&conf_str)
+                )
+            })
+            .collect();
         format!(
             r#"<div class="section"><h2>MITRE ATT&amp;CK Techniques</h2><table><tr><th>ID</th><th>Name</th><th>Tactic</th><th>Confidence</th></tr>{}</table></div>"#,
             rows
@@ -304,7 +312,10 @@ pub fn generate_html_report(
                 tag_class, escape_html(&conf_str), escape_html(&f.title), escape_html(&f.explanation)
             )
         }).collect();
-        format!(r#"<div class="section"><h2>Analyst Findings</h2>{}</div>"#, rows)
+        format!(
+            r#"<div class="section"><h2>Analyst Findings</h2>{}</div>"#,
+            rows
+        )
     } else {
         String::new()
     };
@@ -644,7 +655,8 @@ pub fn generate_pdf_report(
     let verdict = result.verdict_summary.as_deref().unwrap_or("UNKNOWN");
     let filename = &result.file_info.path;
 
-    let (doc, page1, layer1) = PdfDocument::new("Anya Analysis Report", Mm(210.0), Mm(297.0), "Layer 1");
+    let (doc, page1, layer1) =
+        PdfDocument::new("Anya Analysis Report", Mm(210.0), Mm(297.0), "Layer 1");
     let font_regular = doc.add_builtin_font(BuiltinFont::Helvetica)?;
     let font_bold = doc.add_builtin_font(BuiltinFont::HelveticaBold)?;
     let font_mono = doc.add_builtin_font(BuiltinFont::Courier)?;
@@ -662,11 +674,25 @@ pub fn generate_pdf_report(
     }
 
     // Title
-    write_text!(current_layer, font_bold, 18.0, left, y, "Anya Analysis Report");
+    write_text!(
+        current_layer,
+        font_bold,
+        18.0,
+        left,
+        y,
+        "Anya Analysis Report"
+    );
     y -= 8.0;
 
     // Verdict
-    write_text!(current_layer, font_bold, 14.0, left, y, &format!("Verdict: {}", verdict));
+    write_text!(
+        current_layer,
+        font_bold,
+        14.0,
+        left,
+        y,
+        &format!("Verdict: {}", verdict)
+    );
     y -= 10.0;
 
     // File Info section
@@ -683,9 +709,18 @@ pub fn generate_pdf_report(
 
     let info_rows: Vec<(&str, String)> = vec![
         ("File", filename.clone()),
-        ("Size", format!("{} bytes ({:.1} KB)", result.file_info.size_bytes, result.file_info.size_kb)),
+        (
+            "Size",
+            format!(
+                "{} bytes ({:.1} KB)",
+                result.file_info.size_bytes, result.file_info.size_kb
+            ),
+        ),
         ("Format", result.file_format.clone()),
-        ("Entropy", format!("{:.4} ({})", result.entropy.value, result.entropy.category)),
+        (
+            "Entropy",
+            format!("{:.4} ({})", result.entropy.value, result.entropy.category),
+        ),
     ];
 
     for (label, value) in &info_rows {
@@ -708,13 +743,34 @@ pub fn generate_pdf_report(
     y -= line_height;
 
     write_text!(current_layer, font_bold, 8.0, left, y, "MD5");
-    write_text!(current_layer, font_mono, 7.0, left + 20.0, y, &result.hashes.md5);
+    write_text!(
+        current_layer,
+        font_mono,
+        7.0,
+        left + 20.0,
+        y,
+        &result.hashes.md5
+    );
     y -= line_height;
     write_text!(current_layer, font_bold, 8.0, left, y, "SHA1");
-    write_text!(current_layer, font_mono, 7.0, left + 20.0, y, &result.hashes.sha1);
+    write_text!(
+        current_layer,
+        font_mono,
+        7.0,
+        left + 20.0,
+        y,
+        &result.hashes.sha1
+    );
     y -= line_height;
     write_text!(current_layer, font_bold, 8.0, left, y, "SHA256");
-    write_text!(current_layer, font_mono, 7.0, left + 20.0, y, &result.hashes.sha256);
+    write_text!(
+        current_layer,
+        font_mono,
+        7.0,
+        left + 20.0,
+        y,
+        &result.hashes.sha256
+    );
     y -= line_height;
     if let Some(ref tlsh) = result.hashes.tlsh {
         write_text!(current_layer, font_bold, 8.0, left, y, "TLSH");
@@ -761,8 +817,17 @@ pub fn generate_pdf_report(
         y -= line_height;
 
         for f in &result.plain_english_findings {
-            if y < 20.0 { break; }
-            write_text!(current_layer, font_bold, 9.0, left + 4.0, y, &format!("[{:?}] {}", f.confidence, f.title));
+            if y < 20.0 {
+                break;
+            }
+            write_text!(
+                current_layer,
+                font_bold,
+                9.0,
+                left + 4.0,
+                y,
+                &format!("[{:?}] {}", f.confidence, f.title)
+            );
             y -= line_height;
             // Truncate long explanations for PDF
             let explanation = if f.explanation.len() > 120 {
@@ -770,7 +835,14 @@ pub fn generate_pdf_report(
             } else {
                 f.explanation.clone()
             };
-            write_text!(current_layer, font_regular, 8.0, left + 8.0, y, &explanation);
+            write_text!(
+                current_layer,
+                font_regular,
+                8.0,
+                left + 8.0,
+                y,
+                &explanation
+            );
             y -= line_height;
         }
         y -= 3.0;
@@ -778,7 +850,14 @@ pub fn generate_pdf_report(
 
     // MITRE ATT&CK
     if !result.mitre_techniques.is_empty() && y > 30.0 {
-        write_text!(current_layer, font_bold, 11.0, left, y, "MITRE ATT&CK Techniques");
+        write_text!(
+            current_layer,
+            font_bold,
+            11.0,
+            left,
+            y,
+            "MITRE ATT&CK Techniques"
+        );
         y -= line_height;
         current_layer.add_line(Line {
             points: vec![
@@ -790,7 +869,9 @@ pub fn generate_pdf_report(
         y -= line_height;
 
         for t in &result.mitre_techniques {
-            if y < 20.0 { break; }
+            if y < 20.0 {
+                break;
+            }
             let text = format!("{} — {} ({})", t.technique_id, t.technique_name, t.tactic);
             write_text!(current_layer, font_regular, 8.0, left + 4.0, y, &text);
             y -= line_height;
@@ -798,10 +879,22 @@ pub fn generate_pdf_report(
     }
 
     // Footer
-    write_text!(current_layer, font_regular, 7.0, left, 10.0,
-        &format!("Generated by Anya v{} — Privacy-first malware analysis — {}", env!("CARGO_PKG_VERSION"), chrono::Local::now().format("%Y-%m-%d %H:%M")));
+    write_text!(
+        current_layer,
+        font_regular,
+        7.0,
+        left,
+        10.0,
+        &format!(
+            "Generated by Anya v{} — Privacy-first malware analysis — {}",
+            env!("CARGO_PKG_VERSION"),
+            chrono::Local::now().format("%Y-%m-%d %H:%M")
+        )
+    );
 
-    doc.save(&mut std::io::BufWriter::new(std::fs::File::create(output_path)?))?;
+    doc.save(&mut std::io::BufWriter::new(std::fs::File::create(
+        output_path,
+    )?))?;
     tracing::info!("PDF report written to: {}", output_path.display());
     Ok(())
 }

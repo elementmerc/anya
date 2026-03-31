@@ -266,15 +266,17 @@ pub mod scanner {
 
     /// Compiled YARA-X rules, loaded once and cached.
     /// Thread-safe via Mutex (scanning is CPU-bound anyway).
-    static COMPILED_RULES: LazyLock<Mutex<Option<yara_x::Rules>>> = LazyLock::new(|| {
-        Mutex::new(load_and_compile_rules().ok())
-    });
+    static COMPILED_RULES: LazyLock<Mutex<Option<yara_x::Rules>>> =
+        LazyLock::new(|| Mutex::new(load_and_compile_rules().ok()));
 
     /// Load all .yar/.yara files from the rules directory and compile them.
     fn load_and_compile_rules() -> Result<yara_x::Rules, String> {
         let rules_dir = default_rules_dir();
         if !rules_dir.exists() {
-            return Err(format!("Rules directory not found: {}", rules_dir.display()));
+            return Err(format!(
+                "Rules directory not found: {}",
+                rules_dir.display()
+            ));
         }
 
         let mut compiler = yara_x::Compiler::new();
@@ -299,7 +301,10 @@ pub mod scanner {
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_else(|| "default".to_string());
 
-                    match compiler.new_namespace(&namespace).add_source(source.as_str()) {
+                    match compiler
+                        .new_namespace(&namespace)
+                        .add_source(source.as_str())
+                    {
                         Ok(_) => rule_count += 1,
                         Err(e) => {
                             tracing::warn!(
@@ -368,19 +373,20 @@ pub mod scanner {
             .matching_rules()
             .map(|rule| {
                 // Extract meta fields — metadata() yields (&str, MetaValue) tuples
-                let description = rule.metadata()
+                let description = rule
+                    .metadata()
                     .find(|(id, _)| *id == "description")
                     .and_then(|(_, val)| match val {
                         yara_x::MetaValue::String(s) => Some(s.to_string()),
                         _ => None,
                     });
 
-                let author = rule.metadata()
-                    .find(|(id, _)| *id == "author")
-                    .and_then(|(_, val)| match val {
+                let author = rule.metadata().find(|(id, _)| *id == "author").and_then(
+                    |(_, val)| match val {
                         yara_x::MetaValue::String(s) => Some(s.to_string()),
                         _ => None,
-                    });
+                    },
+                );
 
                 let tags: Vec<String> = rule.tags().map(|t| t.identifier().to_string()).collect();
 
@@ -417,10 +423,7 @@ pub mod scanner {
 
     /// Check if YARA rules are loaded and available.
     pub fn is_available() -> bool {
-        COMPILED_RULES
-            .lock()
-            .map(|g| g.is_some())
-            .unwrap_or(false)
+        COMPILED_RULES.lock().map(|g| g.is_some()).unwrap_or(false)
     }
 
     /// Get the count of loaded rule files.

@@ -701,12 +701,10 @@ pub mod commands {
                         .unwrap_or("");
                     if family_i == family_j {
                         // Check if edge already exists from TLSH
-                        let already = edges
-                            .iter()
-                            .any(|e| {
-                                (e["source"] == i && e["target"] == j)
-                                    || (e["source"] == j && e["target"] == i)
-                            });
+                        let already = edges.iter().any(|e| {
+                            (e["source"] == i && e["target"] == j)
+                                || (e["source"] == j && e["target"] == i)
+                        });
                         if !already {
                             edges.push(serde_json::json!({
                                 "source": i,
@@ -860,7 +858,10 @@ pub mod commands {
                 e.file_type().is_file() && (name.ends_with(".yar") || name.ends_with(".yara"))
             })
         {
-            let rel_path = entry.path().strip_prefix(&resource_dir).unwrap_or(entry.path());
+            let rel_path = entry
+                .path()
+                .strip_prefix(&resource_dir)
+                .unwrap_or(entry.path());
             let dest_file = rules_dest.join(rel_path);
             if let Some(parent) = dest_file.parent() {
                 std::fs::create_dir_all(parent).ok();
@@ -873,7 +874,11 @@ pub mod commands {
         // Reload the YARA scanner with the new rules
         let _ = anya_security_core::yara::scanner::reload_rules();
 
-        Ok(format!("Installed {} YARA rule files to {}", copied, rules_dest.display()))
+        Ok(format!(
+            "Installed {} YARA rule files to {}",
+            copied,
+            rules_dest.display()
+        ))
     }
 
     /// Write the first-run marker and persist installer preferences.

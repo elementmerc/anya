@@ -14,7 +14,6 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub enum AnalysisEvent {
     // ── File-level events ────────────────────────────────────────────────
-
     /// Analysis is about to start.
     AnalysisStarting {
         path: PathBuf,
@@ -29,9 +28,7 @@ pub enum AnalysisEvent {
     },
 
     /// A format-specific parser is about to run.
-    ParserStarting {
-        parser_name: &'static str,
-    },
+    ParserStarting { parser_name: &'static str },
 
     /// A format-specific parser completed (with or without findings).
     ParserCompleted {
@@ -61,7 +58,6 @@ pub enum AnalysisEvent {
     },
 
     // ── Batch-level events ───────────────────────────────────────────────
-
     /// Batch analysis is starting.
     BatchStarting {
         directory: PathBuf,
@@ -84,7 +80,6 @@ pub enum AnalysisEvent {
     },
 
     // ── System events ────────────────────────────────────────────────────
-
     /// KSD database was loaded or reloaded.
     KsdLoaded {
         sample_count: usize,
@@ -92,15 +87,10 @@ pub enum AnalysisEvent {
     },
 
     /// A YARA rule file was loaded (V2+).
-    YaraRulesLoaded {
-        rule_count: usize,
-        source: String,
-    },
+    YaraRulesLoaded { rule_count: usize, source: String },
 
     /// Configuration was loaded or changed.
-    ConfigLoaded {
-        config_version: String,
-    },
+    ConfigLoaded { config_version: String },
 }
 
 /// Trait for receiving analysis events.
@@ -153,8 +143,8 @@ impl Default for EventBus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct CountingListener {
         count: Arc<AtomicUsize>,

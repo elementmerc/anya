@@ -7,7 +7,8 @@ fn main() {
     // populated with real (non-stub) code.
     let has_config_override = std::path::Path::new(".cargo/config.toml").exists();
     let scoring_content =
-        std::fs::read_to_string("anya-proprietary/scoring/src/detection_patterns.rs").unwrap_or_default();
+        std::fs::read_to_string("anya-proprietary/scoring/src/detection_patterns.rs")
+            .unwrap_or_default();
     let submodule_is_real = scoring_content.contains("obfstr");
 
     if !(has_config_override && submodule_is_real) {
