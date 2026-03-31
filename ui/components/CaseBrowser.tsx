@@ -97,7 +97,7 @@ export default function CaseBrowser({ onPickFile }: Props) {
         <Briefcase size={12} />
         Cases ({cases.length})
       </p>
-      {cases.map((c) => (
+      {cases.slice(0, 5).map((c) => (
         <div key={c.name}>
           <button
             onClick={() => void handleExpand(c.name)}

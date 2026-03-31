@@ -158,23 +158,45 @@ export default function App() {
     getThresholds().then(setThresholds).catch(() => {});
   }, []);
 
-  // ── Global drag-and-drop — works even when viewing results ────────────────
+  // ── Global drag-and-drop — files trigger single analysis, folders trigger batch ──
+  const startBatchFromDrop = useCallback((folder: string) => {
+    reset();
+    const id = Date.now();
+    setBatchState({
+      ...INITIAL_BATCH,
+      active: true,
+      directoryPath: folder,
+      isRunning: true,
+      batchId: id,
+    });
+    setActiveTab("overview");
+    void analyzeDirectory(folder, false, id);
+  }, [reset]);
+
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
-    onFileDrop((paths) => {
-      if (cancelled) return;
-      const path = paths[0];
-      if (path) {
-        // Reset any batch/compare state and analyse the dropped file
-        setBatchState(INITIAL_BATCH);
-        setCompareMode(false);
-        setActiveTab("overview");
-        analyse(path);
+    onFileDrop(async (paths) => {
+      if (cancelled || paths.length === 0) return;
+      // Check if the dropped path is a directory
+      try {
+        const { stat } = await import("@tauri-apps/plugin-fs");
+        const info = await stat(paths[0]);
+        if (info.isDirectory) {
+          startBatchFromDrop(paths[0]);
+          return;
+        }
+      } catch {
+        // stat failed — treat as file
       }
+      // Single file analysis
+      setBatchState(INITIAL_BATCH);
+      setCompareMode(false);
+      setActiveTab("overview");
+      analyse(paths[0]);
     }).then((fn) => { if (!cancelled) unlisten = fn; else fn(); });
     return () => { cancelled = true; unlisten?.(); };
-  }, [analyse]);
+  }, [analyse, startBatchFromDrop]);
 
   // ── Batch event listeners ─────────────────────────────────────────────────
   useEffect(() => {
