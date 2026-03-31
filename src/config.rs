@@ -32,6 +32,8 @@ fn default_config_version() -> String {
 use std::fs;
 use std::path::PathBuf;
 
+pub const CONFIG_SCHEMA_VERSION: &str = "2.0";
+
 /// Main configuration structure
 ///
 /// **Rust Concept: Derive Macros**
@@ -39,9 +41,6 @@ use std::path::PathBuf;
 /// - `Deserialize` - Can parse from TOML/JSON
 /// - `Debug` - Can print with {:?}
 /// - `Clone` - Can be duplicated
-/// Current config schema version. Bump when adding/changing fields.
-pub const CONFIG_SCHEMA_VERSION: &str = "2.0";
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     /// Config schema version — used for migration when upgrading Anya.

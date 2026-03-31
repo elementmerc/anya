@@ -1814,15 +1814,6 @@ fn print_entropy(data: &[u8], packed_threshold: f64, suspicious_threshold: f64) 
     println!();
 }
 
-/// Prints a brief summary in quiet mode, showing only critical findings
-///
-/// In quiet mode, this function calculates file entropy and only outputs
-/// a warning if the entropy is suspiciously high (> 7.5), which typically
-/// indicates encryption or packing.
-///
-/// # Arguments
-///
-/// * `data` - The file data to analyse
 // ═══════════════════════════════════════════════════════════════════════════════
 // Benchmark command
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2112,6 +2103,7 @@ fn run_benchmark(
     Ok(())
 }
 
+/// Prints a brief entropy warning in quiet mode.
 fn print_quiet_summary(data: &[u8], packed_threshold: f64) {
     // Calculate entropy
     let mut frequency = [0u64; 256];

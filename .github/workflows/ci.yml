@@ -16,9 +16,9 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # ── Rust: audit + lint + test + smoke + coverage ───────────────────────────
+  # ── Rust: audit + lint + test + smoke ─────────────────────────────────────
   rust:
-    name: Rust (audit + lint + test + coverage)
+    name: Rust (audit + lint + test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,20 +53,6 @@ jobs:
           ./target/debug/anya --version
           ./target/debug/anya --help
           ./target/debug/anya --file tests/fixtures/simple.exe --json --no-color | jq .file_format
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-
-      - name: Measure coverage
-        run: |
-          mkdir -p coverage
-          ANYA_VERSION_SUFFIX="" cargo llvm-cov --lib --lcov --output-path coverage/lcov.info
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          files: coverage/lcov.info
-          fail_ci_if_error: false
 
   # ── Frontend: tsc + build + Vitest (single job) ────────────────────────────
   frontend:

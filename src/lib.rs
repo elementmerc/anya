@@ -1058,10 +1058,10 @@ pub fn analyse_bytes(
     }
 
     // Calculate hashes
-    let hashes = calculate_hashes(&data);
+    let hashes = calculate_hashes(data);
 
     // Calculate entropy + byte histogram in one pass
-    let (entropy, histogram) = calculate_entropy_and_histogram(&data);
+    let (entropy, histogram) = calculate_entropy_and_histogram(data);
 
     // MIME type detection — use externally provided type if available, else auto-detect
     let mime_type = metadata
@@ -1087,7 +1087,7 @@ pub fn analyse_bytes(
         (suppressed, None)
     } else {
         let (strings_with_offsets, total_count) =
-            extract_strings_with_offsets(&data, min_string_length);
+            extract_strings_with_offsets(data, min_string_length);
 
         // Build StringsInfo from the shared extraction
         let sample_count = 10.min(strings_with_offsets.len());
@@ -1119,9 +1119,9 @@ pub fn analyse_bytes(
     };
 
     // Determine file format and analyse
-    let (file_format, pe_analysis, elf_analysis, mach_analysis) = match Object::parse(&data) {
+    let (file_format, pe_analysis, elf_analysis, mach_analysis) = match Object::parse(data) {
         Ok(Object::PE(_)) => {
-            let pe_data = pe_parser::analyse_pe_data(&data).with_context(|| {
+            let pe_data = pe_parser::analyse_pe_data(data).with_context(|| {
                 format!(
                     "PE analysis failed for '{}'. The file may be corrupted or truncated.",
                     path.display()
@@ -1130,7 +1130,7 @@ pub fn analyse_bytes(
             ("Windows PE".to_string(), Some(pe_data), None, None)
         }
         Ok(Object::Elf(_)) => {
-            let elf_data = elf_parser::analyse_elf_data(&data).with_context(|| {
+            let elf_data = elf_parser::analyse_elf_data(data).with_context(|| {
                 format!(
                     "ELF analysis failed for '{}'. The file may be corrupted or truncated.",
                     path.display()
@@ -1139,7 +1139,7 @@ pub fn analyse_bytes(
             ("Linux ELF".to_string(), None, Some(elf_data), None)
         }
         Ok(Object::Mach(_)) => {
-            let macho = macho_parser::analyse_macho_data(&data);
+            let macho = macho_parser::analyse_macho_data(data);
             ("macOS Mach-O".to_string(), None, None, macho)
         }
         Ok(_) | Err(_) => {
@@ -1156,7 +1156,7 @@ pub fn analyse_bytes(
 
     // File type mismatch detection
     let file_type_mismatch =
-        detect_file_type_mismatch(&data, path.extension().and_then(|e| e.to_str()));
+        detect_file_type_mismatch(data, path.extension().and_then(|e| e.to_str()));
 
     // ── Format-specific analysis dispatch (via parser registry) ─────────
     let ext = path
@@ -1166,7 +1166,7 @@ pub fn analyse_bytes(
         .to_lowercase();
 
     let parse_ctx = parser_registry::ParseContext {
-        data: &data,
+        data,
         extension: &ext,
         format_label: file_format.as_str(),
         mime_type: mime_type.as_deref(),

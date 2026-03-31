@@ -11,6 +11,8 @@
   <a href="https://github.com/elementmerc/anya/releases/latest"><img src="https://img.shields.io/github/v/release/elementmerc/anya?color=blue" alt="Release" /></a>
   <a href="LICENSE.TXT"><img src="https://img.shields.io/badge/license-AGPL--3.0%20%7C%20Commercial-blue" alt="AGPL-3.0 | Commercial" /></a>
   <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform" /></a>
+</p>
+<p>
   <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/any%20file-20%2B%20deep%20parsers-brightgreen" alt="Any file, 20+ deep parsers" /></a>
   <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/detection-99.6%25-brightgreen" alt="99.6% detection" /></a>
   <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/network-zero%20calls-success" alt="Zero network calls" /></a>
