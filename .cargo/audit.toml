@@ -53,6 +53,9 @@ ignore = [
 
     # instant – unmaintained, use web-time instead
     # Pulled in: Tauri stack (transitive dep)
-    # Safe to ignore: no CVE, purely a maintenance flag
     "RUSTSEC-2024-0384",
+
+    # bincode – unmaintained (v1.3.3 considered complete by maintainers)
+    # Pulled in: yara-x (transitive dep)
+    "RUSTSEC-2025-0141",
 ]
