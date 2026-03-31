@@ -561,6 +561,7 @@ export default function App() {
           onSettings={() => setShowSettings(true)}
           onBatchAnalysis={handleBatchAnalysis}
           onCompare={() => { reset(); setBatchState(INITIAL_BATCH); setCompareMode(true); }}
+          onGoHome={() => { reset(); setBatchState(INITIAL_BATCH); setCompareMode(false); setActiveTab("overview"); }}
         />
 
         {compareMode ? (
@@ -578,7 +579,8 @@ export default function App() {
             <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
               <BatchSidebar
                 state={batchState}
-                onSelectFile={(idx) => setBatchState((prev) => ({ ...prev, selectedIndex: prev.selectedIndex === idx ? null : idx }))}
+                onSelectFile={(idx) => setBatchState((prev) => ({ ...prev, selectedIndex: idx }))}
+                onDeselectFile={() => setBatchState((prev) => ({ ...prev, selectedIndex: null }))}
                 onToggleRecursive={handleToggleRecursive}
                 onToggleCollapse={() => setBatchState((prev) => ({ ...prev, sidebarCollapsed: !prev.sidebarCollapsed }))}
               />

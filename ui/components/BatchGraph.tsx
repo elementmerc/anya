@@ -39,12 +39,19 @@ function getNodeGlow(verdict: string): string {
 
 // ── Edge colour based on relationship strength ───────────────────────────────
 
-function getEdgeColor(strength: number, theme: "dark" | "light"): string {
-  const alpha = Math.max(0.15, Math.min(0.8, strength));
-  if (theme === "dark") {
-    return `rgba(200, 200, 255, ${alpha})`;
-  }
-  return `rgba(80, 80, 150, ${alpha})`;
+function getEdgeColor(link: GraphLink, theme: "dark" | "light"): string {
+  // Threat edges: red for near-identical/similar, yellow for same family
+  if (link.label === "near-identical") return "rgba(239, 68, 68, 0.7)";
+  if (link.label === "similar") return "rgba(239, 68, 68, 0.5)";
+  if (link.label?.startsWith("same family")) return "rgba(234, 179, 8, 0.6)";
+  if (link.label === "related") return "rgba(234, 179, 8, 0.3)";
+  // Neutral mesh edges
+  if (theme === "dark") return "rgba(255, 255, 255, 0.04)";
+  return "rgba(0, 0, 0, 0.06)";
+}
+
+function isThreatEdge(link: GraphLink): boolean {
+  return link.strength > 0 && link.label !== "mesh";
 }
 
 // react-force-graph-3d wraps our types at runtime with x/y/z coords.
@@ -85,6 +92,39 @@ export default function BatchGraph({ data, theme, onNodeClick, compact }: Props)
 
   // Scene colours
   const bgColor = theme === "dark" ? "#1a1a1a" : "#f5f5f5";
+
+  // Enhance graph data with mesh edges (Obsidian-style constellation)
+  const enhancedData = useMemo<GraphData>(() => {
+    const existingEdges = new Set(
+      data.links.map((l) => {
+        const s = typeof l.source === "object" ? (l.source as GraphNode).id : l.source;
+        const t = typeof l.target === "object" ? (l.target as GraphNode).id : l.target;
+        return `${Math.min(s as number, t as number)}-${Math.max(s as number, t as number)}`;
+      })
+    );
+
+    const meshLinks: GraphLink[] = [];
+    // Connect each node to its 2-3 nearest neighbors (by index proximity) for mesh
+    for (let i = 0; i < data.nodes.length; i++) {
+      for (let j = i + 1; j <= Math.min(i + 3, data.nodes.length - 1); j++) {
+        const key = `${data.nodes[i].id}-${data.nodes[j].id}`;
+        if (!existingEdges.has(key)) {
+          meshLinks.push({
+            source: data.nodes[i].id,
+            target: data.nodes[j].id,
+            distance: 200,
+            strength: 0,
+            label: "mesh",
+          });
+        }
+      }
+    }
+
+    return {
+      nodes: data.nodes,
+      links: [...data.links, ...meshLinks],
+    };
+  }, [data]);
 
   // Node hover — react-force-graph-3d passes (node, prevNode), no MouseEvent
   // We track mouse position separately for the tooltip
@@ -149,8 +189,8 @@ export default function BatchGraph({ data, theme, onNodeClick, compact }: Props)
   // Camera controls
   const resetCamera = useCallback(() => {
     const fg = fgRef.current;
-    if (fg?.cameraPosition) {
-      fg.cameraPosition({ x: 0, y: 0, z: 300 }, { x: 0, y: 0, z: 0 }, 800);
+    if (fg?.zoomToFit) {
+      fg.zoomToFit(400, 60);
     }
     setSelectedNodeId(null);
   }, []);
@@ -219,13 +259,13 @@ export default function BatchGraph({ data, theme, onNodeClick, compact }: Props)
       {/* 3D Graph */}
       <ForceGraph3D
         ref={fgRef}
-        graphData={data}
+        graphData={enhancedData}
         width={dimensions.width}
         height={graphHeight}
         backgroundColor={bgColor}
         nodeLabel=""
         nodeVal={(node: GraphNode) =>
-          selectedNodeId !== null && highlightNodes.has(node.id) ? 2.5 : node.val || 1
+          selectedNodeId !== null && highlightNodes.has(node.id) ? 2.5 : node.val || 1.2
         }
         nodeColor={(node: GraphNode) => {
           if (selectedNodeId !== null && !highlightNodes.has(node.id)) {
@@ -233,29 +273,45 @@ export default function BatchGraph({ data, theme, onNodeClick, compact }: Props)
           }
           return node.color;
         }}
-        nodeOpacity={0.92}
-        nodeResolution={16}
+        nodeOpacity={0.9}
+        nodeResolution={20}
         linkWidth={(link: GraphLink) => {
-          const i = data.links.indexOf(link);
-          if (selectedNodeId !== null && !highlightLinks.has(i)) return 0.3;
-          return Math.max(0.5, link.strength * 3);
+          if (!isThreatEdge(link)) return 0.2;
+          const i = enhancedData.links.indexOf(link);
+          if (selectedNodeId !== null && !highlightLinks.has(i)) return 0.15;
+          return Math.max(0.8, link.strength * 4);
         }}
-        linkColor={(link: GraphLink) => getEdgeColor(link.strength, theme)}
-        linkOpacity={0.6}
+        linkColor={(link: GraphLink) => {
+          if (selectedNodeId !== null) {
+            const i = enhancedData.links.indexOf(link);
+            if (!highlightLinks.has(i)) {
+              return theme === "dark" ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)";
+            }
+          }
+          return getEdgeColor(link, theme);
+        }}
+        linkOpacity={0.8}
         linkDirectionalParticles={(link: GraphLink) => {
-          const i = data.links.indexOf(link);
+          if (!isThreatEdge(link)) return 0;
+          const i = enhancedData.links.indexOf(link);
           return selectedNodeId !== null && highlightLinks.has(i) ? 3 : 0;
         }}
         linkDirectionalParticleWidth={1.5}
-        linkDirectionalParticleSpeed={0.005}
+        linkDirectionalParticleSpeed={0.004}
         linkDirectionalParticleColor={() => theme === "dark" ? "#ffffff" : "#000000"}
         onNodeHover={handleNodeHover}
         onNodeClick={handleNodeClick}
         onBackgroundClick={() => setSelectedNodeId(null)}
-        d3AlphaDecay={0.02}
-        d3VelocityDecay={0.3}
-        warmupTicks={50}
-        cooldownTicks={100}
+        onEngineStop={() => {
+          const fg = fgRef.current;
+          if (fg?.zoomToFit) {
+            fg.zoomToFit(400, 80);
+          }
+        }}
+        d3AlphaDecay={0.015}
+        d3VelocityDecay={0.25}
+        warmupTicks={80}
+        cooldownTicks={150}
       />
 
       {/* Floating tooltip */}
@@ -400,7 +456,7 @@ export default function BatchGraph({ data, theme, onNodeClick, compact }: Props)
           zIndex: 10,
         }}
       >
-        {data.nodes.length} nodes &middot; {data.links.length} edges
+        {data.nodes.length} nodes &middot; {data.links.filter((l) => l.label !== "mesh").length} connections
       </div>
     </div>
   );

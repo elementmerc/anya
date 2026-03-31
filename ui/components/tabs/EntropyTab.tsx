@@ -315,8 +315,8 @@ export default function EntropyTab({ result, suspiciousEntropy = 5.0, packedEntr
         {/* Byte histogram */}
         {result.byte_histogram && result.byte_histogram.length === 256 && (
           <>
-            <ByteHistogram data={result.byte_histogram} />
             <HistogramAnalysis data={result.byte_histogram} fileEntropy={fileEntropy} />
+            <ByteHistogram data={result.byte_histogram} />
           </>
         )}
 

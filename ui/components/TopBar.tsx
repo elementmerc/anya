@@ -19,6 +19,7 @@ interface Props {
   onCompare?: () => void;
   /** Pass the full result to enable Save to Case; null = disabled */
   onSaveToCase?: AnalysisResult | null;
+  onGoHome?: () => void;
 }
 
 const GhostButton = forwardRef<
@@ -91,6 +92,7 @@ export default function TopBar({
   onBatchAnalysis,
   onSaveToCase,
   onCompare,
+  onGoHome,
 }: Props) {
   const [exporting, setExporting] = useState(false);
   const [caseMenuOpen, setCaseMenuOpen] = useState(false);
@@ -217,13 +219,18 @@ export default function TopBar({
     >
       {/* Left: wordmark */}
       <span
+        onClick={onGoHome}
         style={{
           fontSize: "var(--font-size-sm)",
           fontWeight: 500,
           letterSpacing: "0.05em",
           color: "var(--text-muted)",
           flexShrink: 0,
+          cursor: onGoHome ? "pointer" : "default",
+          transition: "color 150ms ease-out",
         }}
+        onMouseEnter={(e) => { if (onGoHome) (e.currentTarget as HTMLSpanElement).style.color = "var(--text-primary)"; }}
+        onMouseLeave={(e) => { if (onGoHome) (e.currentTarget as HTMLSpanElement).style.color = "var(--text-muted)"; }}
       >
         anya
       </span>

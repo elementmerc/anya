@@ -110,7 +110,8 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
       ].some((v) => v && v.length > 30)
     : false;
 
-  if (!pe && !elf) {
+  const hasYara = result.yara_matches && result.yara_matches.length > 0;
+  if (!pe && !elf && !cd && !hasYara) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <p style={{ color: "var(--text-muted)" }}>No security feature data available.</p>

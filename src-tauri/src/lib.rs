@@ -611,13 +611,11 @@ pub mod commands {
                     .and_then(|v| v.as_str())
                     .unwrap_or("UNKNOWN");
                 let color = if verdict.contains("MALICIOUS") {
-                    "#ff4444"
+                    "#ef4444"
                 } else if verdict.contains("SUSPICIOUS") {
-                    "#ffaa00"
-                } else if verdict.contains("CLEAN") {
-                    "#44ff88"
+                    "#eab308"
                 } else {
-                    "#888888"
+                    "#22c55e"
                 };
                 let tlsh = r
                     .get("hashes")

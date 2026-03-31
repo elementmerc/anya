@@ -23,6 +23,7 @@ const VERDICT_STYLES: Record<Verdict, { bg: string; color: string }> = {
 interface Props {
   state: BatchState;
   onSelectFile: (index: number) => void;
+  onDeselectFile: () => void;
   onToggleRecursive: () => void;
   onToggleCollapse: () => void;
 }
@@ -32,6 +33,7 @@ interface Props {
 export default function BatchSidebar({
   state,
   onSelectFile,
+  onDeselectFile,
   onToggleRecursive,
   onToggleCollapse,
 }: Props) {
@@ -125,16 +127,21 @@ export default function BatchSidebar({
               style={{ color: "var(--accent)", flexShrink: 0 }}
             />
             <span
+              onClick={onDeselectFile}
               style={{
                 flex: 1,
                 fontSize: "var(--font-size-xs)",
                 fontWeight: 600,
-                color: "var(--text-primary)",
+                color: state.selectedIndex !== null ? "var(--text-secondary)" : "var(--text-primary)",
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
+                cursor: "pointer",
+                transition: "color 150ms ease-out",
               }}
-              title={state.directoryPath ?? undefined}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.color = "var(--text-primary)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.color = state.selectedIndex !== null ? "var(--text-secondary)" : "var(--text-primary)"; }}
+              title={state.selectedIndex !== null ? "Click to return to batch summary" : (state.directoryPath ?? undefined)}
             >
               {folderName}
             </span>
