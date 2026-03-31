@@ -202,7 +202,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}-gui
-          path: target/release/bundle/msi/*.msi
+          path: target/release/bundle/nsis/*.exe
           retention-days: 14
 
   # ── Docker: validate the Dockerfile builds correctly ─────────────────────

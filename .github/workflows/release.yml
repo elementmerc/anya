@@ -102,7 +102,7 @@ jobs:
             |---|---|
             | **Linux** | `.AppImage` (universal) · `.deb` (Ubuntu 22.04+) · `.rpm` (Fedora/RHEL) |
             | **macOS** | `.dmg` (Intel + Apple Silicon) |
-            | **Windows** | `.msi` |
+            | **Windows** | `.exe` (NSIS installer) |
 
             ### CLI (command-line)
             | Platform | Download |
@@ -280,18 +280,17 @@ jobs:
           $tag = "${{ github.ref_name }}"
           $base = "https://github.com/${{ github.repository }}/releases/download/${tag}"
 
-          # Download the actual assets to compute checksums
-          # MSI name uses tauri.conf.json version — try both tag version and config version
-          $msiDownloaded = $false
+          # Download the NSIS installer
+          $installerDownloaded = $false
           foreach ($v in @($version)) {
-            $msiUrl = "${base}/Anya_${v}_x64_en-US.msi"
+            $nsisUrl = "${base}/Anya_${v}_x64-setup.exe"
             try {
-              Invoke-WebRequest -Uri $msiUrl -OutFile anya.msi -ErrorAction Stop
-              $msiDownloaded = $true
-              Write-Host "Downloaded MSI from: $msiUrl"
+              Invoke-WebRequest -Uri $nsisUrl -OutFile anya-setup.exe -ErrorAction Stop
+              $installerDownloaded = $true
+              Write-Host "Downloaded NSIS installer from: $nsisUrl"
               break
             } catch {
-              Write-Host "MSI not found at: $msiUrl"
+              Write-Host "NSIS installer not found at: $nsisUrl"
             }
           }
 
@@ -316,12 +315,12 @@ jobs:
           }
 
           # Compute checksums
-          if ($msiDownloaded) {
-            $msiHash = (Get-FileHash anya.msi -Algorithm SHA256).Hash.ToLower()
-            Write-Host "MSI SHA256: $msiHash"
+          if ($installerDownloaded) {
+            $msiHash = (Get-FileHash anya-setup.exe -Algorithm SHA256).Hash.ToLower()
+            Write-Host "Installer SHA256: $msiHash"
           } else {
             $msiHash = ""
-            Write-Host "WARNING: Could not download MSI — checksum will be empty"
+            Write-Host "WARNING: Could not download installer — checksum will be empty"
           }
 
           if ($cliDownloaded -and (Test-Path anya-cli.zip)) {
