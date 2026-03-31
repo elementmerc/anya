@@ -162,8 +162,7 @@ function AnimatedEl({ el, color, delay }: { el: SvgEl; color: string; delay: num
   const [len, setLen] = useState<number | null>(null);
 
   useEffect(() => {
-    if (ref.current) {
-      // getTotalLength works on path, circle, and line in modern browsers
+    if (ref.current && typeof (ref.current as SVGGeometryElement).getTotalLength === "function") {
       setLen((ref.current as SVGGeometryElement).getTotalLength());
     }
   }, []);
