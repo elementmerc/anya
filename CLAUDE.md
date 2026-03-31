@@ -1,7 +1,7 @@
 # Anya — Claude Code Instructions
 <!-- Sprint: V2 — Detection Inflection -->
 
-## Current version: v2.0.0
+## Current version: v2.0.1
 ## Active sprint: V2 — Detection Inflection
 
 ---
@@ -46,7 +46,7 @@
 - **Dataset-calibrated heuristics** — iterate scoring weights against
   1,693 malware + 5,390 benign sample set
 - **Public launch preparation** — README rewrite, social preview image,
-  CHANGELOG for v2.0.0
+  CHANGELOG for v2.0.1
 
 ## What is explicitly deferred — do not implement
 
