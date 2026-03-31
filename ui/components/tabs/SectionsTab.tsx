@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown, Pin } from "lucide-react";
+import AnimatedEmptyState from "@/components/AnimatedEmptyState";
 import { formatBytes } from "@/lib/utils";
 import CopyButton from "@/components/CopyButton";
 import type { AnalysisResult, SectionInfo } from "@/types/analysis";
@@ -82,11 +83,7 @@ export default function SectionsTab({ result, suspiciousEntropy = 5.0, packedEnt
   }, [sections, sortKey, sortDir]);
 
   if (sections.length === 0) {
-    return (
-      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <p style={{ color: "var(--text-muted)" }}>No section data available.</p>
-      </div>
-    );
+    return <AnimatedEmptyState icon="layers" title="No section data available" subtitle="This file doesn't contain parseable PE or ELF sections." />;
   }
 
   const HEADER_STYLE: React.CSSProperties = {

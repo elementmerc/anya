@@ -41,6 +41,12 @@ function RiskRing({ score, color }: { score: number; color: string }) {
   const frameRef = useRef<number>(0);
 
   useEffect(() => {
+    // Respect prefers-reduced-motion: skip animation, show final value immediately
+    const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReduced) {
+      setAnimated(score);
+      return;
+    }
     const delay = 400;
     const duration = 1200;
     const delayTimer = setTimeout(() => {

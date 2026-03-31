@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import AnimatedEmptyState from "@/components/AnimatedEmptyState";
 import {
   BarChart,
   Bar,
@@ -210,18 +211,7 @@ export default function EntropyTab({ result, suspiciousEntropy = 5.0, packedEntr
     }));
 
   if (sections.length < 1) {
-    return (
-      <div
-        style={{
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <p style={{ color: "var(--text-muted)" }}>No section entropy data available.</p>
-      </div>
-    );
+    return <AnimatedEmptyState icon="activity" title="No section entropy data available" subtitle="This file doesn't contain parseable sections for entropy analysis." />;
   }
 
   const fileEntropy = result.entropy.value;

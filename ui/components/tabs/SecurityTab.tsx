@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useContext } from "react";
 import { CheckCircle, XCircle, MinusCircle, ShieldCheck, AlertTriangle } from "lucide-react";
+import AnimatedEmptyState from "@/components/AnimatedEmptyState";
 import type { AnalysisResult, AuthenticodeInfo } from "@/types/analysis";
 import { formatBytes } from "@/lib/utils";
 import { TeacherModeContext } from "@/hooks/useTeacherMode";
@@ -126,11 +127,7 @@ function SecurityTabInner({ result, packedEntropy = 7.0 }: Props) {
 
   const hasYara = (result?.yara_matches?.length ?? 0) > 0;
   if (!pe && !elf && !cd && !hasYara) {
-    return (
-      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <p style={{ color: "var(--text-muted)" }}>No security feature data available.</p>
-      </div>
-    );
+    return <AnimatedEmptyState icon="shield" title="No security features detected" subtitle="This file format doesn't expose security mitigations like ASLR, DEP, or code signing." />;
   }
 
   const sections = pe?.sections ?? elf?.sections ?? [];

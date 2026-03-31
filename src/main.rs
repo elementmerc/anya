@@ -50,6 +50,7 @@ const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), env!("ANYA_VERSION_SUFF
 struct RunConfig<'a> {
     min_string_length: usize,
     effective_json: bool,
+    json_compact: bool,
     effective_html: bool,
     effective_pdf: bool,
     effective_markdown: bool,
@@ -104,9 +105,13 @@ struct Args {
     #[arg(short = 's', long, value_name = "LENGTH")]
     min_string_length: Option<usize>,
 
-    /// Output results in JSON format
+    /// Output results in JSON format (pretty-printed by default)
     #[arg(short, long)]
     json: bool,
+
+    /// Output compact JSON (single line, no indentation)
+    #[arg(long)]
+    json_compact: bool,
 
     /// Save output to file instead of stdout
     #[arg(short, long, value_name = "FILE")]
@@ -715,7 +720,7 @@ fn run() -> Result<()> {
     };
 
     // Merge --format with --json flag: --json is shorthand for --format json
-    let effective_json = args.json || matches!(args.format, OutputFormat::Json);
+    let effective_json = args.json || args.json_compact || matches!(args.format, OutputFormat::Json);
     let effective_html = matches!(args.format, OutputFormat::Html);
     let effective_pdf = matches!(args.format, OutputFormat::Pdf);
     let effective_markdown = matches!(args.format, OutputFormat::Markdown);
@@ -761,6 +766,7 @@ fn run() -> Result<()> {
     let run_cfg = RunConfig {
         min_string_length,
         effective_json,
+        json_compact: args.json_compact,
         effective_html,
         effective_pdf,
         effective_markdown,
@@ -796,6 +802,7 @@ fn analyse_single_file(
     let RunConfig {
         min_string_length,
         effective_json,
+        json_compact,
         effective_html,
         effective_pdf,
         effective_markdown,
@@ -841,7 +848,11 @@ fn analyse_single_file(
 
     // ── JSON output ──────────────────────────────────────────────────────────
     if effective_json {
-        let json = serde_json::to_string_pretty(&json_result)?;
+        let json = if json_compact {
+            serde_json::to_string(&json_result)?
+        } else {
+            serde_json::to_string_pretty(&json_result)?
+        };
         write_output(&json, args.output.as_ref(), args.append)?;
 
         if let Some(path) = &args.output {
@@ -1463,6 +1474,7 @@ fn analyse_directory(
         let batch_cfg = RunConfig {
             min_string_length,
             effective_json,
+            json_compact: false,
             effective_html: false,
             effective_pdf: false,
             effective_markdown: false,

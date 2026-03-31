@@ -6,7 +6,7 @@
  * main content area grows/shrinks accordingly — it never overlaps.
  */
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, FolderOpen } from "lucide-react";
+import { ChevronLeft, ChevronRight, FolderOpen, Search } from "lucide-react";
 import type { BatchState, Verdict } from "@/types/analysis";
 
 // ── Verdict styling ────────────────────────────────────────────────────────────
@@ -38,6 +38,7 @@ export default function BatchSidebar({
   onToggleCollapse,
 }: Props) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Extract folder name from directory path
   const folderName = useMemo(() => {
@@ -52,11 +53,15 @@ export default function BatchSidebar({
     [state.results],
   );
 
-  // Set of indices that already have results
-  const completedIndices = useMemo(
-    () => new Set(state.results.map((r) => r.index)),
-    [state.results],
-  );
+  // Filter results by search query (matches filename)
+  const filteredResults = useMemo(() => {
+    if (!searchQuery.trim()) return sortedResults;
+    const q = searchQuery.toLowerCase();
+    return sortedResults.filter((r) => {
+      const name = r.filePath.split(/[\\/]/).pop() ?? r.filePath;
+      return name.toLowerCase().includes(q);
+    });
+  }, [sortedResults, searchQuery]);
 
   // Progress percentage
   const progressPct =
@@ -175,6 +180,46 @@ export default function BatchSidebar({
             </button>
           </div>
 
+          {/* ── Search bar ───────────────────────────────────────────────── */}
+          <div
+            style={{
+              flexShrink: 0,
+              padding: "6px 10px",
+              borderBottom: "1px solid var(--border-subtle)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "5px 8px",
+                borderRadius: "var(--radius-sm)",
+                background: "var(--bg-elevated)",
+                border: "1px solid var(--border-subtle)",
+              }}
+            >
+              <Search size={12} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+              <input
+                type="text"
+                placeholder="Search files..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  flex: 1,
+                  border: "none",
+                  outline: "none",
+                  background: "transparent",
+                  color: "var(--text-primary)",
+                  fontSize: "var(--font-size-xs)",
+                  fontFamily: "var(--font-ui)",
+                  padding: 0,
+                  minWidth: 0,
+                }}
+              />
+            </div>
+          </div>
+
           {/* ── Recursive toggle ────────────────────────────────────────── */}
           <div
             style={{
@@ -253,7 +298,7 @@ export default function BatchSidebar({
           {/* ── File list (scrollable) ──────────────────────────────────── */}
           <div style={{ flex: 1, overflowY: "auto" }}>
             {/* Completed results */}
-            {sortedResults.map((file) => {
+            {filteredResults.map((file) => {
               const isActive = file.index === state.selectedIndex;
               const isHovered = file.index === hoveredIndex;
               const verdictStyle = VERDICT_STYLES[file.verdict];
@@ -329,47 +374,22 @@ export default function BatchSidebar({
               );
             })}
 
-            {/* Pending files (not yet analysed) */}
+            {/* Pending files — shimmer skeleton rows */}
             {state.isRunning &&
-              Array.from({ length: state.totalFiles }, (_, i) => i)
-                .filter((i) => !completedIndices.has(i))
-                .map((i) => (
-                  <div
-                    key={`pending-${i}`}
-                    style={{
-                      padding: "8px 12px",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      animation: "pulse 1.5s ease-in-out infinite",
-                    }}
-                  >
-                    <span
-                      style={{
-                        flex: 1,
-                        fontSize: "var(--font-size-xs)",
-                        color: "var(--text-muted)",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        minWidth: 0,
-                        opacity: 0.5,
-                      }}
-                    >
-                      Analysing...
-                    </span>
-                    <span
-                      style={{
-                        width: 48,
-                        height: 8,
-                        borderRadius: 4,
-                        background: "var(--border-subtle)",
-                        flexShrink: 0,
-                        opacity: 0.5,
-                      }}
-                    />
-                  </div>
-                ))}
+              Array.from({ length: Math.min(state.totalFiles - state.results.length, 8) }, (_, i) => (
+                <div
+                  key={`pending-${i}`}
+                  style={{
+                    padding: "8px 12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <div className="skeleton-row" style={{ flex: 1, height: 12, borderRadius: 4, animationDelay: `${i * 100}ms` }} />
+                  <div className="skeleton-row" style={{ width: 48, height: 12, borderRadius: 4, animationDelay: `${i * 100 + 50}ms` }} />
+                </div>
+              ))}
           </div>
         </div>
       </aside>

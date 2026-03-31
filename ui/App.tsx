@@ -1,4 +1,4 @@
-import React, { Suspense, useState, lazy, useEffect, useCallback, useMemo } from "react";
+import React, { Suspense, useState, useRef, lazy, useEffect, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { SplashScreen } from "@/components/SplashScreen";
 import { Installer } from "@/components/Installer";
@@ -532,6 +532,51 @@ export default function App() {
 
   useKeyboardShortcuts(shortcutActions, !splashVisible && launchMode === "normal");
 
+  // ── Tab keep-alive: visited tabs stay mounted (preserves scroll/search state) ──
+  const [visitedTabs, setVisitedTabs] = useState<Set<TabName>>(new Set(["overview"]));
+  const prevResultRef = useRef(activeResult);
+  useEffect(() => {
+    // Reset visited tabs when analysing a new file
+    if (activeResult && activeResult !== prevResultRef.current) {
+      prevResultRef.current = activeResult;
+      setVisitedTabs(new Set([activeTab]));
+    }
+  }, [activeResult, activeTab]);
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev.has(activeTab)) return prev;
+      return new Set([...prev, activeTab]);
+    });
+  }, [activeTab]);
+
+  const renderTabContent = useCallback(() => {
+    if (!activeResult) return null;
+    const tabs: { id: TabName; el: React.ReactNode }[] = [
+      { id: "overview",  el: <OverviewTab  result={activeResult} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} theme={theme} /> },
+      { id: "identity",  el: <IdentityTab  result={activeResult} /> },
+      { id: "entropy",   el: <EntropyTab   result={activeResult} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} /> },
+      { id: "imports",   el: <ImportsTab   result={activeResult} onMitreNavigate={navigateToMitre} onPin={handlePin} /> },
+      { id: "sections",  el: <SectionsTab  result={activeResult} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} onPin={handlePin} /> },
+      { id: "strings",   el: <StringsTab   result={activeResult} onPin={handlePin} /> },
+      { id: "security",  el: <SecurityTab  result={activeResult} packedEntropy={thresholds.packed_entropy} /> },
+      { id: "format",    el: <FormatAnalysisTab result={activeResult} /> },
+      { id: "mitre",     el: <MitreTab     result={activeResult} highlightId={mitreHighlightId} onPin={handlePin} /> },
+    ];
+    return (
+      <>
+        {tabs.filter((t) => visitedTabs.has(t.id)).map((t) => (
+          <div
+            key={t.id}
+            className={t.id === activeTab ? "tab-content-enter" : undefined}
+            style={{ display: t.id === activeTab ? "block" : "none", height: "100%", overflow: "auto" }}
+          >
+            {t.el}
+          </div>
+        ))}
+      </>
+    );
+  }, [activeTab, activeResult, activeRiskScore, navigateToMitre, pinnedFindings, handlePin, theme, thresholds, mitreHighlightId, visitedTabs]);
+
   // Launch mode / first-run gates
   if (launchMode === null) return null;
   if (launchMode === "uninstall") return <Uninstaller />;
@@ -609,27 +654,7 @@ export default function App() {
               <main style={{ flex: 1, overflow: "auto", position: "relative" }}>
                 {batchState.selectedIndex !== null && batchSelectedResult?.result ? (
                   <Suspense fallback={<TabFallback />}>
-                    {activeTab === "overview"  && <OverviewTab  result={activeResult!} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} theme={theme} />}
-                    {activeTab === "identity"  && <IdentityTab  result={activeResult!} />}
-                    {activeTab === "entropy"   && <EntropyTab   result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
-                    {activeTab === "imports"   && (
-                      <ImportsTab
-                        result={activeResult!}
-                        onMitreNavigate={navigateToMitre}
-                        onPin={handlePin}
-                      />
-                    )}
-                    {activeTab === "sections"  && <SectionsTab  result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} onPin={handlePin} />}
-                    {activeTab === "strings"   && <StringsTab   result={activeResult!} onPin={handlePin} />}
-                    {activeTab === "security"  && <SecurityTab  result={activeResult!} packedEntropy={thresholds.packed_entropy} />}
-                    {activeTab === "format"    && <FormatAnalysisTab result={activeResult!} />}
-                    {activeTab === "mitre"     && (
-                      <MitreTab
-                        result={activeResult!}
-                        highlightId={mitreHighlightId}
-                        onPin={handlePin}
-                      />
-                    )}
+                    {renderTabContent()}
                   </Suspense>
                 ) : (
                   <BatchDashboard state={batchState} theme={theme} onNodeClick={(idx) => setBatchState((prev) => ({ ...prev, selectedIndex: prev.selectedIndex === idx ? null : idx }))} />
@@ -655,27 +680,7 @@ export default function App() {
             <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "row" }}>
               <main style={{ flex: 1, overflow: "hidden", position: "relative" }}>
                 <Suspense fallback={<TabFallback />}>
-                  {activeTab === "overview"  && <OverviewTab  result={activeResult!} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} theme={theme} />}
-                  {activeTab === "identity"  && <IdentityTab  result={activeResult!} />}
-                  {activeTab === "entropy"   && <EntropyTab   result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
-                  {activeTab === "imports"   && (
-                    <ImportsTab
-                      result={activeResult!}
-                      onMitreNavigate={navigateToMitre}
-                      onPin={handlePin}
-                    />
-                  )}
-                  {activeTab === "sections"  && <SectionsTab  result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} onPin={handlePin} />}
-                  {activeTab === "strings"   && <StringsTab   result={activeResult!} onPin={handlePin} />}
-                  {activeTab === "security"  && <SecurityTab  result={activeResult!} packedEntropy={thresholds.packed_entropy} />}
-                  {activeTab === "format"    && <FormatAnalysisTab result={activeResult!} />}
-                  {activeTab === "mitre"     && (
-                    <MitreTab
-                      result={activeResult!}
-                      highlightId={mitreHighlightId}
-                      onPin={handlePin}
-                    />
-                  )}
+                  {renderTabContent()}
                 </Suspense>
               </main>
               {/* Sidebar: always in DOM when file loaded; width transitions 0↔280 */}

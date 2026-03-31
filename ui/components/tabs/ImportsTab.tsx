@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { ChevronRight, AlertTriangle, Search, Pin } from "lucide-react";
+import AnimatedEmptyState from "@/components/AnimatedEmptyState";
 import { getApiDescription } from "@/lib/apiDescriptions";
 import { useTeacherFocus } from "@/hooks/useTeacherMode";
 import dllExplanations from "@/data/dll_explanations.json";
@@ -66,11 +67,7 @@ export default function ImportsTab({ result, onMitreNavigate, onPin }: Props) {
   const [suspiciousOnly, setSuspiciousOnly] = useState(false);
 
   if (!pe) {
-    return (
-      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <p style={{ color: "var(--text-muted)" }}>No PE import data available.</p>
-      </div>
-    );
+    return <AnimatedEmptyState icon="branch" title="No import data available" subtitle="This file format doesn't use a standard import table." />;
   }
 
   const suspiciousSet = new Set(pe.imports.suspicious_apis.map((a) => a.name.toLowerCase()));
