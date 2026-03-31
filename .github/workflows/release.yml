@@ -76,6 +76,7 @@ jobs:
         run: npm ci
 
       - name: Prepare YARA rules (signature-base)
+        shell: bash
         run: |
           echo "Downloading Florian Roth signature-base..."
           git clone --depth 1 https://github.com/Neo23x0/signature-base.git /tmp/signature-base
