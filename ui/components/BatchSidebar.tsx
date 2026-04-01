@@ -165,7 +165,7 @@ export default function BatchSidebar({
                 whiteSpace: "nowrap",
               }}
             >
-              {state.results.length} / {state.isRunning && state.totalFiles === 0 ? "\u2026" : state.totalFiles} file{(state.totalFiles || state.results.length) !== 1 ? "s" : ""}
+              {state.results.length} / {state.isRunning && state.totalFiles === 0 ? "\u2026" : Math.max(state.totalFiles, state.results.length)} file{Math.max(state.totalFiles, state.results.length) !== 1 ? "s" : ""}
             </span>
             <button
               onClick={onToggleCollapse}

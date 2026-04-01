@@ -10,6 +10,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { RotateCcw } from "lucide-react";
 import type { AnalysisResult } from "@/types/analysis";
 import AnimatedEmptyState from "@/components/AnimatedEmptyState";
+import GraphSettingsPanel, { type GraphSettings, DEFAULT_SETTINGS } from "@/components/GraphSettingsPanel";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -123,10 +124,52 @@ export default function SingleFileGraph({ result, theme }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<FgInstance>(null);
   const [ready, setReady] = useState(false);
-  const [legendVisible, setLegendVisible] = useState(true);
+  const [graphSettings, setGraphSettings] = useState<GraphSettings>({ ...DEFAULT_SETTINGS });
+  const settingsRef = useRef(graphSettings);
+  settingsRef.current = graphSettings;
 
   const graphData = useMemo(() => buildGraphData(result), [result]);
   const bgColor = theme === "dark" ? "#1a1a1a" : "#f5f5f5";
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+
+  // Update background color on theme change without remounting
+  useEffect(() => {
+    const fg = graphRef.current;
+    if (fg?.backgroundColor) fg.backgroundColor(bgColor);
+  }, [bgColor]);
+
+  // Apply settings changes to the live graph instance
+  useEffect(() => {
+    const fg = graphRef.current;
+    if (!fg) return;
+    fg.d3Force("charge")?.strength(graphSettings.repulsion);
+    if (graphSettings.frozen) {
+      // Kill simulation energy but keep render loop alive (so drag repaints)
+      fg.d3AlphaDecay(1);
+    } else {
+      // Unfreeze: restore physics, clear all pinned nodes, reheat
+      fg.d3AlphaDecay(0.008);
+      const data = fg.graphData();
+      if (data?.nodes) {
+        for (const node of data.nodes) { node.fx = undefined; node.fy = undefined; }
+      }
+      fg.d3ReheatSimulation();
+    }
+  }, [graphSettings.repulsion, graphSettings.frozen]);
+
+  // Force a repaint when visual-only settings change (labels, node size, link thickness)
+  useEffect(() => {
+    const fg = graphRef.current;
+    if (!fg) return;
+    if (settingsRef.current.frozen) {
+      // Temporarily restore physics just enough to trigger a redraw cycle
+      fg.d3AlphaDecay(0.5);
+      fg.d3ReheatSimulation();
+      // Re-freeze after a few frames have rendered
+      setTimeout(() => { if (settingsRef.current.frozen) fg.d3AlphaDecay(1); }, 100);
+    }
+  }, [graphSettings.showLabels, graphSettings.nodeSize, graphSettings.linkThickness]);
 
   // Interaction state stored in refs (no re-renders needed for canvas drawing)
   const hoveredNodeId = useRef<string | null>(null);
@@ -202,7 +245,7 @@ export default function SingleFileGraph({ result, theme }: Props) {
         nodeAlphas.current.set(node.id, alpha);
 
         const scale = isHovered ? 1.5 : (isSelected || (isActive && isNeighbor)) ? 1.2 : 1;
-        const r = node.val * 1.2 * scale / globalScale * 4;
+        const r = node.val * 1.2 * scale * settingsRef.current.nodeSize / globalScale * 4;
 
         ctx.globalAlpha = alpha;
         if (isHovered || isSelected) { ctx.shadowColor = node.color; ctx.shadowBlur = 12 / globalScale; }
@@ -212,12 +255,12 @@ export default function SingleFileGraph({ result, theme }: Props) {
         ctx.fill();
         ctx.shadowBlur = 0;
 
-        if (globalScale > 0.8 || isHovered || isSelected || node.type === "file") {
+        if (settingsRef.current.showLabels && (globalScale > 0.8 || isHovered || isSelected || node.type === "file")) {
           const fontSize = Math.max((node.type === "file" ? 12 : 9) / globalScale, 2);
           ctx.font = `${node.type === "file" ? "bold " : ""}${fontSize}px Geist Mono, monospace`;
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
-          ctx.fillStyle = theme === "dark" ? `rgba(240,240,240,${alpha})` : `rgba(26,26,26,${alpha})`;
+          ctx.fillStyle = themeRef.current === "dark" ? `rgba(240,240,240,${alpha})` : `rgba(26,26,26,${alpha})`;
           ctx.fillText(node.label, node.x!, node.y! + r + 2 / globalScale);
         }
         ctx.globalAlpha = 1;
@@ -245,11 +288,11 @@ export default function SingleFileGraph({ result, theme }: Props) {
         const opacity = isActive ? (isNeighborLink ? 0.7 : 0.03) : 0.2;
         const color = isNeighborLink && isActive
           ? (link.source.type === "ioc" || link.target.type === "ioc" ? "#ef4444" : "#a78bfa")
-          : (theme === "dark" ? "#ffffff" : "#000000");
+          : (themeRef.current === "dark" ? "#ffffff" : "#000000");
 
         ctx.globalAlpha = opacity * edgeEmerge;
         ctx.strokeStyle = color;
-        ctx.lineWidth = (isNeighborLink && isActive ? 1.5 : 0.5) / globalScale;
+        ctx.lineWidth = (isNeighborLink && isActive ? 1.5 : 0.5) * settingsRef.current.linkThickness / globalScale;
         ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.stroke();
         ctx.globalAlpha = 1;
 
@@ -262,9 +305,9 @@ export default function SingleFileGraph({ result, theme }: Props) {
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           const pad = 2 / globalScale;
           const m = ctx.measureText(link.label);
-          ctx.fillStyle = theme === "dark" ? "rgba(36,36,36,0.9)" : "rgba(255,255,255,0.9)";
+          ctx.fillStyle = themeRef.current === "dark" ? "rgba(36,36,36,0.9)" : "rgba(255,255,255,0.9)";
           ctx.fillRect(mx - m.width / 2 - pad, my - fontSize / 2 - pad, m.width + pad * 2, fontSize + pad * 2);
-          ctx.fillStyle = theme === "dark" ? "#f0f0f0" : "#1a1a1a";
+          ctx.fillStyle = themeRef.current === "dark" ? "#f0f0f0" : "#1a1a1a";
           ctx.fillText(link.label, mx, my);
         }
       });
@@ -286,7 +329,10 @@ export default function SingleFileGraph({ result, theme }: Props) {
         if (node.x != null && node.y != null) fg.centerAt(node.x, node.y, 600);
       });
       fg.onNodeDrag((node: EvidenceNode) => { node.fx = node.x; node.fy = node.y; });
-      fg.onNodeDragEnd((node: EvidenceNode) => { node.fx = undefined; node.fy = undefined; });
+      fg.onNodeDragEnd((node: EvidenceNode) => {
+        // When frozen, keep node pinned where dropped; when live, release it
+        if (!settingsRef.current.frozen) { node.fx = undefined; node.fy = undefined; }
+      });
       fg.onLinkHover((link: EvidenceLink | null) => { hoveredLinkRef.current = link; });
       fg.onBackgroundClick(() => { selectedNodeId.current = null; hoveredNodeId.current = null; });
 
@@ -315,7 +361,7 @@ export default function SingleFileGraph({ result, theme }: Props) {
     window.addEventListener("resize", onResize);
 
     // ── Alive-when-idle ─────────────────────────────────────────
-    const reheat = setInterval(() => fg?.d3ReheatSimulation?.(), PHYSICS.reheatInterval);
+    const reheat = setInterval(() => { if (!settingsRef.current.frozen) fg?.d3ReheatSimulation?.(); }, PHYSICS.reheatInterval);
 
     return () => {
       destroyed = true;
@@ -326,7 +372,7 @@ export default function SingleFileGraph({ result, theme }: Props) {
       graphEl.remove();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, theme]);
+  }, [result]); // theme excluded — uses ref via bgColor closure to avoid remount
 
   return (
     <div ref={containerRef} style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden", background: bgColor }}>
@@ -348,29 +394,28 @@ export default function SingleFileGraph({ result, theme }: Props) {
         </button>
       </div>
 
-      {/* Legend */}
-      {legendVisible && (
-        <div style={{
-          position: "absolute", bottom: 12, left: 12, display: "flex", gap: 10, padding: "6px 12px",
-          borderRadius: 6, background: theme === "dark" ? "rgba(36,36,36,0.85)" : "rgba(255,255,255,0.85)",
-          border: `1px solid ${theme === "dark" ? "#3a3a3a" : "#d4d4d4"}`, backdropFilter: "blur(8px)",
-          fontSize: 11, zIndex: 10, alignItems: "center",
-        }}>
-          {[
-            { color: TYPE_COLORS.dll, label: "DLL" },
-            { color: TYPE_COLORS.api, label: "API" },
-            { color: TYPE_COLORS.ioc, label: "IOC" },
-            { color: TYPE_COLORS.category, label: "Category" },
-          ].map(({ color, label }) => (
-            <div key={label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: color }} />
-              <span style={{ color: theme === "dark" ? "#8a8a8a" : "#6b6b6b" }}>{label}</span>
-            </div>
-          ))}
-          <button onClick={() => setLegendVisible(false)}
-            style={{ background: "none", border: "none", color: theme === "dark" ? "#555" : "#aaa", cursor: "pointer", padding: "0 0 0 4px", fontSize: 11 }}>×</button>
-        </div>
-      )}
+      {/* Settings panel */}
+      <GraphSettingsPanel settings={graphSettings} onChange={setGraphSettings} theme={theme} />
+
+      {/* Legend (permanent) */}
+      <div style={{
+        position: "absolute", bottom: 12, left: 12, display: "flex", gap: 10, padding: "6px 12px",
+        borderRadius: 6, background: theme === "dark" ? "rgba(36,36,36,0.85)" : "rgba(255,255,255,0.85)",
+        border: `1px solid ${theme === "dark" ? "#3a3a3a" : "#d4d4d4"}`, backdropFilter: "blur(8px)",
+        fontSize: 11, zIndex: 10, alignItems: "center",
+      }}>
+        {[
+          { color: TYPE_COLORS.dll, label: "DLL" },
+          { color: TYPE_COLORS.api, label: "API" },
+          { color: TYPE_COLORS.ioc, label: "IOC" },
+          { color: TYPE_COLORS.category, label: "Category" },
+        ].map(({ color, label }) => (
+          <div key={label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: color }} />
+            <span style={{ color: theme === "dark" ? "#8a8a8a" : "#6b6b6b" }}>{label}</span>
+          </div>
+        ))}
+      </div>
 
       {/* Stats */}
       <div style={{

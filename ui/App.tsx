@@ -42,7 +42,6 @@ const StringsTab   = lazy(() => import("@/components/tabs/StringsTab"));
 const SecurityTab  = lazy(() => import("@/components/tabs/SecurityTab"));
 const MitreTab     = lazy(() => import("@/components/tabs/MitreTab"));
 const FormatAnalysisTab = lazy(() => import("@/components/tabs/FormatAnalysisTab"));
-const BatchGraph = lazy(() => import("@/components/BatchGraph"));
 const SingleFileGraph = lazy(() => import("@/components/SingleFileGraph"));
 
 function TabFallback() {
@@ -177,7 +176,7 @@ export default function App() {
       isRunning: true,
       batchId: id,
     });
-    setActiveTab("graph");
+    setActiveTab("overview");
     setTabOrder((prev) => prev.includes("graph") ? prev : [...prev, "graph"]);
     void analyzeDirectory(folder, false, id);
   }, [reset]);
@@ -248,8 +247,20 @@ export default function App() {
   // Load batch graph data when results change
   useEffect(() => {
     if (!batchState.active || batchState.results.length < 2) return;
-    getBatchGraphData(batchState.results.map((r) => r.filePath))
-      .then(setBatchGraphData)
+    const validResults = batchState.results.filter((r) => r.result != null);
+    getBatchGraphData(validResults.map((r) => r.result))
+      .then((graphData) => {
+        // Override node colors using the sidebar's verdict (single source of truth)
+        const COLORS: Record<string, string> = { malicious: "#ef4444", suspicious: "#eab308", clean: "#22c55e", error: "#6b7280" };
+        for (const node of graphData.nodes) {
+          const batchResult = validResults[node.id];
+          if (batchResult) {
+            node.color = COLORS[batchResult.verdict] ?? "#22c55e";
+            node.verdict = batchResult.verdict.toUpperCase();
+          }
+        }
+        setBatchGraphData(graphData);
+      })
       .catch(() => {});
   }, [batchState.active, batchState.results.length]);
 
@@ -432,7 +443,7 @@ export default function App() {
       isRunning: true,
       batchId: id,
     });
-    setActiveTab("graph");
+    setActiveTab("overview");
     setTabOrder((prev) => prev.includes("graph") ? prev : [...prev, "graph"]);
     await analyzeDirectory(folder, false, id);
   }, [reset]);
@@ -673,7 +684,7 @@ export default function App() {
               active={activeTab}
               onChange={setActiveTab}
               badges={(id) => tabHasBadge(id, activeResult)}
-              disabled={batchState.selectedIndex === null && activeTab !== "graph"}
+              disabledFn={batchState.selectedIndex === null ? (id) => id !== "graph" && id !== "overview" : undefined}
               tabOrder={tabOrder}
               onTabOrderChange={setTabOrder}
             />
@@ -692,17 +703,14 @@ export default function App() {
                   <Suspense fallback={<TabFallback />}>
                     {renderTabContent()}
                   </Suspense>
-                ) : activeTab === "graph" ? (
-                  <Suspense fallback={<TabFallback />}>
-                    <BatchGraph
-                      data={batchGraphData}
-                      theme={theme}
-                      onNodeClick={(idx) => setBatchState((prev) => ({ ...prev, selectedIndex: idx }))}
-                      searchQuery={batchSearchQuery}
-                    />
-                  </Suspense>
                 ) : (
-                  <BatchDashboard state={batchState} />
+                  <BatchDashboard
+                    state={batchState}
+                    theme={theme}
+                    graphData={batchGraphData}
+                    onNodeClick={(idx) => setBatchState((prev) => ({ ...prev, selectedIndex: idx }))}
+                    searchQuery={batchSearchQuery}
+                  />
                 )}
               </main>
               <TeacherSidebar />

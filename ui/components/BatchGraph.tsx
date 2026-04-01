@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { RotateCcw } from "lucide-react";
 import type { GraphData, GraphNode, GraphLink } from "@/types/analysis";
+import GraphSettingsPanel, { type GraphSettings, DEFAULT_SETTINGS } from "@/components/GraphSettingsPanel";
 import AnimatedEmptyState from "@/components/AnimatedEmptyState";
 
 // ── Props ───────────────────────────────────────────────────────────────────
@@ -17,6 +18,8 @@ interface Props {
   theme: "dark" | "light";
   onNodeClick?: (nodeId: number) => void;
   searchQuery?: string;
+  /** Highlight nodes matching this verdict (e.g. "CLEAN", "SUSPICIOUS", "MALICIOUS") */
+  highlightVerdict?: string | null;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -59,13 +62,51 @@ function convexHull(points: { x: number; y: number }[]): { x: number; y: number 
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Props) {
+export default function BatchGraph({ data, theme, onNodeClick, searchQuery, highlightVerdict }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<FgInstance>(null);
   const [ready, setReady] = useState(false);
-  const [legendVisible, setLegendVisible] = useState(true);
+  const [graphSettings, setGraphSettings] = useState<GraphSettings>({ ...DEFAULT_SETTINGS });
+  const settingsRef = useRef(graphSettings);
+  settingsRef.current = graphSettings;
 
   const bgColor = theme === "dark" ? "#1a1a1a" : "#f5f5f5";
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+
+  // Update background color on theme change without remounting
+  useEffect(() => {
+    const fg = graphRef.current;
+    if (fg?.backgroundColor) fg.backgroundColor(bgColor);
+  }, [bgColor]);
+
+  // Apply settings changes to live graph
+  useEffect(() => {
+    const fg = graphRef.current;
+    if (!fg) return;
+    fg.d3Force("charge")?.strength(graphSettings.repulsion);
+    if (graphSettings.frozen) {
+      fg.d3AlphaDecay(1);
+    } else {
+      fg.d3AlphaDecay(0.008);
+      const data = fg.graphData();
+      if (data?.nodes) {
+        for (const node of data.nodes) { node.fx = undefined; node.fy = undefined; }
+      }
+      fg.d3ReheatSimulation();
+    }
+  }, [graphSettings.repulsion, graphSettings.frozen]);
+
+  // Force repaint when visual-only settings change
+  useEffect(() => {
+    const fg = graphRef.current;
+    if (!fg) return;
+    if (settingsRef.current.frozen) {
+      fg.d3AlphaDecay(0.5);
+      fg.d3ReheatSimulation();
+      setTimeout(() => { if (settingsRef.current.frozen) fg.d3AlphaDecay(1); }, 100);
+    }
+  }, [graphSettings.showLabels, graphSettings.nodeSize, graphSettings.linkThickness]);
 
   // Interaction state in refs (canvas redraws without React re-renders)
   const hoveredNodeId = useRef<number | null>(null);
@@ -76,6 +117,8 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
   const hasZoomed = useRef(false);
   const searchRef = useRef(searchQuery);
   searchRef.current = searchQuery;
+  const highlightVerdictRef = useRef(highlightVerdict);
+  highlightVerdictRef.current = highlightVerdict;
   const EMERGE_DURATION = 1500;
   const EDGE_DELAY = 400;
   const LERP_SPEED = 0.15;
@@ -173,9 +216,13 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
         const isSelected = id === selectedNodeId.current;
         const sq = searchRef.current?.trim().toLowerCase();
         const isSearchMatch = sq ? node.name.toLowerCase().includes(sq) : false;
+        const hv = highlightVerdictRef.current;
+        const isVerdictMatch = hv ? node.verdict.toUpperCase().includes(hv.toUpperCase()) : false;
+        const isVerdictActive = !!hv;
 
         let targetAlpha = activeId !== null && !isNeighbor ? 0.08 : 1;
         if (sq && !isSearchMatch) targetAlpha = Math.min(targetAlpha, 0.3);
+        if (isVerdictActive && !isVerdictMatch) targetAlpha = Math.min(targetAlpha, 0.1);
         const elapsed = performance.now() - emergeStart.current;
         targetAlpha *= Math.min(elapsed / EMERGE_DURATION, 1);
         const prev = nodeAlphas.current.get(id) ?? 0;
@@ -185,25 +232,25 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
         let scale = 1;
         if (isHovered) scale = 1.5;
         else if (isSelected || (activeId !== null && isNeighbor)) scale = 1.2;
-        const r = baseR * scale / globalScale * 4;
+        const r = baseR * scale * settingsRef.current.nodeSize / globalScale * 4;
 
         ctx.globalAlpha = alpha;
         if (isHovered || isSelected) { ctx.shadowColor = color; ctx.shadowBlur = 12 / globalScale; }
         ctx.beginPath(); ctx.arc(node.x!, node.y!, r, 0, Math.PI * 2);
         ctx.fillStyle = color; ctx.fill();
 
-        if (isSearchMatch && sq) {
+        if ((isSearchMatch && sq) || (isVerdictMatch && isVerdictActive)) {
           const pulse = 1 + Math.sin(performance.now() * 0.005) * 0.3;
           ctx.beginPath(); ctx.arc(node.x!, node.y!, r * pulse * 1.8, 0, Math.PI * 2);
           ctx.strokeStyle = color; ctx.lineWidth = 1.5 / globalScale; ctx.stroke();
         }
         ctx.shadowBlur = 0;
 
-        if (globalScale > 1.5 || isHovered || isSelected || isSearchMatch) {
+        if (settingsRef.current.showLabels && (globalScale > 1.5 || isHovered || isSelected || isSearchMatch)) {
           const fontSize = Math.max(10 / globalScale, 2);
           ctx.font = `${fontSize}px Geist Mono, monospace`;
           ctx.textAlign = "center"; ctx.textBaseline = "top";
-          ctx.fillStyle = theme === "dark" ? `rgba(240,240,240,${alpha})` : `rgba(26,26,26,${alpha})`;
+          ctx.fillStyle = themeRef.current === "dark" ? `rgba(240,240,240,${alpha})` : `rgba(26,26,26,${alpha})`;
           ctx.fillText(node.name, node.x!, node.y! + r + 2 / globalScale);
         }
         ctx.globalAlpha = 1;
@@ -237,13 +284,13 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
           else color = "#eab308";
           opacity = isActive ? (isNeighborLink ? 0.9 : 0.03) : 0.7;
         } else {
-          color = theme === "dark" ? "#ffffff" : "#000000";
+          color = themeRef.current === "dark" ? "#ffffff" : "#000000";
           opacity = isActive ? (isNeighborLink ? 0.25 : 0.02) : 0.12;
         }
 
         ctx.globalAlpha = opacity * edgeEmerge;
         ctx.strokeStyle = color;
-        ctx.lineWidth = (threat ? 1.5 : 0.5) / globalScale;
+        ctx.lineWidth = (threat ? 1.5 : 0.5) * settingsRef.current.linkThickness / globalScale;
         ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.stroke();
         ctx.globalAlpha = 1;
 
@@ -255,9 +302,9 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           const pad = 3 / globalScale;
           const m = ctx.measureText(link.label);
-          ctx.fillStyle = theme === "dark" ? "rgba(36,36,36,0.9)" : "rgba(255,255,255,0.9)";
+          ctx.fillStyle = themeRef.current === "dark" ? "rgba(36,36,36,0.9)" : "rgba(255,255,255,0.9)";
           ctx.fillRect(mx - m.width / 2 - pad, my - fontSize / 2 - pad, m.width + pad * 2, fontSize + pad * 2);
-          ctx.fillStyle = theme === "dark" ? "#f0f0f0" : "#1a1a1a";
+          ctx.fillStyle = themeRef.current === "dark" ? "#f0f0f0" : "#1a1a1a";
           ctx.fillText(link.label, mx, my);
         }
       });
@@ -277,7 +324,7 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
           if (points.length < 2) continue;
           const hull = convexHull(points);
           if (hull.length < 2) continue;
-          const color = getNodeColor(members[0].verdict);
+          const color = members[0].color || getNodeColor(members[0].verdict);
           const cx = points.reduce((s, p) => s + p.x, 0) / points.length;
           const cy = points.reduce((s, p) => s + p.y, 0) / points.length;
           ctx.globalAlpha = 0.06; ctx.fillStyle = color; ctx.beginPath();
@@ -294,7 +341,9 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
         if (node.x != null && node.y != null) { fg.centerAt(node.x, node.y, 600); fg.zoom(3, 600); }
       });
       fg.onNodeDrag((node: RuntimeNode) => { node.fx = node.x; node.fy = node.y; });
-      fg.onNodeDragEnd((node: RuntimeNode) => { node.fx = undefined; node.fy = undefined; });
+      fg.onNodeDragEnd((node: RuntimeNode) => {
+        if (!settingsRef.current.frozen) { node.fx = undefined; node.fy = undefined; }
+      });
       fg.onLinkHover((link: RuntimeLink | null) => { hoveredLinkRef.current = link; });
       fg.onBackgroundClick(() => { selectedNodeId.current = null; hoveredNodeId.current = null; });
 
@@ -312,7 +361,7 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
       }
     };
     window.addEventListener("resize", onResize);
-    const reheat = setInterval(() => fg?.d3ReheatSimulation?.(), PHYSICS.reheatInterval);
+    const reheat = setInterval(() => { if (!settingsRef.current.frozen) fg?.d3ReheatSimulation?.(); }, PHYSICS.reheatInterval);
 
     return () => {
       destroyed = true;
@@ -323,7 +372,7 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
       graphEl.remove();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, theme]);
+  }, [data]); // theme excluded — uses themeRef to avoid remount on toggle
 
   return (
     <div ref={containerRef} style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden", background: bgColor }}>
@@ -343,22 +392,23 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
         </button>
       </div>
 
-      {legendVisible && (
-        <div style={{
-          position: "absolute", bottom: 12, left: 12, display: "flex", gap: 12, padding: "6px 12px",
-          borderRadius: 6, background: theme === "dark" ? "rgba(36,36,36,0.85)" : "rgba(255,255,255,0.85)",
-          border: `1px solid ${theme === "dark" ? "#3a3a3a" : "#d4d4d4"}`, backdropFilter: "blur(8px)",
-          fontSize: 11, zIndex: 10, alignItems: "center",
-        }}>
-          {[{ color: "#ef4444", label: "Malicious" }, { color: "#eab308", label: "Suspicious" }, { color: "#22c55e", label: "Clean" }].map(({ color, label }) => (
-            <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, boxShadow: `0 0 4px ${color}` }} />
-              <span style={{ color: theme === "dark" ? "#8a8a8a" : "#6b6b6b" }}>{label}</span>
-            </div>
-          ))}
-          <button onClick={() => setLegendVisible(false)} style={{ background: "none", border: "none", color: theme === "dark" ? "#555" : "#aaa", cursor: "pointer", padding: "0 0 0 4px", fontSize: 11 }}>×</button>
-        </div>
-      )}
+      {/* Settings panel */}
+      <GraphSettingsPanel settings={graphSettings} onChange={setGraphSettings} theme={theme} />
+
+      {/* Legend (permanent) */}
+      <div style={{
+        position: "absolute", bottom: 12, left: 12, display: "flex", gap: 12, padding: "6px 12px",
+        borderRadius: 6, background: theme === "dark" ? "rgba(36,36,36,0.85)" : "rgba(255,255,255,0.85)",
+        border: `1px solid ${theme === "dark" ? "#3a3a3a" : "#d4d4d4"}`, backdropFilter: "blur(8px)",
+        fontSize: 11, zIndex: 10, alignItems: "center",
+      }}>
+        {[{ color: "#ef4444", label: "Malicious" }, { color: "#eab308", label: "Suspicious" }, { color: "#22c55e", label: "Clean" }].map(({ color, label }) => (
+          <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, boxShadow: `0 0 4px ${color}` }} />
+            <span style={{ color: theme === "dark" ? "#8a8a8a" : "#6b6b6b" }}>{label}</span>
+          </div>
+        ))}
+      </div>
 
       <div style={{
         position: "absolute", bottom: 12, right: 12, padding: "4px 10px", borderRadius: 6,

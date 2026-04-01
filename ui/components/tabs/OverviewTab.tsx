@@ -265,10 +265,10 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate, pinned
             Collapse
           </button>
         </div>
-        <div style={{ flex: 1, minHeight: 0 }}>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
           <Suspense fallback={
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
-              <span style={{ fontSize: "var(--font-size-sm)" }}>Loading 3D engine...</span>
+              <span style={{ fontSize: "var(--font-size-sm)" }}>Loading graph...</span>
             </div>
           }>
             <BatchGraph data={ksdGraph} theme={theme} />
