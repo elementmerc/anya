@@ -233,6 +233,21 @@ Before implementing anything, check:
 
 ---
 
+## Verification and testing
+
+When asked to verify, simulate, or test that something works:
+
+1. **Actually run real checks** — write test scripts, check library source code,
+   grep for actual behavior. Do not theorize about what should happen and present
+   it as verification.
+2. **If live testing is impossible** (requires a running browser/Tauri app), say so
+   explicitly and describe what you verified statically vs what needs manual testing.
+3. **If thorough testing will take significant time**, inform the user before
+   proceeding and let them decide whether to invest the time.
+4. **Never present a theoretical walkthrough as an actual test.**
+
+---
+
 ## If you are unsure about scope
 
 Ask: "This touches [X]. Is that in scope for this session?"

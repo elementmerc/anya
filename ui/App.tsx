@@ -585,15 +585,28 @@ export default function App() {
     ];
     return (
       <>
-        {tabs.filter((t) => visitedTabs.has(t.id)).map((t) => (
+        {/* Keep-alive tabs (preserve scroll/state) */}
+        {tabs.filter((t) => visitedTabs.has(t.id) && t.id !== "graph").map((t) => (
           <div
             key={t.id}
             className={t.id === activeTab ? "tab-content-enter" : undefined}
-            style={{ display: t.id === activeTab ? "block" : "none", position: "absolute", inset: 0, overflow: t.id === "graph" ? "hidden" : "auto" }}
+            style={{
+              display: t.id === activeTab ? "flex" : "none",
+              flexDirection: "column",
+              flex: 1,
+              minHeight: 0,
+              overflow: "auto",
+            }}
           >
             {t.el}
           </div>
         ))}
+        {/* Graph tab: mount/unmount (not keep-alive) so canvas gets correct dimensions on mount */}
+        {activeTab === "graph" && (
+          <div className="tab-content-enter" style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
+            {tabs.find((t) => t.id === "graph")?.el}
+          </div>
+        )}
       </>
     );
   }, [activeTab, activeResult, activeRiskScore, navigateToMitre, pinnedFindings, handlePin, theme, thresholds, mitreHighlightId, visitedTabs]);
@@ -674,7 +687,7 @@ export default function App() {
                 searchQuery={batchSearchQuery}
                 onSearchChange={setBatchSearchQuery}
               />
-              <main style={{ flex: 1, overflow: activeTab === "graph" ? "hidden" : "auto", position: "relative" }}>
+              <main style={{ flex: 1, overflow: activeTab === "graph" ? "hidden" : "auto", display: "flex", flexDirection: "column", minHeight: 0 }}>
                 {batchState.selectedIndex !== null && batchSelectedResult?.result ? (
                   <Suspense fallback={<TabFallback />}>
                     {renderTabContent()}
@@ -710,7 +723,7 @@ export default function App() {
               between 0 and 280px so the tab content naturally shrinks/grows.
             */}
             <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "row" }}>
-              <main style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+              <main style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
                 <Suspense fallback={<TabFallback />}>
                   {renderTabContent()}
                 </Suspense>

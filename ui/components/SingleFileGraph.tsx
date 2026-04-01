@@ -167,7 +167,7 @@ export default function SingleFileGraph({ result, theme }: Props) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [ForceGraph2D, setForceGraph2D] = useState<any>(null);
   const [loadError, setLoadError] = useState(false);
-  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [legendVisible, setLegendVisible] = useState(true);
 
   useEffect(() => {
@@ -176,15 +176,20 @@ export default function SingleFileGraph({ result, theme }: Props) {
       .catch(() => setLoadError(true));
   }, []);
 
+  // Resize: component remounts on tab switch, so initial size is correct.
+  // Only need to handle window resize while the tab is active.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      const { width, height } = entries[0].contentRect;
-      setDimensions({ width: Math.floor(width), height: Math.floor(height) });
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setDimensions({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
+      }
+    };
+    update(); // Initial read
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
   }, []);
 
   // Alive-when-idle
@@ -195,36 +200,15 @@ export default function SingleFileGraph({ result, theme }: Props) {
 
   const graphData = useMemo(() => buildGraphData(result), [result]);
 
-  // ── Staggered node-by-node build animation ──────────────────────────────
+  // ── Constellation emerge: graph fades in from darkness ───────────────────
 
-  const [visibleCount, setVisibleCount] = useState(0);
-  const buildTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const emergeStart = useRef(0);
+  const EMERGE_DURATION = 1500;
+  const EDGE_DELAY = 400;
 
   useEffect(() => {
-    setVisibleCount(0);
-    if (graphData.nodes.length === 0) return;
-    let count = 0;
-    buildTimerRef.current = setInterval(() => {
-      count++;
-      setVisibleCount(count);
-      if (count >= graphData.nodes.length) {
-        if (buildTimerRef.current) clearInterval(buildTimerRef.current);
-      }
-    }, 60);
-    return () => { if (buildTimerRef.current) clearInterval(buildTimerRef.current); };
+    emergeStart.current = performance.now();
   }, [graphData.nodes.length]);
-
-  const stagedData = useMemo(() => {
-    if (visibleCount >= graphData.nodes.length) return graphData;
-    const visibleNodes = graphData.nodes.slice(0, visibleCount);
-    const visibleIds = new Set(visibleNodes.map((n) => n.id));
-    const visibleLinks = graphData.links.filter((l) => {
-      const s = typeof l.source === "object" ? (l.source as EvidenceNode).id : l.source;
-      const t = typeof l.target === "object" ? (l.target as EvidenceNode).id : l.target;
-      return visibleIds.has(s) && visibleIds.has(t);
-    });
-    return { nodes: visibleNodes, links: visibleLinks };
-  }, [graphData, visibleCount]);
 
   // Neighbor sets
   const { neighborNodes, neighborLinks } = useMemo(() => {
@@ -277,10 +261,10 @@ export default function SingleFileGraph({ result, theme }: Props) {
   if (!ForceGraph2D) return <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid var(--text-muted)", borderTopColor: "transparent", animation: "spinRing 800ms linear infinite" }} /><span style={{ fontSize: "var(--font-size-sm)" }}>Loading graph engine...</span></div></div>;
 
   return (
-    <div ref={containerRef} style={{ position: "absolute", inset: 0, overflow: "hidden", background: bgColor }}>
+    <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: "hidden", background: bgColor }}>
       <ForceGraph2D
         ref={fgRef}
-        graphData={stagedData}
+        graphData={graphData}
         width={dimensions.width}
         height={dimensions.height}
         backgroundColor={bgColor}
@@ -294,8 +278,11 @@ export default function SingleFileGraph({ result, theme }: Props) {
           const isNeighbor = neighborNodes.has(node.id);
           const isHovered = node.id === hoveredNodeId;
           const isSelected = node.id === selectedNodeId;
-          const targetAlpha = isSpotlight && !isNeighbor ? 0.08 : 1;
-          const prevAlpha = nodeAlphas.current.get(node.id) ?? 1;
+          let targetAlpha = isSpotlight && !isNeighbor ? 0.08 : 1;
+          // Constellation emerge
+          const elapsed = performance.now() - emergeStart.current;
+          targetAlpha *= Math.min(elapsed / EMERGE_DURATION, 1);
+          const prevAlpha = nodeAlphas.current.get(node.id) ?? 0;
           const alpha = prevAlpha + (targetAlpha - prevAlpha) * LERP_SPEED;
           nodeAlphas.current.set(node.id, alpha);
           const scale = isHovered ? 1.5 : (isSelected || isNeighbor) ? 1.2 : 1;
@@ -332,14 +319,16 @@ export default function SingleFileGraph({ result, theme }: Props) {
           const tx = link.target.x; const ty = link.target.y;
           if (sx == null || sy == null || tx == null || ty == null) return;
 
-          const idx = stagedData.links.indexOf(link);
+          const idx = graphData.links.indexOf(link);
           const isNeighborLink = neighborLinks.has(idx);
+          const edgeElapsed = performance.now() - emergeStart.current - EDGE_DELAY;
+          const edgeEmerge = Math.max(0, Math.min(edgeElapsed / EMERGE_DURATION, 1));
           const opacity = isSpotlight ? (isNeighborLink ? 0.7 : 0.03) : 0.2;
           const color = isNeighborLink && isSpotlight
             ? (link.source.type === "ioc" || link.target.type === "ioc" ? "#ef4444" : "#a78bfa")
             : (theme === "dark" ? "#ffffff" : "#000000");
 
-          ctx.globalAlpha = opacity;
+          ctx.globalAlpha = opacity * edgeEmerge;
           ctx.strokeStyle = color;
           ctx.lineWidth = (isNeighborLink && isSpotlight ? 1.5 : 0.5) / globalScale;
           ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.stroke();

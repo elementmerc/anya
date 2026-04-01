@@ -98,7 +98,7 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [ForceGraph2D, setForceGraph2D] = useState<any>(null);
   const [loadError, setLoadError] = useState(false);
-  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [legendVisible, setLegendVisible] = useState(true);
 
   // Smooth hover transitions: lerp node alphas toward target each frame
@@ -112,16 +112,20 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
       .catch(() => setLoadError(true));
   }, []);
 
-  // Track container size
+  // Resize: component remounts on tab switch, so initial size is correct.
+  // Only need to handle window resize while the tab is active.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      const { width, height } = entries[0].contentRect;
-      setDimensions({ width: Math.floor(width), height: Math.floor(height) });
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setDimensions({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
+      }
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
   }, []);
 
   // Alive-when-idle: periodic gentle reheat
@@ -139,24 +143,14 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
     hasZoomed.current = false;
   }, [ForceGraph2D, data.nodes.length]);
 
-  // ── Staggered node-by-node build animation ──────────────────────────────
+  // ── Constellation emerge: entire graph fades in from darkness ────────────
 
-  const [visibleCount, setVisibleCount] = useState(0);
-  const buildTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const emergeStart = useRef(0);
+  const EMERGE_DURATION = 1500; // ms
+  const EDGE_DELAY = 400; // edges start fading in after nodes
 
   useEffect(() => {
-    // Reset and start building when data changes
-    setVisibleCount(0);
-    if (data.nodes.length === 0) return;
-    let count = 0;
-    buildTimerRef.current = setInterval(() => {
-      count++;
-      setVisibleCount(count);
-      if (count >= data.nodes.length) {
-        if (buildTimerRef.current) clearInterval(buildTimerRef.current);
-      }
-    }, 60);
-    return () => { if (buildTimerRef.current) clearInterval(buildTimerRef.current); };
+    emergeStart.current = performance.now();
   }, [data.nodes.length]);
 
   // ── Enhance data with mesh edges ──────────────────────────────────────────
@@ -180,20 +174,6 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
     }
     return { nodes: data.nodes, links: [...data.links, ...meshLinks] };
   }, [data]);
-
-  // ── Stage data: only show visibleCount nodes + their edges ────────────────
-
-  const stagedData = useMemo(() => {
-    if (visibleCount >= enhancedData.nodes.length) return enhancedData;
-    const visibleNodes = enhancedData.nodes.slice(0, visibleCount);
-    const visibleIds = new Set(visibleNodes.map((n) => n.id));
-    const visibleLinks = enhancedData.links.filter((l) => {
-      const s = typeof l.source === "object" ? (l.source as GraphNode).id : l.source as number;
-      const t = typeof l.target === "object" ? (l.target as GraphNode).id : l.target as number;
-      return visibleIds.has(s) && visibleIds.has(t);
-    });
-    return { nodes: visibleNodes, links: visibleLinks };
-  }, [enhancedData, visibleCount]);
 
   // ── Precompute node degrees ───────────────────────────────────────────────
 
@@ -328,10 +308,10 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
   }
 
   return (
-    <div ref={containerRef} style={{ position: "absolute", inset: 0, overflow: "hidden", background: bgColor }}>
+    <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: "hidden", background: bgColor, position: "relative" }}>
       <ForceGraph2D
         ref={fgRef}
-        graphData={stagedData}
+        graphData={enhancedData}
         width={dimensions.width}
         height={dimensions.height}
         backgroundColor={bgColor}
@@ -363,8 +343,13 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
           else if (isSelected || isNeighbor) scale = 1.2;
           if (searchMatches && !isSearchMatch) targetAlpha = Math.min(targetAlpha, 0.3);
 
+          // Constellation emerge: clamp target alpha by global emerge progress
+          const elapsed = performance.now() - emergeStart.current;
+          const emergeAlpha = Math.min(elapsed / EMERGE_DURATION, 1);
+          targetAlpha *= emergeAlpha;
+
           // Lerp alpha for smooth transitions
-          const prevAlpha = nodeAlphas.current.get(id) ?? 1;
+          const prevAlpha = nodeAlphas.current.get(id) ?? 0;
           const alpha = prevAlpha + (targetAlpha - prevAlpha) * LERP_SPEED;
           nodeAlphas.current.set(id, alpha);
 
@@ -423,11 +408,14 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
           const ty = link.target.y;
           if (sx == null || sy == null || tx == null || ty == null) return;
 
-          const idx = stagedData.links.indexOf(link);
+          const idx = enhancedData.links.indexOf(link);
           const isThreat = isThreatEdge(link);
           const isNeighborLink = neighborLinks.has(idx);
 
           // Edge color and opacity
+          const edgeElapsed = performance.now() - emergeStart.current - EDGE_DELAY;
+          const edgeEmerge = Math.max(0, Math.min(edgeElapsed / EMERGE_DURATION, 1));
+
           let opacity: number;
           let color: string;
           if (isThreat) {
@@ -441,7 +429,7 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Pr
             opacity = isSpotlight ? (isNeighborLink ? 0.25 : 0.02) : 0.12;
           }
 
-          ctx.globalAlpha = opacity;
+          ctx.globalAlpha = opacity * edgeEmerge;
           ctx.strokeStyle = color;
           ctx.lineWidth = (isThreat ? 1.5 : 0.5) / globalScale;
           ctx.beginPath();
