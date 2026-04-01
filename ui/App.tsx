@@ -9,7 +9,8 @@ import { useFontSize } from "@/hooks/useFontSize";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { TeacherModeContext, type TeacherModeContextValue, type TeacherFocusItem } from "@/hooks/useTeacherMode";
 import { loadTeacherSettings, saveTeacherSettings, loadSettings, saveSettingsToDb, isGuidedTourCompleted, markGuidedTourCompleted } from "@/lib/db";
-import { getThresholds, openFolderPicker, openFilePicker, analyzeDirectory, onBatchStarted, onBatchFileResult, onBatchComplete, pollDirectory, exportJson, saveJsonPicker, onFileDrop } from "@/lib/tauri-bridge";
+import { getThresholds, openFolderPicker, openFilePicker, analyzeDirectory, onBatchStarted, onBatchFileResult, onBatchComplete, pollDirectory, exportJson, saveJsonPicker, onFileDrop, getBatchGraphData } from "@/lib/tauri-bridge";
+import type { GraphData } from "@/types/analysis";
 import { BibleVerseBar } from "@/components/BibleVerseBar";
 import { ToastProvider } from "@/components/Toast";
 import DropZone from "@/components/DropZone";
@@ -41,6 +42,8 @@ const StringsTab   = lazy(() => import("@/components/tabs/StringsTab"));
 const SecurityTab  = lazy(() => import("@/components/tabs/SecurityTab"));
 const MitreTab     = lazy(() => import("@/components/tabs/MitreTab"));
 const FormatAnalysisTab = lazy(() => import("@/components/tabs/FormatAnalysisTab"));
+const BatchGraph = lazy(() => import("@/components/BatchGraph"));
+const SingleFileGraph = lazy(() => import("@/components/SingleFileGraph"));
 
 function TabFallback() {
   return (
@@ -71,6 +74,9 @@ function tabHasBadge(id: TabName, result: AnalysisResult | null): boolean {
     result.lnk_analysis?.has_suspicious_target ||
     result.iso_analysis?.has_autorun
   );
+  // Graph badge: 3+ suspicious APIs or classified strings
+  if (id === "graph") return (result.pe_analysis?.imports?.suspicious_api_count ?? 0) >= 3
+    || (result.strings?.classified?.filter((s) => s.category !== "Plain")?.length ?? 0) >= 3;
   // MITRE badges work for all file types
   if (id === "mitre") return (result.mitre_techniques?.length ?? 0) > 0;
   // Security tab: YARA matches badge for all file types
@@ -111,6 +117,8 @@ export default function App() {
   });
 
   const [batchState, setBatchState] = useState<BatchState>(INITIAL_BATCH);
+  const [batchGraphData, setBatchGraphData] = useState<GraphData>({ nodes: [], links: [] });
+  const [batchSearchQuery, setBatchSearchQuery] = useState(""); // passed to BatchSidebar + BatchGraph
 
   // ── Guided tour (first analysis) ──────────────────────────────────────────
   const [showTour, setShowTour] = useState(false);
@@ -169,7 +177,8 @@ export default function App() {
       isRunning: true,
       batchId: id,
     });
-    setActiveTab("overview");
+    setActiveTab("graph");
+    setTabOrder((prev) => prev.includes("graph") ? prev : [...prev, "graph"]);
     void analyzeDirectory(folder, false, id);
   }, [reset]);
 
@@ -235,6 +244,14 @@ export default function App() {
 
     return () => { unlisteners.forEach((u) => u()); };
   }, [batchState.active, batchState.batchId]);
+
+  // Load batch graph data when results change
+  useEffect(() => {
+    if (!batchState.active || batchState.results.length < 2) return;
+    getBatchGraphData(batchState.results.map((r) => r.filePath))
+      .then(setBatchGraphData)
+      .catch(() => {});
+  }, [batchState.active, batchState.results.length]);
 
   // Poll directory for file changes every 5 seconds when batch is idle
   useEffect(() => {
@@ -415,7 +432,8 @@ export default function App() {
       isRunning: true,
       batchId: id,
     });
-    setActiveTab("overview");
+    setActiveTab("graph");
+    setTabOrder((prev) => prev.includes("graph") ? prev : [...prev, "graph"]);
     await analyzeDirectory(folder, false, id);
   }, [reset]);
 
@@ -479,7 +497,7 @@ export default function App() {
         result.pdf_analysis || result.office_analysis
       );
       setTabOrder((prev) => {
-        let tabs: TabName[] = prev.filter((t) => t !== "identity" && t !== "format");
+        let tabs: TabName[] = prev.filter((t) => t !== "identity" && t !== "format" && t !== "graph");
         if (hasIdentity) {
           const idx = tabs.indexOf("overview");
           tabs = [...tabs.slice(0, idx + 1), "identity" as TabName, ...tabs.slice(idx + 1)];
@@ -492,6 +510,8 @@ export default function App() {
             tabs.push("format");
           }
         }
+        // Graph tab always available — placed after MITRE
+        tabs.push("graph");
         return tabs;
       });
     }
@@ -561,6 +581,7 @@ export default function App() {
       { id: "security",  el: <SecurityTab  result={activeResult} packedEntropy={thresholds.packed_entropy} /> },
       { id: "format",    el: <FormatAnalysisTab result={activeResult} /> },
       { id: "mitre",     el: <MitreTab     result={activeResult} highlightId={mitreHighlightId} onPin={handlePin} /> },
+      { id: "graph",     el: <SingleFileGraph result={activeResult} theme={theme} /> },
     ];
     return (
       <>
@@ -568,7 +589,7 @@ export default function App() {
           <div
             key={t.id}
             className={t.id === activeTab ? "tab-content-enter" : undefined}
-            style={{ display: t.id === activeTab ? "block" : "none", height: "100%", overflow: "auto" }}
+            style={{ display: t.id === activeTab ? "block" : "none", position: "absolute", inset: 0, overflow: t.id === "graph" ? "hidden" : "auto" }}
           >
             {t.el}
           </div>
@@ -639,7 +660,7 @@ export default function App() {
               active={activeTab}
               onChange={setActiveTab}
               badges={(id) => tabHasBadge(id, activeResult)}
-              disabled={batchState.selectedIndex === null}
+              disabled={batchState.selectedIndex === null && activeTab !== "graph"}
               tabOrder={tabOrder}
               onTabOrderChange={setTabOrder}
             />
@@ -650,14 +671,25 @@ export default function App() {
                 onDeselectFile={() => setBatchState((prev) => ({ ...prev, selectedIndex: null }))}
                 onToggleRecursive={handleToggleRecursive}
                 onToggleCollapse={() => setBatchState((prev) => ({ ...prev, sidebarCollapsed: !prev.sidebarCollapsed }))}
+                searchQuery={batchSearchQuery}
+                onSearchChange={setBatchSearchQuery}
               />
-              <main style={{ flex: 1, overflow: "auto", position: "relative" }}>
+              <main style={{ flex: 1, overflow: activeTab === "graph" ? "hidden" : "auto", position: "relative" }}>
                 {batchState.selectedIndex !== null && batchSelectedResult?.result ? (
                   <Suspense fallback={<TabFallback />}>
                     {renderTabContent()}
                   </Suspense>
+                ) : activeTab === "graph" ? (
+                  <Suspense fallback={<TabFallback />}>
+                    <BatchGraph
+                      data={batchGraphData}
+                      theme={theme}
+                      onNodeClick={(idx) => setBatchState((prev) => ({ ...prev, selectedIndex: idx }))}
+                      searchQuery={batchSearchQuery}
+                    />
+                  </Suspense>
                 ) : (
-                  <BatchDashboard state={batchState} theme={theme} onNodeClick={(idx) => setBatchState((prev) => ({ ...prev, selectedIndex: prev.selectedIndex === idx ? null : idx }))} />
+                  <BatchDashboard state={batchState} />
                 )}
               </main>
               <TeacherSidebar />

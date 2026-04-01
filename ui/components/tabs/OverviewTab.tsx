@@ -496,7 +496,7 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate, pinned
                     <span style={{ fontSize: "var(--font-size-xs)" }}>Loading...</span>
                   </div>
                 }>
-                  <BatchGraph data={ksdGraph} theme={theme} compact />
+                  <BatchGraph data={ksdGraph} theme={theme} />
                 </Suspense>
               </div>
             </div>

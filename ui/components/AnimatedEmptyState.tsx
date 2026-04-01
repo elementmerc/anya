@@ -9,17 +9,18 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 
 interface Props {
-  icon: "shield" | "branch" | "activity" | "layers" | "align" | "crosshair" | "file-search";
+  icon: "shield" | "branch" | "activity" | "layers" | "align" | "crosshair" | "file-search" | "network";
   title: string;
   subtitle?: string;
 }
 
 // Each SVG element from the lucide source, verbatim.
-// "type" maps to the SVG element tag (path, circle, line).
+// "type" maps to the SVG element tag (path, circle, line, rect).
 type SvgEl =
   | { type: "path"; d: string }
   | { type: "circle"; cx: number; cy: number; r: number }
-  | { type: "line"; x1: number; y1: number; x2: number; y2: number };
+  | { type: "line"; x1: number; y1: number; x2: number; y2: number }
+  | { type: "rect"; x: number; y: number; width: number; height: number; rx?: number };
 
 // Decorative accent strokes drawn outside the icon bounds
 type AccentEl = { d: string; approxLen: number; delay: number };
@@ -153,12 +154,30 @@ const ICONS: Record<Props["icon"], IconDef> = {
       { d: "M4 7 L20 7", approxLen: 16, delay: 0.45 },
     ],
   },
+
+  network: {
+    color: "#34d399",
+    els: [
+      { type: "rect", x: 16, y: 16, width: 6, height: 6, rx: 1 },
+      { type: "rect", x: 2, y: 16, width: 6, height: 6, rx: 1 },
+      { type: "rect", x: 9, y: 2, width: 6, height: 6, rx: 1 },
+      { type: "path", d: "M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" },
+      { type: "path", d: "M12 12V8" },
+    ],
+    accents: [
+      { d: "M12 -0.5 L12 1", approxLen: 1.5, delay: 0.5 },
+      { d: "M-0.5 19 L1 19", approxLen: 1.5, delay: 0.55 },
+      { d: "M23 19 L24.5 19", approxLen: 1.5, delay: 0.6 },
+      { d: "M0.5 14 A3 3 0 0 1 0.5 22", approxLen: 10, delay: 0.65 },
+      { d: "M23.5 14 A3 3 0 0 0 23.5 22", approxLen: 10, delay: 0.7 },
+    ],
+  },
 };
 
 // ── Animated SVG element — measures its own stroke length on mount ───────────
 
 function AnimatedEl({ el, color, delay }: { el: SvgEl; color: string; delay: number }) {
-  const ref = useRef<SVGPathElement | SVGCircleElement | SVGLineElement>(null);
+  const ref = useRef<SVGPathElement | SVGCircleElement | SVGLineElement | SVGRectElement>(null);
   const [len, setLen] = useState<number | null>(null);
 
   useEffect(() => {
@@ -191,6 +210,8 @@ function AnimatedEl({ el, color, delay }: { el: SvgEl; color: string; delay: num
       return <circle cx={el.cx} cy={el.cy} r={el.r} {...common} />;
     case "line":
       return <line x1={el.x1} y1={el.y1} x2={el.x2} y2={el.y2} {...common} />;
+    case "rect":
+      return <rect x={el.x} y={el.y} width={el.width} height={el.height} rx={el.rx} {...common} />;
   }
 }
 

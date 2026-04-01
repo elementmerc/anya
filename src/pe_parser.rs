@@ -257,6 +257,7 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
                 name: name.to_string(),
                 category: categorize_api(name).to_string(),
                 confidence: None, // assigned below
+                dll: Some(import.dll.to_string()),
             });
         }
     }
@@ -276,6 +277,7 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
                         name: name.clone(),
                         category: categorize_api(name).to_string(),
                         confidence: Some(output::ConfidenceLevel::Low),
+                        dll: None, // raw scan — DLL unknown
                     });
                 }
             }

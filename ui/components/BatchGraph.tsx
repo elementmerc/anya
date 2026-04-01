@@ -1,80 +1,114 @@
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { Network, RotateCcw } from "lucide-react";
-import type { GraphData, GraphNode, GraphLink } from "@/types/analysis";
+/**
+ * BatchGraph — Obsidian-style 2D force-directed relationship graph.
+ *
+ * Visualizes TLSH similarity between batch-analysed files. Uses canvas 2D
+ * rendering via react-force-graph-2d with custom nodeCanvasObject for glow,
+ * hover spotlight, cluster halos, and search highlighting.
+ *
+ * Beyond-Obsidian features: edge labels on hover, threat path tracing,
+ * cluster halos by malware family, minimap, and search-to-highlight.
+ */
 
-// ── Types ────────────────────────────────────────────────────────────────────
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { RotateCcw } from "lucide-react";
+import type { GraphData, GraphNode, GraphLink } from "@/types/analysis";
+import AnimatedEmptyState from "@/components/AnimatedEmptyState";
+
+// ── Props ───────────────────────────────────────────────────────────────────
 
 interface Props {
-  /** Graph data from the backend IPC command */
   data: GraphData;
-  /** Current theme — needed for Three.js scene colors */
   theme: "dark" | "light";
-  /** Called when user clicks a node (file index in batch mode) */
   onNodeClick?: (nodeId: number) => void;
-  /** Compact mode for embedding in OverviewTab */
-  compact?: boolean;
+  searchQuery?: string;
 }
 
-interface HoveredNode {
-  node: GraphNode;
-  x: number;
-  y: number;
-}
+// ── Verdict colour mapping ──────────────────────────────────────────────────
 
-// ── Verdict colour mapping ───────────────────────────────────────────────────
-
-const VERDICT_GLOW: Record<string, string> = {
+const VERDICT_COLORS: Record<string, string> = {
   MALICIOUS:  "#ef4444",
   SUSPICIOUS: "#eab308",
   CLEAN:      "#22c55e",
   UNKNOWN:    "#6b7280",
 };
 
-function getNodeGlow(verdict: string): string {
-  for (const [key, color] of Object.entries(VERDICT_GLOW)) {
+function getNodeColor(verdict: string): string {
+  for (const [key, color] of Object.entries(VERDICT_COLORS)) {
     if (verdict.toUpperCase().includes(key)) return color;
   }
-  return "#6b7280";
-}
-
-// ── Edge colour based on relationship strength ───────────────────────────────
-
-function getEdgeColor(link: GraphLink, theme: "dark" | "light"): string {
-  // Threat edges: red for near-identical/similar, yellow for same family
-  if (link.label === "near-identical") return "rgba(239, 68, 68, 0.7)";
-  if (link.label === "similar") return "rgba(239, 68, 68, 0.5)";
-  if (link.label?.startsWith("same family")) return "rgba(234, 179, 8, 0.6)";
-  if (link.label === "related") return "rgba(234, 179, 8, 0.3)";
-  // Neutral mesh edges
-  if (theme === "dark") return "rgba(255, 255, 255, 0.04)";
-  return "rgba(0, 0, 0, 0.06)";
+  return "#22c55e";
 }
 
 function isThreatEdge(link: GraphLink): boolean {
   return link.strength > 0 && link.label !== "mesh";
 }
 
-// react-force-graph-3d wraps our types at runtime with x/y/z coords.
-// Its generic types are deeply nested — use any for callback params.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type FgInstance = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type RuntimeNode = GraphNode & { x?: number; y?: number; fx?: number; fy?: number; __degree?: number };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type RuntimeLink = GraphLink & { source: any; target: any };
 
-// ── Graph component ──────────────────────────────────────────────────────────
+// ── Shared Obsidian-style physics constants ─────────────────────────────────
 
-export default function BatchGraph({ data, theme, onNodeClick, compact }: Props) {
+const PHYSICS = {
+  alphaDecay: 0.008,
+  alphaMin: 0.001,
+  velocityDecay: 0.35,
+  warmupTicks: 0,
+  cooldownTicks: 999999,
+  chargeStrength: -200,
+  linkDistance: 40,
+  centerStrength: 0.05,
+  reheatAlpha: 0.015,
+  reheatInterval: 4000,
+};
+
+// ── Convex hull for cluster halos ───────────────────────────────────────────
+
+function convexHull(points: { x: number; y: number }[]): { x: number; y: number }[] {
+  if (points.length < 3) return points;
+  const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  const cross = (o: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower: { x: number; y: number }[] = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper: { x: number; y: number }[] = [];
+  for (const p of sorted.reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+// ── Component ───────────────────────────────────────────────────────────────
+
+export default function BatchGraph({ data, theme, onNodeClick, searchQuery }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<FgInstance>(null);
-  const [hoveredNode, setHoveredNode] = useState<HoveredNode | null>(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState<number | null>(null);
+  const [hoveredLink, setHoveredLink] = useState<RuntimeLink | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [ForceGraph3D, setForceGraph3D] = useState<any>(null);
+  const [ForceGraph2D, setForceGraph2D] = useState<any>(null);
   const [loadError, setLoadError] = useState(false);
-  const [dimensions, setDimensions] = useState({ width: 600, height: 400 });
+  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [legendVisible, setLegendVisible] = useState(true);
 
-  // Lazy-load react-force-graph-3d
+  // Smooth hover transitions: lerp node alphas toward target each frame
+  const nodeAlphas = useRef(new Map<number, number>());
+  const LERP_SPEED = 0.15; // ~150ms to reach target at 60fps
+
+  // Lazy-load react-force-graph-2d
   useEffect(() => {
-    import("react-force-graph-3d")
-      .then((mod) => setForceGraph3D(() => mod.default))
+    import("react-force-graph-2d")
+      .then((mod) => setForceGraph2D(() => mod.default))
       .catch(() => setLoadError(true));
   }, []);
 
@@ -90,10 +124,43 @@ export default function BatchGraph({ data, theme, onNodeClick, compact }: Props)
     return () => observer.disconnect();
   }, []);
 
-  // Scene colours
-  const bgColor = theme === "dark" ? "#1a1a1a" : "#f5f5f5";
+  // Alive-when-idle: periodic gentle reheat
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fgRef.current?.d3ReheatSimulation?.();
+    }, PHYSICS.reheatInterval);
+    return () => clearInterval(interval);
+  }, []);
 
-  // Enhance graph data with mesh edges (Obsidian-style constellation)
+  // Zoom-to-fit after initial settle
+  const hasZoomed = useRef(false);
+  useEffect(() => {
+    if (!ForceGraph2D || data.nodes.length === 0) return;
+    hasZoomed.current = false;
+  }, [ForceGraph2D, data.nodes.length]);
+
+  // ── Staggered node-by-node build animation ──────────────────────────────
+
+  const [visibleCount, setVisibleCount] = useState(0);
+  const buildTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    // Reset and start building when data changes
+    setVisibleCount(0);
+    if (data.nodes.length === 0) return;
+    let count = 0;
+    buildTimerRef.current = setInterval(() => {
+      count++;
+      setVisibleCount(count);
+      if (count >= data.nodes.length) {
+        if (buildTimerRef.current) clearInterval(buildTimerRef.current);
+      }
+    }, 60);
+    return () => { if (buildTimerRef.current) clearInterval(buildTimerRef.current); };
+  }, [data.nodes.length]);
+
+  // ── Enhance data with mesh edges ──────────────────────────────────────────
+
   const enhancedData = useMemo<GraphData>(() => {
     const existingEdges = new Set(
       data.links.map((l) => {
@@ -102,361 +169,423 @@ export default function BatchGraph({ data, theme, onNodeClick, compact }: Props)
         return `${Math.min(s as number, t as number)}-${Math.max(s as number, t as number)}`;
       })
     );
-
     const meshLinks: GraphLink[] = [];
-    // Connect each node to its 2-3 nearest neighbors (by index proximity) for mesh
     for (let i = 0; i < data.nodes.length; i++) {
       for (let j = i + 1; j <= Math.min(i + 3, data.nodes.length - 1); j++) {
         const key = `${data.nodes[i].id}-${data.nodes[j].id}`;
         if (!existingEdges.has(key)) {
-          meshLinks.push({
-            source: data.nodes[i].id,
-            target: data.nodes[j].id,
-            distance: 200,
-            strength: 0,
-            label: "mesh",
-          });
+          meshLinks.push({ source: data.nodes[i].id, target: data.nodes[j].id, distance: 200, strength: 0, label: "mesh" });
         }
       }
     }
-
-    return {
-      nodes: data.nodes,
-      links: [...data.links, ...meshLinks],
-    };
+    return { nodes: data.nodes, links: [...data.links, ...meshLinks] };
   }, [data]);
 
-  // Node hover — react-force-graph-3d passes (node, prevNode), no MouseEvent
-  // We track mouse position separately for the tooltip
-  const mousePos = useRef({ x: 0, y: 0 });
-  useEffect(() => {
-    const handler = (e: MouseEvent) => { mousePos.current = { x: e.clientX, y: e.clientY }; };
-    window.addEventListener("mousemove", handler, { passive: true });
-    return () => window.removeEventListener("mousemove", handler);
-  }, []);
+  // ── Stage data: only show visibleCount nodes + their edges ────────────────
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleNodeHover = useCallback((node: any) => {
-    if (node) {
-      setHoveredNode({ node: node as GraphNode, x: mousePos.current.x, y: mousePos.current.y });
-    } else {
-      setHoveredNode(null);
+  const stagedData = useMemo(() => {
+    if (visibleCount >= enhancedData.nodes.length) return enhancedData;
+    const visibleNodes = enhancedData.nodes.slice(0, visibleCount);
+    const visibleIds = new Set(visibleNodes.map((n) => n.id));
+    const visibleLinks = enhancedData.links.filter((l) => {
+      const s = typeof l.source === "object" ? (l.source as GraphNode).id : l.source as number;
+      const t = typeof l.target === "object" ? (l.target as GraphNode).id : l.target as number;
+      return visibleIds.has(s) && visibleIds.has(t);
+    });
+    return { nodes: visibleNodes, links: visibleLinks };
+  }, [enhancedData, visibleCount]);
+
+  // ── Precompute node degrees ───────────────────────────────────────────────
+
+  const nodeDegrees = useMemo(() => {
+    const deg = new Map<number, number>();
+    for (const link of enhancedData.links) {
+      const s = typeof link.source === "object" ? (link.source as GraphNode).id : link.source as number;
+      const t = typeof link.target === "object" ? (link.target as GraphNode).id : link.target as number;
+      deg.set(s, (deg.get(s) ?? 0) + 1);
+      deg.set(t, (deg.get(t) ?? 0) + 1);
     }
-    if (containerRef.current) {
-      containerRef.current.style.cursor = node ? "pointer" : "grab";
-    }
-  }, []);
+    return deg;
+  }, [enhancedData]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleNodeClick = useCallback((node: any) => {
-    const n = node as GraphNode & { x?: number; y?: number; z?: number };
-    setSelectedNodeId((prev) => (prev === n.id ? null : n.id));
-    onNodeClick?.(n.id);
+  // ── Neighbor sets for hover spotlight ──────────────────────────────────────
 
-    // Zoom to node
-    const fg = fgRef.current;
-    if (fg?.cameraPosition && n.x !== undefined && n.y !== undefined && n.z !== undefined) {
-      const distance = 120;
-      fg.cameraPosition(
-        { x: n.x, y: n.y, z: (n.z ?? 0) + distance },
-        { x: n.x, y: n.y, z: n.z },
-        1000,
-      );
-    }
-  }, [onNodeClick]);
-
-  // Highlight connected nodes/links when a node is selected
-  const { highlightNodes, highlightLinks } = useMemo(() => {
+  const { neighborNodes, neighborLinks } = useMemo(() => {
     const nodes = new Set<number>();
     const links = new Set<number>();
-    if (selectedNodeId !== null) {
-      nodes.add(selectedNodeId);
-      data.links.forEach((link, i) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const src = typeof link.source === "object" ? (link.source as any).id : link.source;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const tgt = typeof link.target === "object" ? (link.target as any).id : link.target;
-        if (src === selectedNodeId || tgt === selectedNodeId) {
+    const activeId = hoveredNodeId ?? selectedNodeId;
+    if (activeId !== null) {
+      nodes.add(activeId);
+      enhancedData.links.forEach((link, i) => {
+        const s = typeof link.source === "object" ? (link.source as RuntimeNode).id : link.source as number;
+        const t = typeof link.target === "object" ? (link.target as RuntimeNode).id : link.target as number;
+        if (s === activeId || t === activeId) {
           links.add(i);
-          nodes.add(src as number);
-          nodes.add(tgt as number);
+          nodes.add(s);
+          nodes.add(t);
         }
       });
     }
-    return { highlightNodes: nodes, highlightLinks: links };
-  }, [selectedNodeId, data.links]);
+    return { neighborNodes: nodes, neighborLinks: links };
+  }, [hoveredNodeId, selectedNodeId, enhancedData.links]);
 
-  // Camera controls
-  const resetCamera = useCallback(() => {
-    const fg = fgRef.current;
-    if (fg?.zoomToFit) {
-      fg.zoomToFit(400, 60);
+  // ── Cluster halos (group by family) ───────────────────────────────────────
+
+  const familyClusters = useMemo(() => {
+    const families = new Map<string, GraphNode[]>();
+    for (const node of data.nodes) {
+      if (node.family) {
+        const arr = families.get(node.family) ?? [];
+        arr.push(node);
+        families.set(node.family, arr);
+      }
     }
-    setSelectedNodeId(null);
+    // Only clusters with 2+ members
+    return Array.from(families.entries()).filter(([, nodes]) => nodes.length >= 2);
+  }, [data.nodes]);
+
+  // ── Search matching ───────────────────────────────────────────────────────
+
+  const searchMatches = useMemo(() => {
+    if (!searchQuery?.trim()) return null;
+    const q = searchQuery.toLowerCase();
+    return new Set(data.nodes.filter((n) => n.name.toLowerCase().includes(q)).map((n) => n.id));
+  }, [searchQuery, data.nodes]);
+
+  // ── Interaction handlers ──────────────────────────────────────────────────
+
+  const handleNodeHover = useCallback((node: RuntimeNode | null) => {
+    setHoveredNodeId(node?.id ?? null);
+    if (containerRef.current) containerRef.current.style.cursor = node ? "pointer" : "grab";
   }, []);
 
-  // Empty state
-  if (data.nodes.length === 0) {
-    return (
-      <div
-        style={{
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexDirection: "column",
-          gap: 12,
-          color: "var(--text-muted)",
-        }}
-      >
-        <Network size={32} style={{ opacity: 0.4 }} />
-        <p style={{ fontSize: "var(--font-size-sm)", margin: 0 }}>No relationship data available</p>
-      </div>
-    );
-  }
+  const handleNodeClick = useCallback((node: RuntimeNode) => {
+    setSelectedNodeId((prev) => (prev === node.id ? null : node.id));
+    onNodeClick?.(node.id);
+    const fg = fgRef.current;
+    if (fg?.centerAt && node.x !== undefined && node.y !== undefined) {
+      fg.centerAt(node.x, node.y, 600);
+      fg.zoom(3, 600);
+    }
+  }, [onNodeClick]);
 
-  // Loading / error state for Three.js
+  const handleNodeDrag = useCallback((node: RuntimeNode) => {
+    node.fx = node.x;
+    node.fy = node.y;
+  }, []);
+
+  const handleNodeDragEnd = useCallback((node: RuntimeNode) => {
+    node.fx = undefined;
+    node.fy = undefined;
+  }, []);
+
+  const handleLinkHover = useCallback((link: RuntimeLink | null) => {
+    setHoveredLink(link);
+  }, []);
+
+  const resetCamera = useCallback(() => {
+    fgRef.current?.zoomToFit?.(400, 60);
+    setSelectedNodeId(null);
+    setHoveredNodeId(null);
+  }, []);
+
+  // ── Render timing for search pulse ────────────────────────────────────────
+  const animFrame = useRef(0);
+  useEffect(() => {
+    if (!searchMatches) return;
+    let running = true;
+    const tick = () => { animFrame.current++; if (running) requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+    return () => { running = false; };
+  }, [searchMatches]);
+
+  // ── Scene colours ─────────────────────────────────────────────────────────
+
+  const bgColor = theme === "dark" ? "#1a1a1a" : "#f5f5f5";
+  const isSpotlight = hoveredNodeId !== null || selectedNodeId !== null;
+
+  // ── Empty / loading / error states ────────────────────────────────────────
+
+  if (data.nodes.length === 0) {
+    return <AnimatedEmptyState icon="network" title="No relationship data yet" subtitle="Files will appear as they're analysed. TLSH similarity edges connect related files." />;
+  }
   if (loadError) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
-        <p style={{ fontSize: "var(--font-size-sm)" }}>3D graph unavailable. Run <code style={{ fontFamily: "var(--font-mono)" }}>npm install</code> to enable.</p>
+        <p style={{ fontSize: "var(--font-size-sm)" }}>2D graph unavailable.</p>
       </div>
     );
   }
-
-  if (!ForceGraph3D) {
+  if (!ForceGraph2D) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div
-            style={{
-              width: 16, height: 16, borderRadius: "50%",
-              border: "2px solid var(--text-muted)", borderTopColor: "transparent",
-              animation: "spinRing 800ms linear infinite",
-            }}
-          />
-          <span style={{ fontSize: "var(--font-size-sm)" }}>Loading 3D engine...</span>
+          <div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid var(--text-muted)", borderTopColor: "transparent", animation: "spinRing 800ms linear infinite" }} />
+          <span style={{ fontSize: "var(--font-size-sm)" }}>Loading graph engine...</span>
         </div>
       </div>
     );
   }
 
-  const graphHeight = compact ? Math.min(dimensions.height, 300) : dimensions.height;
-
   return (
-    <div
-      ref={containerRef}
-      style={{
-        position: "relative",
-        width: "100%",
-        height: "100%",
-        minHeight: compact ? 250 : 400,
-        overflow: "hidden",
-        borderRadius: "var(--radius)",
-        background: bgColor,
-      }}
-    >
-      {/* 3D Graph */}
-      <ForceGraph3D
+    <div ref={containerRef} style={{ position: "absolute", inset: 0, overflow: "hidden", background: bgColor }}>
+      <ForceGraph2D
         ref={fgRef}
-        graphData={enhancedData}
+        graphData={stagedData}
         width={dimensions.width}
-        height={graphHeight}
+        height={dimensions.height}
         backgroundColor={bgColor}
-        nodeLabel=""
-        nodeVal={(node: GraphNode) =>
-          selectedNodeId !== null && highlightNodes.has(node.id) ? 2.5 : node.val || 1.2
-        }
-        nodeColor={(node: GraphNode) => {
-          if (selectedNodeId !== null && !highlightNodes.has(node.id)) {
-            return theme === "dark" ? "#333333" : "#cccccc";
+
+        // ── Obsidian physics ────────────────────────────────────────
+        d3AlphaDecay={PHYSICS.alphaDecay}
+        d3AlphaMin={PHYSICS.alphaMin}
+        d3VelocityDecay={PHYSICS.velocityDecay}
+        warmupTicks={PHYSICS.warmupTicks}
+        cooldownTicks={PHYSICS.cooldownTicks}
+
+        // ── Node rendering (canvas) ─────────────────────────────────
+        nodeCanvasObject={(node: RuntimeNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
+          const id = node.id;
+          const color = getNodeColor(node.verdict);
+          const degree = nodeDegrees.get(id) ?? 0;
+          const baseR = 3 + Math.sqrt(degree) * 1.5;
+
+          // Spotlight logic with smooth alpha interpolation
+          const isNeighbor = neighborNodes.has(id);
+          const isHovered = id === hoveredNodeId;
+          const isSelected = id === selectedNodeId;
+          const isSearchMatch = searchMatches?.has(id) ?? false;
+
+          let targetAlpha = 1;
+          let scale = 1;
+          if (isSpotlight && !isNeighbor) targetAlpha = 0.08;
+          if (isHovered) scale = 1.5;
+          else if (isSelected || isNeighbor) scale = 1.2;
+          if (searchMatches && !isSearchMatch) targetAlpha = Math.min(targetAlpha, 0.3);
+
+          // Lerp alpha for smooth transitions
+          const prevAlpha = nodeAlphas.current.get(id) ?? 1;
+          const alpha = prevAlpha + (targetAlpha - prevAlpha) * LERP_SPEED;
+          nodeAlphas.current.set(id, alpha);
+
+          const r = baseR * scale / globalScale * 4;
+          ctx.globalAlpha = alpha;
+
+          // Glow on hover/selected
+          if (isHovered || isSelected) {
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 12 / globalScale;
           }
-          return node.color;
+
+          // Node circle
+          ctx.beginPath();
+          ctx.arc(node.x!, node.y!, r, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.fill();
+
+          // Search pulse ring
+          if (isSearchMatch && searchMatches) {
+            const pulse = 1 + Math.sin(animFrame.current * 0.08) * 0.3;
+            ctx.beginPath();
+            ctx.arc(node.x!, node.y!, r * pulse * 1.8, 0, Math.PI * 2);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1.5 / globalScale;
+            ctx.stroke();
+          }
+
+          ctx.shadowBlur = 0;
+          ctx.globalAlpha = 1;
+
+          // Label (show when zoomed in enough or node is interacted with)
+          if (globalScale > 1.5 || isHovered || isSelected || isSearchMatch) {
+            const fontSize = Math.max(10 / globalScale, 2);
+            ctx.font = `${fontSize}px Geist Mono, monospace`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            ctx.fillStyle = theme === "dark" ? `rgba(240,240,240,${alpha})` : `rgba(26,26,26,${alpha})`;
+            ctx.fillText(node.name, node.x!, node.y! + r + 2 / globalScale);
+          }
         }}
-        nodeOpacity={0.9}
-        nodeResolution={20}
-        linkWidth={(link: GraphLink) => {
-          if (!isThreatEdge(link)) return 0.2;
-          const i = enhancedData.links.indexOf(link);
-          if (selectedNodeId !== null && !highlightLinks.has(i)) return 0.15;
-          return Math.max(0.8, link.strength * 4);
+        nodePointerAreaPaint={(node: RuntimeNode, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
+          const degree = nodeDegrees.get(node.id) ?? 0;
+          const r = (3 + Math.sqrt(degree) * 1.5) * 1.5 / globalScale * 4;
+          ctx.beginPath();
+          ctx.arc(node.x!, node.y!, r, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.fill();
         }}
-        linkColor={(link: GraphLink) => {
-          if (selectedNodeId !== null) {
-            const i = enhancedData.links.indexOf(link);
-            if (!highlightLinks.has(i)) {
-              return theme === "dark" ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)";
+
+        // ── Link rendering ──────────────────────────────────────────
+        linkCanvasObject={(link: RuntimeLink, ctx: CanvasRenderingContext2D, globalScale: number) => {
+          const sx = link.source.x;
+          const sy = link.source.y;
+          const tx = link.target.x;
+          const ty = link.target.y;
+          if (sx == null || sy == null || tx == null || ty == null) return;
+
+          const idx = stagedData.links.indexOf(link);
+          const isThreat = isThreatEdge(link);
+          const isNeighborLink = neighborLinks.has(idx);
+
+          // Edge color and opacity
+          let opacity: number;
+          let color: string;
+          if (isThreat) {
+            if (link.label === "near-identical") color = "#ef4444";
+            else if (link.label === "similar") color = "#ef4444";
+            else if (link.label?.startsWith("same family")) color = "#eab308";
+            else color = "#eab308";
+            opacity = isSpotlight ? (isNeighborLink ? 0.9 : 0.03) : 0.7;
+          } else {
+            color = theme === "dark" ? "#ffffff" : "#000000";
+            opacity = isSpotlight ? (isNeighborLink ? 0.25 : 0.02) : 0.12;
+          }
+
+          ctx.globalAlpha = opacity;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = (isThreat ? 1.5 : 0.5) / globalScale;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(tx, ty);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+
+          // Edge label on hover
+          if (hoveredLink === link && link.label) {
+            const mx = (sx + tx) / 2;
+            const my = (sy + ty) / 2;
+            const fontSize = Math.max(9 / globalScale, 2);
+            ctx.font = `${fontSize}px Geist Mono, monospace`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            const text = link.label === "mesh" ? "" : link.label ?? "";
+            if (text) {
+              const pad = 3 / globalScale;
+              const metrics = ctx.measureText(text);
+              ctx.fillStyle = theme === "dark" ? "rgba(36,36,36,0.9)" : "rgba(255,255,255,0.9)";
+              ctx.fillRect(mx - metrics.width / 2 - pad, my - fontSize / 2 - pad, metrics.width + pad * 2, fontSize + pad * 2);
+              ctx.fillStyle = theme === "dark" ? "#f0f0f0" : "#1a1a1a";
+              ctx.fillText(text, mx, my);
             }
           }
-          return getEdgeColor(link, theme);
         }}
-        linkOpacity={0.8}
-        linkDirectionalParticles={(link: GraphLink) => {
-          if (!isThreatEdge(link)) return 0;
-          const i = enhancedData.links.indexOf(link);
-          return selectedNodeId !== null && highlightLinks.has(i) ? 3 : 0;
+        linkPointerAreaPaint={(link: RuntimeLink, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
+          const sx = link.source.x;
+          const sy = link.source.y;
+          const tx = link.target.x;
+          const ty = link.target.y;
+          if (sx == null || sy == null || tx == null || ty == null) return;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 6 / globalScale;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(tx, ty);
+          ctx.stroke();
         }}
-        linkDirectionalParticleWidth={1.5}
-        linkDirectionalParticleSpeed={0.004}
-        linkDirectionalParticleColor={() => theme === "dark" ? "#ffffff" : "#000000"}
-        onNodeHover={handleNodeHover}
-        onNodeClick={handleNodeClick}
-        onBackgroundClick={() => setSelectedNodeId(null)}
-        onEngineStop={() => {
-          const fg = fgRef.current;
-          if (fg?.zoomToFit) {
-            fg.zoomToFit(400, 80);
+
+        // ── Post-render: cluster halos ──────────────────────────────
+        onRenderFramePost={(ctx: CanvasRenderingContext2D) => {
+          if (!hasZoomed.current && fgRef.current?.zoomToFit) {
+            hasZoomed.current = true;
+            setTimeout(() => fgRef.current?.zoomToFit?.(400, 60), 300);
+          }
+          // Cluster halos
+          for (const [, members] of familyClusters) {
+            const points = members
+              .map((n) => {
+                const rn = n as RuntimeNode;
+                return rn.x != null && rn.y != null ? { x: rn.x, y: rn.y } : null;
+              })
+              .filter(Boolean) as { x: number; y: number }[];
+            if (points.length < 2) continue;
+
+            const hull = convexHull(points);
+            if (hull.length < 2) continue;
+
+            const color = getNodeColor(members[0].verdict);
+            ctx.globalAlpha = 0.06;
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            // Expand hull outward by padding
+            const cx = points.reduce((s, p) => s + p.x, 0) / points.length;
+            const cy = points.reduce((s, p) => s + p.y, 0) / points.length;
+            const pad = 20;
+            hull.forEach((p, i) => {
+              const dx = p.x - cx;
+              const dy = p.y - cy;
+              const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+              const ex = p.x + (dx / dist) * pad;
+              const ey = p.y + (dy / dist) * pad;
+              if (i === 0) ctx.moveTo(ex, ey);
+              else ctx.lineTo(ex, ey);
+            });
+            ctx.closePath();
+            ctx.fill();
+            ctx.globalAlpha = 1;
           }
         }}
-        d3AlphaDecay={0.015}
-        d3VelocityDecay={0.25}
-        warmupTicks={80}
-        cooldownTicks={150}
+
+        // ── Interaction callbacks ────────────────────────────────────
+        onNodeHover={handleNodeHover}
+        onNodeClick={handleNodeClick}
+        onNodeDrag={handleNodeDrag}
+        onNodeDragEnd={handleNodeDragEnd}
+        onLinkHover={handleLinkHover}
+        onBackgroundClick={() => { setSelectedNodeId(null); setHoveredNodeId(null); }}
       />
 
-      {/* Floating tooltip */}
-      {hoveredNode && (
-        <div
-          style={{
-            position: "fixed",
-            left: hoveredNode.x + 12,
-            top: hoveredNode.y - 8,
-            pointerEvents: "none",
-            zIndex: 1000,
-            background: theme === "dark" ? "#242424" : "#ffffff",
-            border: `1px solid ${theme === "dark" ? "#3a3a3a" : "#d4d4d4"}`,
-            borderRadius: 6,
-            padding: "8px 12px",
-            boxShadow: theme === "dark"
-              ? "0 4px 20px rgba(0,0,0,0.5)"
-              : "0 4px 20px rgba(0,0,0,0.15)",
-            maxWidth: 280,
-          }}
+      {/* Reset camera button */}
+      <div style={{ position: "absolute", top: 12, right: 12, zIndex: 10 }}>
+        <button
+          onClick={resetCamera}
+          title="Reset view"
+          className="ghost-btn"
+          style={{ width: 32, height: 32, padding: 0, justifyContent: "center", background: theme === "dark" ? "rgba(36,36,36,0.85)" : "rgba(255,255,255,0.85)", backdropFilter: "blur(8px)" }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <span
-              style={{
-                width: 8, height: 8, borderRadius: "50%",
-                background: hoveredNode.node.color,
-                boxShadow: `0 0 6px ${getNodeGlow(hoveredNode.node.verdict)}`,
-                flexShrink: 0,
-              }}
-            />
-            <span style={{
-              fontSize: 12, fontWeight: 600,
-              color: theme === "dark" ? "#f0f0f0" : "#1a1a1a",
-              fontFamily: "'Geist Mono', monospace",
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}>
-              {hoveredNode.node.name}
-            </span>
-          </div>
-          <div style={{ fontSize: 11, color: theme === "dark" ? "#8a8a8a" : "#6b6b6b" }}>
-            {hoveredNode.node.verdict}
-          </div>
-          {hoveredNode.node.family && (
-            <div style={{
-              fontSize: 11, marginTop: 2,
-              color: theme === "dark" ? "#eab308" : "#ca8a04",
-              fontStyle: "italic",
-            }}>
-              Family: {hoveredNode.node.family}
-            </div>
-          )}
-        </div>
-      )}
+          <RotateCcw size={14} />
+        </button>
+      </div>
 
-      {/* Controls overlay */}
-      {!compact && (
+      {/* Legend */}
+      {legendVisible && (
         <div
           style={{
-            position: "absolute",
-            top: 12,
-            right: 12,
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-            zIndex: 10,
+            position: "absolute", bottom: 12, left: 12, display: "flex", gap: 12, padding: "6px 12px",
+            borderRadius: 6, background: theme === "dark" ? "rgba(36,36,36,0.85)" : "rgba(255,255,255,0.85)",
+            border: `1px solid ${theme === "dark" ? "#3a3a3a" : "#d4d4d4"}`, backdropFilter: "blur(8px)",
+            fontSize: 11, zIndex: 10, alignItems: "center",
           }}
         >
+          {[
+            { color: "#ef4444", label: "Malicious" },
+            { color: "#eab308", label: "Suspicious" },
+            { color: "#22c55e", label: "Clean" },
+          ].map(({ color, label }) => (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, boxShadow: `0 0 4px ${color}` }} />
+              <span style={{ color: theme === "dark" ? "#8a8a8a" : "#6b6b6b" }}>{label}</span>
+            </div>
+          ))}
           <button
-            onClick={resetCamera}
-            title="Reset view"
-            style={{
-              width: 32, height: 32,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              borderRadius: 6,
-              background: theme === "dark" ? "rgba(36,36,36,0.85)" : "rgba(255,255,255,0.85)",
-              border: `1px solid ${theme === "dark" ? "#3a3a3a" : "#d4d4d4"}`,
-              color: theme === "dark" ? "#8a8a8a" : "#6b6b6b",
-              cursor: "pointer",
-              backdropFilter: "blur(8px)",
-              transition: "all 150ms ease-out",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.color = theme === "dark" ? "#f0f0f0" : "#1a1a1a";
-              (e.currentTarget as HTMLButtonElement).style.borderColor = theme === "dark" ? "#555" : "#bbb";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.color = theme === "dark" ? "#8a8a8a" : "#6b6b6b";
-              (e.currentTarget as HTMLButtonElement).style.borderColor = theme === "dark" ? "#3a3a3a" : "#d4d4d4";
-            }}
+            onClick={() => setLegendVisible(false)}
+            style={{ background: "none", border: "none", color: theme === "dark" ? "#555" : "#aaa", cursor: "pointer", padding: "0 0 0 4px", fontSize: 11 }}
           >
-            <RotateCcw size={14} />
+            ×
           </button>
         </div>
       )}
 
-      {/* Legend */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: 12,
-          left: 12,
-          display: "flex",
-          gap: 12,
-          padding: "6px 12px",
-          borderRadius: 6,
-          background: theme === "dark" ? "rgba(36,36,36,0.85)" : "rgba(255,255,255,0.85)",
-          border: `1px solid ${theme === "dark" ? "#3a3a3a" : "#d4d4d4"}`,
-          backdropFilter: "blur(8px)",
-          fontSize: 11,
-          zIndex: 10,
-        }}
-      >
-        {[
-          { color: "#ef4444", label: "Malicious" },
-          { color: "#eab308", label: "Suspicious" },
-          { color: "#22c55e", label: "Clean" },
-        ].map(({ color, label }) => (
-          <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{
-              width: 8, height: 8, borderRadius: "50%",
-              background: color, boxShadow: `0 0 4px ${color}`,
-            }} />
-            <span style={{ color: theme === "dark" ? "#8a8a8a" : "#6b6b6b" }}>{label}</span>
-          </div>
-        ))}
-      </div>
-
       {/* Stats badge */}
       <div
         style={{
-          position: "absolute",
-          bottom: 12,
-          right: 12,
-          padding: "4px 10px",
-          borderRadius: 6,
+          position: "absolute", bottom: 12, right: 12, padding: "4px 10px", borderRadius: 6,
           background: theme === "dark" ? "rgba(36,36,36,0.85)" : "rgba(255,255,255,0.85)",
-          border: `1px solid ${theme === "dark" ? "#3a3a3a" : "#d4d4d4"}`,
-          backdropFilter: "blur(8px)",
-          fontSize: 11,
-          color: theme === "dark" ? "#555" : "#a3a3a3",
-          fontFamily: "'Geist Mono', monospace",
-          zIndex: 10,
+          border: `1px solid ${theme === "dark" ? "#3a3a3a" : "#d4d4d4"}`, backdropFilter: "blur(8px)",
+          fontSize: 10, fontFamily: "'Geist Mono', monospace",
+          color: theme === "dark" ? "#555" : "#aaa", zIndex: 10,
         }}
       >
-        {data.nodes.length} nodes &middot; {data.links.filter((l) => l.label !== "mesh").length} connections
+        {data.nodes.length} nodes · {data.links.filter(isThreatEdge).length} relationships
       </div>
     </div>
   );

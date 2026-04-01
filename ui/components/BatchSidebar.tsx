@@ -26,6 +26,8 @@ interface Props {
   onDeselectFile: () => void;
   onToggleRecursive: () => void;
   onToggleCollapse: () => void;
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -36,9 +38,13 @@ export default function BatchSidebar({
   onDeselectFile,
   onToggleRecursive,
   onToggleCollapse,
+  searchQuery: externalQuery,
+  onSearchChange,
 }: Props) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [internalQuery, setInternalQuery] = useState("");
+  const searchQuery = externalQuery ?? internalQuery;
+  const setSearchQuery = onSearchChange ?? setInternalQuery;
 
   // Extract folder name from directory path
   const folderName = useMemo(() => {

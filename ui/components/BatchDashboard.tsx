@@ -1,10 +1,7 @@
-import { useMemo, useState, useEffect, useRef, lazy, Suspense } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
-import { FolderOpen, Shield, AlertTriangle, CheckCircle, XCircle, Network, BarChart3 } from "lucide-react";
-import type { BatchState, GraphData } from "@/types/analysis";
-import { getBatchGraphData } from "@/lib/tauri-bridge";
-
-const BatchGraph = lazy(() => import("@/components/BatchGraph"));
+import { FolderOpen, Shield, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import type { BatchState } from "@/types/analysis";
 
 // ── Animated counter hook ────────────────────────────────────────────────────
 
@@ -155,64 +152,21 @@ function VerdictCard({
   );
 }
 
-// ── View toggle button ──────────────────────────────────────────────────────
-
-function ViewToggle({ active, onChange }: { active: "summary" | "graph"; onChange: (v: "summary" | "graph") => void }) {
-  return (
-    <div style={{
-      display: "inline-flex",
-      borderRadius: "var(--radius)",
-      border: "1px solid var(--border)",
-      overflow: "hidden",
-    }}>
-      {([
-        { key: "summary" as const, icon: BarChart3, label: "Summary" },
-        { key: "graph" as const, icon: Network, label: "Graph" },
-      ]).map(({ key, icon: Icon, label }) => (
-        <button
-          key={key}
-          onClick={() => onChange(key)}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "6px 14px",
-            border: "none",
-            cursor: "pointer",
-            fontSize: "var(--font-size-xs)",
-            fontWeight: 600,
-            background: active === key ? "var(--bg-elevated)" : "transparent",
-            color: active === key ? "var(--text-primary)" : "var(--text-muted)",
-            transition: "all 150ms ease-out",
-          }}
-        >
-          <Icon size={13} />
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 // ── Props ────────────────────────────────────────────────────────────────────
 
 interface Props {
   state: BatchState;
-  theme?: "dark" | "light";
-  onNodeClick?: (nodeId: number) => void;
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function BatchDashboard({ state, theme = "dark", onNodeClick }: Props) {
+export default function BatchDashboard({ state }: Props) {
   injectKeyframes();
 
   const [showSummary, setShowSummary] = useState(!state.isRunning);
   const [fading, setFading] = useState(false);
   const prevRunning = useRef(state.isRunning);
-  const [activeView, setActiveView] = useState<"summary" | "graph">("summary");
-  const [graphData, setGraphData] = useState<GraphData | null>(null);
-  const [graphLoading, setGraphLoading] = useState(false);
+  // Graph view removed — now a dedicated tab
 
   // Cross-fade transition from running → complete
   useEffect(() => {
@@ -231,18 +185,7 @@ export default function BatchDashboard({ state, theme = "dark", onNodeClick }: P
     prevRunning.current = state.isRunning;
   }, [state.isRunning]);
 
-  // Load graph data when switching to graph view or when results change
-  useEffect(() => {
-    if (activeView !== "graph" || state.isRunning || state.results.length < 2) return;
-    setGraphLoading(true);
-    const resultData = state.results
-      .filter((r) => r.result !== null)
-      .map((r) => r.result);
-    getBatchGraphData(resultData)
-      .then((data) => setGraphData(data))
-      .catch(() => setGraphData(null))
-      .finally(() => setGraphLoading(false));
-  }, [activeView, state.isRunning, state.results]);
+  // Graph data loading removed — now handled by App.tsx for the Graph tab
 
   // Verdict counts
   const counts = useMemo(() => {
@@ -386,7 +329,7 @@ export default function BatchDashboard({ state, theme = "dark", onNodeClick }: P
     <div
       style={{
         height: "100%",
-        overflow: activeView === "graph" ? "hidden" : "auto",
+        overflow: "auto",
         padding: 24,
         display: "flex",
         flexDirection: "column",
@@ -415,38 +358,9 @@ export default function BatchDashboard({ state, theme = "dark", onNodeClick }: P
         >
           Batch Summary &mdash; {total} file{total !== 1 ? "s" : ""}
         </h2>
-        {total >= 2 && (
-          <ViewToggle active={activeView} onChange={setActiveView} />
-        )}
       </div>
 
-      {/* Graph view */}
-      {activeView === "graph" ? (
-        <div style={{ flex: 1, minHeight: 0 }}>
-          {graphLoading ? (
-            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid var(--text-muted)", borderTopColor: "transparent", animation: "spinRing 800ms linear infinite" }} />
-                <span style={{ fontSize: "var(--font-size-sm)" }}>Computing relationships...</span>
-              </div>
-            </div>
-          ) : graphData ? (
-            <Suspense fallback={
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
-                <span style={{ fontSize: "var(--font-size-sm)" }}>Loading 3D engine...</span>
-              </div>
-            }>
-              <BatchGraph data={graphData} theme={theme} onNodeClick={onNodeClick} />
-            </Suspense>
-          ) : (
-            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
-              <p style={{ fontSize: "var(--font-size-sm)" }}>No relationship data available</p>
-            </div>
-          )}
-        </div>
-      ) : (
-
-      /* Summary view */
+      {/* Summary view */}
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ maxWidth: 720, margin: "0 auto" }}>
 
@@ -556,7 +470,6 @@ export default function BatchDashboard({ state, theme = "dark", onNodeClick }: P
         </p>
       </div>
       </div>
-      )}
     </div>
   );
 }

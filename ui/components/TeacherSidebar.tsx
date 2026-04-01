@@ -515,6 +515,12 @@ const SECURITY_EXPLANATIONS: Record<string, { title: string; explanation: string
     good: "No matches — the file doesn't trigger any known detection rules.",
     bad: "Rule matched — a security researcher's signature identified something in this file. Check the rule name and description for details on what was found.",
   },
+  graph: {
+    title: "Relationship Graph",
+    explanation: "A visual map of connections between evidence found in the file — imported DLLs, suspicious APIs, IOCs (URLs, IPs, domains), and behavioral categories. In batch mode, it shows structural similarity (TLSH distance) between files. Hover any node to spotlight its connections; drag to rearrange; click to select.",
+    good: "Few connections, mostly benign infrastructure — the graph is sparse with clean verdicts and no suspicious API clusters.",
+    bad: "Dense web of suspicious APIs connected to dangerous DLLs, IOCs pointing to external infrastructure, and multiple behavioral categories flagged — indicates sophisticated malicious capability.",
+  },
 };
 
 function SecurityFocusContent({ item }: { item: { type: "security"; feature: string } }) {
