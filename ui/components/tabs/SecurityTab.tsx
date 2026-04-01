@@ -1,5 +1,6 @@
-import { useEffect, useState, useContext } from "react";
+import React, { useEffect, useState, useContext } from "react";
 import { CheckCircle, XCircle, MinusCircle, ShieldCheck, AlertTriangle } from "lucide-react";
+import AnimatedEmptyState from "@/components/AnimatedEmptyState";
 import type { AnalysisResult, AuthenticodeInfo } from "@/types/analysis";
 import { formatBytes } from "@/lib/utils";
 import { TeacherModeContext } from "@/hooks/useTeacherMode";
@@ -93,11 +94,25 @@ function AuthCard({ auth, onClick, clickable }: { auth: AuthenticodeInfo; onClic
 const SECTION_HEADER: React.CSSProperties = { margin: "0 0 14px", fontSize: "var(--font-size-xs)", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "var(--text-muted)" };
 const GRID: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))", gap: 16 };
 
-export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
+class SecurityErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: string | null }> {
+  state = { error: null as string | null };
+  static getDerivedStateFromError(err: Error) { return { error: err.message }; }
+  render() {
+    if (this.state.error) return (
+      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8 }}>
+        <p style={{ color: "var(--risk-medium)" }}>Security tab encountered an error</p>
+        <p style={{ color: "var(--text-muted)", fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)" }}>{this.state.error}</p>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
+function SecurityTabInner({ result, packedEntropy = 7.0 }: Props) {
   const teacherMode = useContext(TeacherModeContext);
-  const pe  = result.pe_analysis;
-  const elf = result.elf_analysis;
-  const cd  = result.compiler_detection;
+  const pe  = result?.pe_analysis;
+  const elf = result?.elf_analysis;
+  const cd  = result?.compiler_detection;
 
   const versionInfoWide = pe?.version_info
     ? [
@@ -110,17 +125,13 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
       ].some((v) => v && v.length > 30)
     : false;
 
-  const hasYara = result.yara_matches && result.yara_matches.length > 0;
+  const hasYara = (result?.yara_matches?.length ?? 0) > 0;
   if (!pe && !elf && !cd && !hasYara) {
-    return (
-      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <p style={{ color: "var(--text-muted)" }}>No security feature data available.</p>
-      </div>
-    );
+    return <AnimatedEmptyState icon="shield" title="No security features detected" subtitle="This file format doesn't expose security mitigations like ASLR, DEP, or code signing." />;
   }
 
   const sections = pe?.sections ?? elf?.sections ?? [];
-  const hiEntropy = sections.filter((s) => s.entropy > packedEntropy);
+  const hiEntropy = sections.filter((s) => s.entropy != null && s.entropy > packedEntropy);
 
   return (
     <div style={{ height: "100%", overflow: "auto", padding: 24 }}>
@@ -130,8 +141,8 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
           <section>
             <h2 style={SECTION_HEADER}>Mitigations</h2>
             <div style={GRID}>
-              <FeatureCard title="ASLR"           description="Randomises memory addresses to hinder exploitation"                 status={pe.security.aslr_enabled ? "enabled" : "disabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "aslr" })} clickable={teacherMode?.enabled} />
-              <FeatureCard title="DEP / NX"        description="Prevents execution of data pages"                                   status={pe.security.dep_enabled ? "enabled" : "disabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "dep" })} clickable={teacherMode?.enabled} />
+              <FeatureCard title="ASLR"           description="Randomises memory addresses to hinder exploitation"                 status={pe.security?.aslr_enabled ? "enabled" : "disabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "aslr" })} clickable={teacherMode?.enabled} />
+              <FeatureCard title="DEP / NX"        description="Prevents execution of data pages"                                   status={pe.security?.dep_enabled ? "enabled" : "disabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "dep" })} clickable={teacherMode?.enabled} />
               <FeatureCard title="High-Entropy VA" description="64-bit ASLR with larger address range"                              status={pe.is_64bit ? "enabled" : "na"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "aslr" })} clickable={teacherMode?.enabled} />
               {pe.authenticode && <AuthCard auth={pe.authenticode} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "authenticode" })} clickable={teacherMode?.enabled} />}
               <FeatureCard title="Section Entropy" description={`Sections with entropy > ${packedEntropy} may contain compressed or encrypted data`} status={hiEntropy.length > 0 ? "disabled" : "enabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "entropy" })} clickable={teacherMode?.enabled}>
@@ -201,6 +212,8 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
                   title="Certificate Reputation"
                   description="Publisher trust verification"
                   status={pe.authenticode.is_microsoft_signed ? "enabled" : "na"}
+                  onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "cert_reputation" })}
+                  clickable={teacherMode?.enabled}
                 >
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {pe.authenticode.signer_cn && <InfoRow label="Publisher" value={pe.authenticode.signer_cn} />}
@@ -222,6 +235,8 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
                   title="Known Sample Match"
                   description="TLSH similarity to known malware"
                   status="disabled"
+                  onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "ksd_match" })}
+                  clickable={teacherMode?.enabled}
                 >
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     <InfoRow label="Family" value={
@@ -249,6 +264,8 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
                   title=".NET Assembly"
                   description="Managed code metadata analysis"
                   status={pe.dotnet_metadata.known_obfuscator ? "disabled" : "na"}
+                  onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "dotnet" })}
+                  clickable={teacherMode?.enabled}
                 >
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {pe.dotnet_metadata.known_obfuscator && (
@@ -271,16 +288,16 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
 
               {/* ── Rich Header ────────────────────────────────────── */}
               {pe.rich_header ? (
-                <FeatureCard title="Rich Header" description="Undocumented MSVC build metadata" status="enabled">
+                <FeatureCard title="Rich Header" description="Undocumented MSVC build metadata" status="enabled" onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "rich_header" })} clickable={teacherMode?.enabled}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <InfoRow label="Entries" value={pe.rich_header.entries?.length ?? 0} />
-                    {pe.rich_header.entries && pe.rich_header.entries.length > 0 && (
-                      <InfoRow label="First linker" value={`${pe.rich_header.entries[0].product_name ?? pe.rich_header.entries[0].product_id} build ${pe.rich_header.entries[0].build_number}`} />
+                    <InfoRow label="Entries" value={pe.rich_header?.entries?.length ?? 0} />
+                    {pe.rich_header?.entries?.[0] && (
+                      <InfoRow label="First linker" value={`${pe.rich_header.entries[0].product_name ?? pe.rich_header.entries[0].product_id ?? "?"} build ${pe.rich_header.entries[0].build_number ?? "?"}`} />
                     )}
                   </div>
                 </FeatureCard>
               ) : pe && (
-                <FeatureCard title="Rich Header" description="Undocumented MSVC build metadata" status="disabled">
+                <FeatureCard title="Rich Header" description="Undocumented MSVC build metadata" status="disabled" onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "rich_header" })} clickable={teacherMode?.enabled}>
                   <span style={{ fontSize: "var(--font-size-xs)", color: "var(--risk-medium)" }}>
                     No Rich header found — may indicate non-MSVC toolchain or header stripping.
                   </span>
@@ -312,7 +329,9 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
                 title={cd.compiler}
                 description={`Detected ${cd.language} toolchain`}
                 status="na"
-                fullWidth={cd.evidence.length > 2}
+                fullWidth={(cd.evidence?.length ?? 0) > 2}
+                onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "toolchain" })}
+                clickable={teacherMode?.enabled}
               >
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <InfoRow label="Language" value={cd.language} />
@@ -324,11 +343,11 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
                       {cd.confidence}
                     </span>
                   } />
-                  {cd.evidence.length > 0 && (
+                  {(cd.evidence?.length ?? 0) > 0 && (
                     <div style={{ marginTop: 4 }}>
                       <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>Evidence:</span>
                       <ul style={{ margin: "4px 0 0", paddingLeft: 16, listStyle: "disc" }}>
-                        {cd.evidence.map((e, i) => (
+                        {(cd.evidence ?? []).map((e, i) => (
                           <li key={i} style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)", lineHeight: 1.6 }}>{e}</li>
                         ))}
                       </ul>
@@ -347,7 +366,7 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
               <FeatureCard title="PIE"      description="Position Independent Executable — enables ASLR for the main binary"  status={elf.is_pie ? "enabled" : "disabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "pie" })} clickable={teacherMode?.enabled} />
               <FeatureCard title="NX Stack" description="Non-executable stack — prevents stack-based shellcode execution"      status={elf.has_nx_stack ? "enabled" : "disabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "nx" })} clickable={teacherMode?.enabled} />
               <FeatureCard title="RELRO"    description="Relocation Read-Only — protects GOT/PLT from overwrite attacks"       status={elf.has_relro ? "enabled" : "disabled"} onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "relro" })} clickable={teacherMode?.enabled} />
-              <FeatureCard title="Stripped" description="Symbol table stripped — fewer debug artefacts in the binary"          status="na">
+              <FeatureCard title="Stripped" description="Symbol table stripped — fewer debug artefacts in the binary"          status="na" onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "stripped" })} clickable={teacherMode?.enabled}>
                 <span style={{ color: elf.is_stripped ? "var(--text-muted)" : "var(--text-secondary)" }}>
                   {elf.is_stripped ? "Symbols stripped" : "Symbols present"}
                 </span>
@@ -367,12 +386,14 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
                   title={ym.rule_name}
                   description={ym.description ?? `Matched rule from ${ym.namespace}`}
                   status="disabled"
-                  fullWidth={ym.matched_strings.length > 3}
+                  fullWidth={(ym.matched_strings?.length ?? 0) > 3}
+                  onClick={() => teacherMode?.enabled && teacherMode.focus({ type: "security", feature: "yara" })}
+                  clickable={teacherMode?.enabled}
                 >
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     <InfoRow label="Namespace" value={ym.namespace} />
                     {ym.author && <InfoRow label="Author" value={ym.author} />}
-                    {ym.tags.length > 0 && (
+                    {ym.tags?.length > 0 && (
                       <InfoRow label="Tags" value={
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                           {ym.tags.map((t, j) => (
@@ -390,15 +411,15 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
                         </div>
                       } />
                     )}
-                    <InfoRow label="Matches" value={`${ym.matched_strings.length} string match(es)`} />
-                    {ym.matched_strings.slice(0, 5).map((ms, j) => (
+                    <InfoRow label="Matches" value={`${ym.matched_strings?.length ?? 0} string match(es)`} />
+                    {(ym.matched_strings ?? []).slice(0, 5).map((ms, j) => (
                       <div key={j} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                         <span style={{ fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)", color: "var(--risk-medium)", minWidth: 40 }}>{ms.identifier}</span>
                         <span style={{ fontSize: "var(--font-size-xs)", fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>@ 0x{ms.offset.toString(16).toUpperCase()}</span>
                         <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>({ms.length}B)</span>
                       </div>
                     ))}
-                    {ym.matched_strings.length > 5 && (
+                    {(ym.matched_strings?.length ?? 0) > 5 && (
                       <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)", fontStyle: "italic" }}>
                         +{ym.matched_strings.length - 5} more match(es)
                       </span>
@@ -411,5 +432,13 @@ export default function SecurityTab({ result, packedEntropy = 7.0 }: Props) {
         )}
       </div>
     </div>
+  );
+}
+
+export default function SecurityTab(props: Props) {
+  return (
+    <SecurityErrorBoundary>
+      <SecurityTabInner {...props} />
+    </SecurityErrorBoundary>
   );
 }

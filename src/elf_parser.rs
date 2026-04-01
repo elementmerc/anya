@@ -160,6 +160,7 @@ fn analyse_elf_imports(elf: &Elf) -> output::ElfImportAnalysis {
                     name: name.to_string(),
                     category: "Suspicious Linux Function".to_string(),
                     confidence: None,
+                    dll: None,
                 });
             }
         }

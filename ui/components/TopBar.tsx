@@ -39,42 +39,7 @@ const GhostButton = forwardRef<
       disabled={disabled}
       title={title}
       data-testid={dataTestId}
-      style={{
-        height: 32,
-        padding: "0 10px",
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        fontSize: "var(--font-size-sm)",
-        borderRadius: "var(--radius-sm)",
-        border: "1px solid transparent",
-        background: "transparent",
-        color: disabled ? "var(--text-muted)" : "var(--text-secondary)",
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.4 : 1,
-        transition: "all 150ms ease-out",
-        flexShrink: 0,
-      }}
-      onMouseEnter={(e) => {
-        if (disabled) return;
-        const el = e.currentTarget as HTMLButtonElement;
-        el.style.background = "var(--bg-elevated)";
-        el.style.borderColor = "var(--border)";
-        el.style.color = "var(--text-primary)";
-      }}
-      onMouseLeave={(e) => {
-        const el = e.currentTarget as HTMLButtonElement;
-        el.style.background = "transparent";
-        el.style.borderColor = "transparent";
-        el.style.color = disabled ? "var(--text-muted)" : "var(--text-secondary)";
-      }}
-      onMouseDown={(e) => {
-        if (disabled) return;
-        (e.currentTarget as HTMLButtonElement).style.transform = "scale(0.97)";
-      }}
-      onMouseUp={(e) => {
-        (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)";
-      }}
+      className="ghost-btn"
     >
       {children}
     </button>
@@ -485,7 +450,7 @@ export default function TopBar({
                 border: "1px solid var(--border)",
                 borderRadius: "var(--radius)",
                 padding: 4,
-                minWidth: 180,
+                minWidth: 240,
                 boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
                 zIndex: 100,
                 animation: "popover-in 150ms ease-out",
@@ -494,7 +459,7 @@ export default function TopBar({
               <button
                 onClick={() => { onNewFile(); }}
                 style={{
-                  display: "flex", alignItems: "center", gap: 10, width: "100%",
+                  display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
                   padding: "8px 12px", border: "none", background: "transparent",
                   borderRadius: 4, color: "var(--text-primary)", fontSize: "var(--font-size-sm)",
                   cursor: "pointer", transition: "background 100ms ease",
@@ -502,13 +467,16 @@ export default function TopBar({
                 onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-surface)")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
-                <File size={15} style={{ color: "var(--text-muted)" }} />
-                Single File
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <File size={15} style={{ color: "var(--text-muted)" }} />
+                  Single File
+                </span>
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>Ctrl+O</span>
               </button>
               <button
                 onClick={() => { onBatchAnalysis(); }}
                 style={{
-                  display: "flex", alignItems: "center", gap: 10, width: "100%",
+                  display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
                   padding: "8px 12px", border: "none", background: "transparent",
                   borderRadius: 4, color: "var(--text-primary)", fontSize: "var(--font-size-sm)",
                   cursor: "pointer", transition: "background 100ms ease",
@@ -516,14 +484,17 @@ export default function TopBar({
                 onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-surface)")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
-                <FolderSearch size={15} style={{ color: "var(--text-muted)" }} />
-                Batch Analysis
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <FolderSearch size={15} style={{ color: "var(--text-muted)" }} />
+                  Batch Analysis
+                </span>
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>Ctrl+B</span>
               </button>
               {onCompare && (
                 <button
                   onClick={() => { onCompare(); }}
                   style={{
-                    display: "flex", alignItems: "center", gap: 10, width: "100%",
+                    display: "flex", alignItems: "center", width: "100%",
                     padding: "8px 12px", border: "none", background: "transparent",
                     borderRadius: 4, color: "var(--text-primary)", fontSize: "var(--font-size-sm)",
                     cursor: "pointer", transition: "background 100ms ease",
@@ -531,8 +502,10 @@ export default function TopBar({
                   onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-surface)")}
                   onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
-                  <GitCompare size={15} style={{ color: "var(--text-muted)" }} />
-                  Compare Two Files
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <GitCompare size={15} style={{ color: "var(--text-muted)" }} />
+                    Compare Two Files
+                  </span>
                 </button>
               )}
             </Popover.Content>

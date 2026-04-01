@@ -50,6 +50,8 @@ export interface SectionInfo {
 export interface SuspiciousAPI {
   name: string;
   category: string;
+  confidence?: string;
+  dll?: string;
 }
 
 export interface ImportAnalysis {
@@ -445,7 +447,8 @@ export type TabName =
   | "strings"
   | "security"
   | "mitre"
-  | "format";
+  | "format"
+  | "graph";
 
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 

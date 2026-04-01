@@ -1,8 +1,7 @@
 import { useMemo, useState, useEffect, useRef, lazy, Suspense } from "react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
-import { FolderOpen, Shield, AlertTriangle, CheckCircle, XCircle, Network, BarChart3 } from "lucide-react";
-import type { BatchState, GraphData } from "@/types/analysis";
-import { getBatchGraphData } from "@/lib/tauri-bridge";
+// recharts removed — donut chart replaced by embedded interactive graph
+import { FolderOpen, Shield, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import type { BatchState } from "@/types/analysis";
 
 const BatchGraph = lazy(() => import("@/components/BatchGraph"));
 
@@ -104,10 +103,12 @@ function VerdictCard({
   verdict,
   count,
   delay,
+  onHover,
 }: {
   verdict: string;
   count: number;
   delay: number;
+  onHover?: (verdict: string | null) => void;
 }) {
   const color = VERDICT_COLORS[verdict] ?? "#888";
   const Icon = VERDICT_ICONS[verdict] ?? Shield;
@@ -115,9 +116,12 @@ function VerdictCard({
 
   return (
     <div
+      onMouseEnter={() => onHover?.(verdict.toUpperCase())}
+      onMouseLeave={() => onHover?.(null)}
       style={{
         width: 140,
         padding: 16,
+        cursor: "default",
         borderRadius: "var(--radius)",
         border: "1px solid var(--border-subtle)",
         background: `${color}0f`, // ~0.06 alpha
@@ -155,64 +159,26 @@ function VerdictCard({
   );
 }
 
-// ── View toggle button ──────────────────────────────────────────────────────
-
-function ViewToggle({ active, onChange }: { active: "summary" | "graph"; onChange: (v: "summary" | "graph") => void }) {
-  return (
-    <div style={{
-      display: "inline-flex",
-      borderRadius: "var(--radius)",
-      border: "1px solid var(--border)",
-      overflow: "hidden",
-    }}>
-      {([
-        { key: "summary" as const, icon: BarChart3, label: "Summary" },
-        { key: "graph" as const, icon: Network, label: "Graph" },
-      ]).map(({ key, icon: Icon, label }) => (
-        <button
-          key={key}
-          onClick={() => onChange(key)}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "6px 14px",
-            border: "none",
-            cursor: "pointer",
-            fontSize: "var(--font-size-xs)",
-            fontWeight: 600,
-            background: active === key ? "var(--bg-elevated)" : "transparent",
-            color: active === key ? "var(--text-primary)" : "var(--text-muted)",
-            transition: "all 150ms ease-out",
-          }}
-        >
-          <Icon size={13} />
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 // ── Props ────────────────────────────────────────────────────────────────────
 
 interface Props {
   state: BatchState;
-  theme?: "dark" | "light";
+  theme: "dark" | "light";
+  graphData: { nodes: { id: number }[]; links: { strength: number; label?: string }[] };
   onNodeClick?: (nodeId: number) => void;
+  searchQuery?: string;
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function BatchDashboard({ state, theme = "dark", onNodeClick }: Props) {
+export default function BatchDashboard({ state, theme, graphData, onNodeClick, searchQuery }: Props) {
   injectKeyframes();
 
   const [showSummary, setShowSummary] = useState(!state.isRunning);
+  const [hoveredVerdict, setHoveredVerdict] = useState<string | null>(null);
   const [fading, setFading] = useState(false);
   const prevRunning = useRef(state.isRunning);
-  const [activeView, setActiveView] = useState<"summary" | "graph">("summary");
-  const [graphData, setGraphData] = useState<GraphData | null>(null);
-  const [graphLoading, setGraphLoading] = useState(false);
+  // Graph view removed — now a dedicated tab
 
   // Cross-fade transition from running → complete
   useEffect(() => {
@@ -231,18 +197,7 @@ export default function BatchDashboard({ state, theme = "dark", onNodeClick }: P
     prevRunning.current = state.isRunning;
   }, [state.isRunning]);
 
-  // Load graph data when switching to graph view or when results change
-  useEffect(() => {
-    if (activeView !== "graph" || state.isRunning || state.results.length < 2) return;
-    setGraphLoading(true);
-    const resultData = state.results
-      .filter((r) => r.result !== null)
-      .map((r) => r.result);
-    getBatchGraphData(resultData)
-      .then((data) => setGraphData(data))
-      .catch(() => setGraphData(null))
-      .finally(() => setGraphLoading(false));
-  }, [activeView, state.isRunning, state.results]);
+  // Graph data loading removed — now handled by App.tsx for the Graph tab
 
   // Verdict counts
   const counts = useMemo(() => {
@@ -375,19 +330,11 @@ export default function BatchDashboard({ state, theme = "dark", onNodeClick }: P
 
   const total = counts.malicious + counts.suspicious + counts.clean + counts.error;
 
-  const chartData = [
-    { name: "Malicious", value: counts.malicious, color: VERDICT_COLORS.malicious },
-    { name: "Suspicious", value: counts.suspicious, color: VERDICT_COLORS.suspicious },
-    { name: "Clean", value: counts.clean, color: VERDICT_COLORS.clean },
-    { name: "Error", value: counts.error, color: VERDICT_COLORS.error },
-  ].filter((d) => d.value > 0);
-
   return (
     <div
       style={{
         height: "100%",
-        overflow: activeView === "graph" ? "hidden" : "auto",
-        padding: 24,
+        overflow: "hidden",
         display: "flex",
         flexDirection: "column",
         animation: "batch-fade-in 350ms ease-out",
@@ -415,148 +362,35 @@ export default function BatchDashboard({ state, theme = "dark", onNodeClick }: P
         >
           Batch Summary &mdash; {total} file{total !== 1 ? "s" : ""}
         </h2>
-        {total >= 2 && (
-          <ViewToggle active={activeView} onChange={setActiveView} />
-        )}
       </div>
 
-      {/* Graph view */}
-      {activeView === "graph" ? (
-        <div style={{ flex: 1, minHeight: 0 }}>
-          {graphLoading ? (
-            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid var(--text-muted)", borderTopColor: "transparent", animation: "spinRing 800ms linear infinite" }} />
-                <span style={{ fontSize: "var(--font-size-sm)" }}>Computing relationships...</span>
-              </div>
-            </div>
-          ) : graphData ? (
-            <Suspense fallback={
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
-                <span style={{ fontSize: "var(--font-size-sm)" }}>Loading 3D engine...</span>
-              </div>
-            }>
-              <BatchGraph data={graphData} theme={theme} onNodeClick={onNodeClick} />
-            </Suspense>
-          ) : (
-            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
-              <p style={{ fontSize: "var(--font-size-sm)" }}>No relationship data available</p>
-            </div>
-          )}
+      {/* Summary + Graph view */}
+      <div style={{ flexShrink: 0, padding: "16px 24px 0" }}>
+        {/* Verdict cards row — compact horizontal layout */}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
+          <VerdictCard verdict="malicious" count={counts.malicious} delay={0} onHover={setHoveredVerdict} />
+          <VerdictCard verdict="suspicious" count={counts.suspicious} delay={60} onHover={setHoveredVerdict} />
+          <VerdictCard verdict="clean" count={counts.clean} delay={120} onHover={setHoveredVerdict} />
+          <VerdictCard verdict="error" count={counts.error} delay={180} onHover={setHoveredVerdict} />
         </div>
-      ) : (
+      </div>
 
-      /* Summary view */
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ maxWidth: 720, margin: "0 auto" }}>
+      {/* Divider */}
+      <div style={{ flexShrink: 0, height: 1, background: "var(--border-subtle)", margin: "12px 24px" }} />
 
-        {/* Verdict cards row */}
-        <div
-          style={{
-            display: "flex",
-            gap: 12,
-            flexWrap: "wrap",
-            marginBottom: 32,
-          }}
-        >
-          <VerdictCard verdict="malicious" count={counts.malicious} delay={0} />
-          <VerdictCard verdict="suspicious" count={counts.suspicious} delay={60} />
-          <VerdictCard verdict="clean" count={counts.clean} delay={120} />
-          <VerdictCard verdict="error" count={counts.error} delay={180} />
-        </div>
-
-        {/* Donut chart */}
-        {total > 0 && (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "center",
-              marginBottom: 24,
-              position: "relative",
-            }}
-          >
-            <div style={{ width: 200, height: 200, position: "relative" }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={chartData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={80}
-                    animationBegin={200}
-                    animationDuration={600}
-                    strokeWidth={0}
-                  >
-                    {chartData.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--bg-surface)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 6,
-                      fontSize: "var(--font-size-xs)",
-                      color: "var(--text-primary)",
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-
-              {/* Centre total */}
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  pointerEvents: "none",
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 24,
-                    fontWeight: 700,
-                    fontFamily: "var(--font-mono)",
-                    color: "var(--text-primary)",
-                    lineHeight: 1,
-                  }}
-                >
-                  {total}
-                </span>
-                <span
-                  style={{
-                    fontSize: "var(--font-size-xs)",
-                    color: "var(--text-muted)",
-                    marginTop: 2,
-                  }}
-                >
-                  file{total !== 1 ? "s" : ""}
-                </span>
-              </div>
-            </div>
+      {/* Interactive graph fills remaining space */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+        {graphData.nodes.length >= 2 ? (
+          <Suspense fallback={<div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}><span style={{ fontSize: "var(--font-size-sm)" }}>Loading graph...</span></div>}>
+            <BatchGraph data={graphData as import("@/types/analysis").GraphData} theme={theme} onNodeClick={onNodeClick} searchQuery={searchQuery} highlightVerdict={hoveredVerdict} />
+          </Suspense>
+        ) : (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "var(--font-size-sm)" }}>
+            {state.isRunning ? "Graph will appear as files are analysed..." : `${total} file${total !== 1 ? "s" : ""} analysed`}
           </div>
         )}
+      </div>
 
-        {/* Stats line */}
-        <p
-          style={{
-            textAlign: "center",
-            fontSize: "var(--font-size-sm)",
-            color: "var(--text-muted)",
-            margin: 0,
-          }}
-        >
-          {total} file{total !== 1 ? "s" : ""} analysed
-        </p>
-      </div>
-      </div>
-      )}
     </div>
   );
 }

@@ -334,6 +334,14 @@ body {
     from { opacity: 0; }
     to   { opacity: 1; }
   }
+  @keyframes tabFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes skeletonShimmer {
+    0%, 100% { background-position: 0 0; }
+  }
+  .ghost-btn:active { transform: none; }
 }
 
 @keyframes toast-slide-in {
@@ -364,6 +372,103 @@ body {
   0%   { box-shadow: 0 0 0 0 rgba(99,102,241,0.5); border-color: rgba(99,102,241,0.8); }
   40%  { box-shadow: 0 0 0 6px rgba(99,102,241,0.2); }
   100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); }
+}
+
+/* ─── Ghost button (TopBar, menus, sidebars) ─────────────────────────────── */
+.ghost-btn {
+  height: 32px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 120ms ease-out;
+  flex-shrink: 0;
+}
+.ghost-btn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+.ghost-btn:active { transform: scale(0.97); }
+.ghost-btn:disabled,
+.ghost-btn[disabled] {
+  color: var(--text-muted);
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.ghost-btn .shortcut-hint {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+  margin-left: 2px;
+}
+.ghost-btn:hover .shortcut-hint { opacity: 1; }
+
+/* ─── Tab content crossfade ──────────────────────────────────────────────── */
+.tab-content-enter {
+  animation: tabFadeIn 150ms ease-out;
+}
+@keyframes tabFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ─── Batch skeleton pulse ───────────────────────────────────────────────── */
+.skeleton-row {
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-surface) 50%, var(--bg-elevated) 75%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.5s ease-in-out infinite;
+}
+@keyframes skeletonShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ─── Focus ring for keyboard navigation ─────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid rgba(99,102,241,0.6);
+  outline-offset: 2px;
+}
+
+/* ─── Empty state SVG draw/undraw animation ──────────────────────────────── */
+@keyframes iconDraw {
+  0%   { stroke-dashoffset: var(--path-len); opacity: 0; }
+  8%   { opacity: var(--draw-peak, 0.9); }
+  35%  { stroke-dashoffset: 0; opacity: var(--draw-peak, 0.9); }
+  55%  { stroke-dashoffset: 0; opacity: var(--draw-peak, 0.9); }
+  72%  { opacity: 0; }
+  100% { stroke-dashoffset: var(--path-len); opacity: 0; }
+}
+/* Primary icon strokes — dasharray/dashoffset set inline via getTotalLength() */
+.empty-icon-path {
+  animation: iconDraw 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+/* Decorative accent strokes — use CSS variable for length */
+.empty-icon-accent {
+  fill: none;
+  stroke: var(--icon-color, var(--text-muted));
+  stroke-width: 0.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: var(--path-len);
+  stroke-dashoffset: var(--path-len);
+  animation: iconDraw 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  --draw-peak: 0.3;
+}
+@media (prefers-reduced-motion: reduce) {
+  .empty-icon-path { stroke-dashoffset: 0 !important; opacity: 0.5; animation: none; }
+  .empty-icon-accent { stroke-dashoffset: 0; opacity: 0.25; animation: none; }
 }
 
 /* ─── Animation utility classes ──────────────────────────────────────────── */

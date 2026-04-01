@@ -123,7 +123,8 @@ All format-specific fields are omitted from the output when not applicable (the 
       "suspicious_apis": [
         {
           "name": "CreateRemoteThread",
-          "category": "Code Injection"
+          "category": "Code Injection",
+          "dll": "kernel32.dll"
         }
       ],
       "libraries": ["kernel32.dll", "ntdll.dll"]

@@ -9,6 +9,7 @@
     "dialog:allow-save",
     "fs:allow-read-file",
     "fs:allow-read-dir",
+    "fs:allow-stat",
     "sql:allow-load",
     "sql:allow-execute",
     "sql:allow-select",

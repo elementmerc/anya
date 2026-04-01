@@ -120,7 +120,7 @@ export default function DropZone({ isLoading, error, onPickFile }: Props) {
           <>
             <Upload size={32} style={{ color: "var(--text-muted)" }} />
             <p style={{ fontSize: "var(--font-size-lg)", color: "var(--text-secondary)", margin: 0 }}>
-              Drop a file to analyse
+              Drop a file or folder to analyse
             </p>
             <p style={{ fontSize: "var(--font-size-sm)", color: "var(--text-muted)", margin: 0 }}>
               or click to browse
@@ -134,7 +134,7 @@ export default function DropZone({ isLoading, error, onPickFile }: Props) {
                 letterSpacing: "0.04em",
               }}
             >
-              .exe · .elf · .macho · anything really
+              .exe · .elf · .macho · Anything really
             </p>
             {recent.length > 0 && (
               <div style={{

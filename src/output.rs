@@ -693,6 +693,10 @@ pub struct SuspiciousAPI {
     /// Confidence level for this detection
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<ConfidenceLevel>,
+
+    /// DLL that exports this API (for graph visualization)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dll: Option<String>,
 }
 
 /// Export analysis (for DLLs)
@@ -1423,6 +1427,7 @@ mod tests {
             name: "CreateRemoteThread".to_string(),
             category: "Code Injection".to_string(),
             confidence: None,
+            dll: Some("kernel32.dll".to_string()),
         };
 
         let json = serde_json::to_string(&api).unwrap();
@@ -1440,6 +1445,7 @@ mod tests {
                 name: "VirtualAllocEx".to_string(),
                 category: "Code Injection".to_string(),
                 confidence: None,
+                dll: Some("kernel32.dll".to_string()),
             }],
             libraries: vec!["kernel32.dll".to_string(), "ntdll.dll".to_string()],
             imports_per_kb: None,

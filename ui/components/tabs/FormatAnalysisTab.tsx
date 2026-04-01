@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle, FileCode, Archive, FileImage, Link2, Disc, Package } from "lucide-react";
+import AnimatedEmptyState from "@/components/AnimatedEmptyState";
 import type { AnalysisResult } from "@/types/analysis";
 
 interface Props {
@@ -391,6 +392,10 @@ export function hasFormatAnalysis(result: AnalysisResult): boolean {
 // ── Main component ───────────────────────────────────────────────────────────
 
 export default function FormatAnalysisTab({ result }: Props) {
+  if (!hasFormatAnalysis(result)) {
+    return <AnimatedEmptyState icon="file-search" title="No format-specific analysis" subtitle="This file type doesn't have a dedicated parser. Standard heuristics were applied." />;
+  }
+
   return (
     <div style={{ height: "100%", overflow: "auto", padding: 24 }}>
       <div style={{ maxWidth: 1600, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>

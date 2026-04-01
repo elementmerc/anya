@@ -41,6 +41,13 @@ function RiskRing({ score, color }: { score: number; color: string }) {
   const frameRef = useRef<number>(0);
 
   useEffect(() => {
+    // Respect prefers-reduced-motion: skip animation, show final value immediately
+    const prefersReduced = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReduced) {
+      setAnimated(score);
+      return;
+    }
     const delay = 400;
     const duration = 1200;
     const delayTimer = setTimeout(() => {
@@ -258,10 +265,10 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate, pinned
             Collapse
           </button>
         </div>
-        <div style={{ flex: 1, minHeight: 0 }}>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
           <Suspense fallback={
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
-              <span style={{ fontSize: "var(--font-size-sm)" }}>Loading 3D engine...</span>
+              <span style={{ fontSize: "var(--font-size-sm)" }}>Loading graph...</span>
             </div>
           }>
             <BatchGraph data={ksdGraph} theme={theme} />
@@ -489,7 +496,7 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate, pinned
                     <span style={{ fontSize: "var(--font-size-xs)" }}>Loading...</span>
                   </div>
                 }>
-                  <BatchGraph data={ksdGraph} theme={theme} compact />
+                  <BatchGraph data={ksdGraph} theme={theme} />
                 </Suspense>
               </div>
             </div>

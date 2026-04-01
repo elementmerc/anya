@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import AnimatedEmptyState from "@/components/AnimatedEmptyState";
 import {
   BarChart,
   Bar,
@@ -85,7 +86,7 @@ function HistogramAnalysis({ data, fileEntropy }: { data: number[]; fileEntropy:
   );
 }
 
-function ByteHistogram({ data }: { data: number[] }) {
+function ByteHistogram({ data, fileEntropy }: { data: number[]; fileEntropy: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const immediateRef = useRef<boolean | null>(null);
@@ -117,13 +118,14 @@ function ByteHistogram({ data }: { data: number[] }) {
 
   return (
     <div ref={ref} style={{ marginTop: 24 }}>
-      <h3 style={{ margin: "0 0 4px", fontSize: "var(--font-size-sm)", fontWeight: 600, color: "var(--text-primary)" }}>
+      <h2 style={{ margin: "0 0 4px", fontSize: "var(--font-size-lg)", fontWeight: 600, color: "var(--text-primary)" }}>
         Byte Histogram
-      </h3>
-      <p style={{ margin: "0 0 12px", fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>
+      </h2>
+      <p style={{ margin: "0 0 8px", fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>
         Distribution of all 256 byte values — flat distributions suggest encryption
       </p>
-      <div style={{ width: "100%", height: 180 }}>
+      <HistogramAnalysis data={data} fileEntropy={fileEntropy} />
+      <div style={{ width: "100%", height: 180, marginTop: 12 }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data.map((count, byte) => ({ byte, count }))}
@@ -209,18 +211,7 @@ export default function EntropyTab({ result, suspiciousEntropy = 5.0, packedEntr
     }));
 
   if (sections.length < 1) {
-    return (
-      <div
-        style={{
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <p style={{ color: "var(--text-muted)" }}>No section entropy data available.</p>
-      </div>
-    );
+    return <AnimatedEmptyState icon="activity" title="No section entropy data available" subtitle="This file doesn't contain parseable sections for entropy analysis." />;
   }
 
   const fileEntropy = result.entropy.value;
@@ -314,10 +305,7 @@ export default function EntropyTab({ result, suspiciousEntropy = 5.0, packedEntr
 
         {/* Byte histogram */}
         {result.byte_histogram && result.byte_histogram.length === 256 && (
-          <>
-            <HistogramAnalysis data={result.byte_histogram} fileEntropy={fileEntropy} />
-            <ByteHistogram data={result.byte_histogram} />
-          </>
+          <ByteHistogram data={result.byte_histogram} fileEntropy={fileEntropy} />
         )}
 
         {/* Legend */}

@@ -1,4 +1,4 @@
-import React, { Suspense, useState, lazy, useEffect, useCallback, useMemo } from "react";
+import React, { Suspense, useState, useRef, lazy, useEffect, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { SplashScreen } from "@/components/SplashScreen";
 import { Installer } from "@/components/Installer";
@@ -9,7 +9,8 @@ import { useFontSize } from "@/hooks/useFontSize";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { TeacherModeContext, type TeacherModeContextValue, type TeacherFocusItem } from "@/hooks/useTeacherMode";
 import { loadTeacherSettings, saveTeacherSettings, loadSettings, saveSettingsToDb, isGuidedTourCompleted, markGuidedTourCompleted } from "@/lib/db";
-import { getThresholds, openFolderPicker, openFilePicker, analyzeDirectory, onBatchStarted, onBatchFileResult, onBatchComplete, pollDirectory, exportJson, saveJsonPicker, onFileDrop } from "@/lib/tauri-bridge";
+import { getThresholds, openFolderPicker, openFilePicker, analyzeDirectory, onBatchStarted, onBatchFileResult, onBatchComplete, pollDirectory, exportJson, saveJsonPicker, onFileDrop, getBatchGraphData } from "@/lib/tauri-bridge";
+import type { GraphData } from "@/types/analysis";
 import { BibleVerseBar } from "@/components/BibleVerseBar";
 import { ToastProvider } from "@/components/Toast";
 import DropZone from "@/components/DropZone";
@@ -41,6 +42,7 @@ const StringsTab   = lazy(() => import("@/components/tabs/StringsTab"));
 const SecurityTab  = lazy(() => import("@/components/tabs/SecurityTab"));
 const MitreTab     = lazy(() => import("@/components/tabs/MitreTab"));
 const FormatAnalysisTab = lazy(() => import("@/components/tabs/FormatAnalysisTab"));
+const SingleFileGraph = lazy(() => import("@/components/SingleFileGraph"));
 
 function TabFallback() {
   return (
@@ -71,6 +73,9 @@ function tabHasBadge(id: TabName, result: AnalysisResult | null): boolean {
     result.lnk_analysis?.has_suspicious_target ||
     result.iso_analysis?.has_autorun
   );
+  // Graph badge: 3+ suspicious APIs or classified strings
+  if (id === "graph") return (result.pe_analysis?.imports?.suspicious_api_count ?? 0) >= 3
+    || (result.strings?.classified?.filter((s) => s.category !== "Plain")?.length ?? 0) >= 3;
   // MITRE badges work for all file types
   if (id === "mitre") return (result.mitre_techniques?.length ?? 0) > 0;
   // Security tab: YARA matches badge for all file types
@@ -111,6 +116,8 @@ export default function App() {
   });
 
   const [batchState, setBatchState] = useState<BatchState>(INITIAL_BATCH);
+  const [batchGraphData, setBatchGraphData] = useState<GraphData>({ nodes: [], links: [] });
+  const [batchSearchQuery, setBatchSearchQuery] = useState(""); // passed to BatchSidebar + BatchGraph
 
   // ── Guided tour (first analysis) ──────────────────────────────────────────
   const [showTour, setShowTour] = useState(false);
@@ -158,23 +165,46 @@ export default function App() {
     getThresholds().then(setThresholds).catch(() => {});
   }, []);
 
-  // ── Global drag-and-drop — works even when viewing results ────────────────
+  // ── Global drag-and-drop — files trigger single analysis, folders trigger batch ──
+  const startBatchFromDrop = useCallback((folder: string) => {
+    reset();
+    const id = Date.now();
+    setBatchState({
+      ...INITIAL_BATCH,
+      active: true,
+      directoryPath: folder,
+      isRunning: true,
+      batchId: id,
+    });
+    setActiveTab("overview");
+    setTabOrder((prev) => prev.includes("graph") ? prev : [...prev, "graph"]);
+    void analyzeDirectory(folder, false, id);
+  }, [reset]);
+
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
-    onFileDrop((paths) => {
-      if (cancelled) return;
-      const path = paths[0];
-      if (path) {
-        // Reset any batch/compare state and analyse the dropped file
-        setBatchState(INITIAL_BATCH);
-        setCompareMode(false);
-        setActiveTab("overview");
-        analyse(path);
+    onFileDrop(async (paths) => {
+      if (cancelled || paths.length === 0) return;
+      // Check if the dropped path is a directory
+      try {
+        const { stat } = await import("@tauri-apps/plugin-fs");
+        const info = await stat(paths[0]);
+        if (info.isDirectory) {
+          startBatchFromDrop(paths[0]);
+          return;
+        }
+      } catch {
+        // stat failed — treat as file
       }
+      // Single file analysis
+      setBatchState(INITIAL_BATCH);
+      setCompareMode(false);
+      setActiveTab("overview");
+      analyse(paths[0]);
     }).then((fn) => { if (!cancelled) unlisten = fn; else fn(); });
     return () => { cancelled = true; unlisten?.(); };
-  }, [analyse]);
+  }, [analyse, startBatchFromDrop]);
 
   // ── Batch event listeners ─────────────────────────────────────────────────
   useEffect(() => {
@@ -213,6 +243,26 @@ export default function App() {
 
     return () => { unlisteners.forEach((u) => u()); };
   }, [batchState.active, batchState.batchId]);
+
+  // Load batch graph data when results change
+  useEffect(() => {
+    if (!batchState.active || batchState.results.length < 2) return;
+    const validResults = batchState.results.filter((r) => r.result != null);
+    getBatchGraphData(validResults.map((r) => r.result))
+      .then((graphData) => {
+        // Override node colors using the sidebar's verdict (single source of truth)
+        const COLORS: Record<string, string> = { malicious: "#ef4444", suspicious: "#eab308", clean: "#22c55e", error: "#6b7280" };
+        for (const node of graphData.nodes) {
+          const batchResult = validResults[node.id];
+          if (batchResult) {
+            node.color = COLORS[batchResult.verdict] ?? "#22c55e";
+            node.verdict = batchResult.verdict.toUpperCase();
+          }
+        }
+        setBatchGraphData(graphData);
+      })
+      .catch(() => {});
+  }, [batchState.active, batchState.results.length]);
 
   // Poll directory for file changes every 5 seconds when batch is idle
   useEffect(() => {
@@ -394,6 +444,7 @@ export default function App() {
       batchId: id,
     });
     setActiveTab("overview");
+    setTabOrder((prev) => prev.includes("graph") ? prev : [...prev, "graph"]);
     await analyzeDirectory(folder, false, id);
   }, [reset]);
 
@@ -457,7 +508,7 @@ export default function App() {
         result.pdf_analysis || result.office_analysis
       );
       setTabOrder((prev) => {
-        let tabs: TabName[] = prev.filter((t) => t !== "identity" && t !== "format");
+        let tabs: TabName[] = prev.filter((t) => t !== "identity" && t !== "format" && t !== "graph");
         if (hasIdentity) {
           const idx = tabs.indexOf("overview");
           tabs = [...tabs.slice(0, idx + 1), "identity" as TabName, ...tabs.slice(idx + 1)];
@@ -470,6 +521,8 @@ export default function App() {
             tabs.push("format");
           }
         }
+        // Graph tab always available — placed after MITRE
+        tabs.push("graph");
         return tabs;
       });
     }
@@ -509,6 +562,65 @@ export default function App() {
   }), [TAB_NAMES, teacherEnabled, setEnabled, fileLoaded, result, showShortcuts, showSettings, analyse, handleBatchAnalysis]);
 
   useKeyboardShortcuts(shortcutActions, !splashVisible && launchMode === "normal");
+
+  // ── Tab keep-alive: visited tabs stay mounted (preserves scroll/search state) ──
+  const [visitedTabs, setVisitedTabs] = useState<Set<TabName>>(new Set(["overview"]));
+  const prevResultRef = useRef(activeResult);
+  useEffect(() => {
+    // Reset visited tabs when analysing a new file
+    if (activeResult && activeResult !== prevResultRef.current) {
+      prevResultRef.current = activeResult;
+      setVisitedTabs(new Set([activeTab]));
+    }
+  }, [activeResult, activeTab]);
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev.has(activeTab)) return prev;
+      return new Set([...prev, activeTab]);
+    });
+  }, [activeTab]);
+
+  const renderTabContent = useCallback(() => {
+    if (!activeResult) return null;
+    const tabs: { id: TabName; el: React.ReactNode }[] = [
+      { id: "overview",  el: <OverviewTab  result={activeResult} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} theme={theme} /> },
+      { id: "identity",  el: <IdentityTab  result={activeResult} /> },
+      { id: "entropy",   el: <EntropyTab   result={activeResult} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} /> },
+      { id: "imports",   el: <ImportsTab   result={activeResult} onMitreNavigate={navigateToMitre} onPin={handlePin} /> },
+      { id: "sections",  el: <SectionsTab  result={activeResult} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} onPin={handlePin} /> },
+      { id: "strings",   el: <StringsTab   result={activeResult} onPin={handlePin} /> },
+      { id: "security",  el: <SecurityTab  result={activeResult} packedEntropy={thresholds.packed_entropy} /> },
+      { id: "format",    el: <FormatAnalysisTab result={activeResult} /> },
+      { id: "mitre",     el: <MitreTab     result={activeResult} highlightId={mitreHighlightId} onPin={handlePin} /> },
+      { id: "graph",     el: <SingleFileGraph result={activeResult} theme={theme} /> },
+    ];
+    return (
+      <>
+        {/* Keep-alive tabs (preserve scroll/state) */}
+        {tabs.filter((t) => visitedTabs.has(t.id) && t.id !== "graph").map((t) => (
+          <div
+            key={t.id}
+            className={t.id === activeTab ? "tab-content-enter" : undefined}
+            style={{
+              display: t.id === activeTab ? "flex" : "none",
+              flexDirection: "column",
+              flex: 1,
+              minHeight: 0,
+              overflow: "auto",
+            }}
+          >
+            {t.el}
+          </div>
+        ))}
+        {/* Graph tab: mount/unmount (not keep-alive) so canvas gets correct dimensions on mount */}
+        {activeTab === "graph" && (
+          <div className="tab-content-enter" style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
+            {tabs.find((t) => t.id === "graph")?.el}
+          </div>
+        )}
+      </>
+    );
+  }, [activeTab, activeResult, activeRiskScore, navigateToMitre, pinnedFindings, handlePin, theme, thresholds, mitreHighlightId, visitedTabs]);
 
   // Launch mode / first-run gates
   if (launchMode === null) return null;
@@ -572,7 +684,7 @@ export default function App() {
               active={activeTab}
               onChange={setActiveTab}
               badges={(id) => tabHasBadge(id, activeResult)}
-              disabled={batchState.selectedIndex === null}
+              disabledFn={batchState.selectedIndex === null ? (id) => id !== "graph" && id !== "overview" : undefined}
               tabOrder={tabOrder}
               onTabOrderChange={setTabOrder}
             />
@@ -583,34 +695,22 @@ export default function App() {
                 onDeselectFile={() => setBatchState((prev) => ({ ...prev, selectedIndex: null }))}
                 onToggleRecursive={handleToggleRecursive}
                 onToggleCollapse={() => setBatchState((prev) => ({ ...prev, sidebarCollapsed: !prev.sidebarCollapsed }))}
+                searchQuery={batchSearchQuery}
+                onSearchChange={setBatchSearchQuery}
               />
-              <main style={{ flex: 1, overflow: "auto", position: "relative" }}>
+              <main style={{ flex: 1, overflow: activeTab === "graph" ? "hidden" : "auto", display: "flex", flexDirection: "column", minHeight: 0 }}>
                 {batchState.selectedIndex !== null && batchSelectedResult?.result ? (
                   <Suspense fallback={<TabFallback />}>
-                    {activeTab === "overview"  && <OverviewTab  result={activeResult!} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} theme={theme} />}
-                    {activeTab === "identity"  && <IdentityTab  result={activeResult!} />}
-                    {activeTab === "entropy"   && <EntropyTab   result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
-                    {activeTab === "imports"   && (
-                      <ImportsTab
-                        result={activeResult!}
-                        onMitreNavigate={navigateToMitre}
-                        onPin={handlePin}
-                      />
-                    )}
-                    {activeTab === "sections"  && <SectionsTab  result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} onPin={handlePin} />}
-                    {activeTab === "strings"   && <StringsTab   result={activeResult!} onPin={handlePin} />}
-                    {activeTab === "security"  && <SecurityTab  result={activeResult!} packedEntropy={thresholds.packed_entropy} />}
-                    {activeTab === "format"    && <FormatAnalysisTab result={activeResult!} />}
-                    {activeTab === "mitre"     && (
-                      <MitreTab
-                        result={activeResult!}
-                        highlightId={mitreHighlightId}
-                        onPin={handlePin}
-                      />
-                    )}
+                    {renderTabContent()}
                   </Suspense>
                 ) : (
-                  <BatchDashboard state={batchState} theme={theme} onNodeClick={(idx) => setBatchState((prev) => ({ ...prev, selectedIndex: prev.selectedIndex === idx ? null : idx }))} />
+                  <BatchDashboard
+                    state={batchState}
+                    theme={theme}
+                    graphData={batchGraphData}
+                    onNodeClick={(idx) => setBatchState((prev) => ({ ...prev, selectedIndex: idx }))}
+                    searchQuery={batchSearchQuery}
+                  />
                 )}
               </main>
               <TeacherSidebar />
@@ -631,29 +731,9 @@ export default function App() {
               between 0 and 280px so the tab content naturally shrinks/grows.
             */}
             <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "row" }}>
-              <main style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+              <main style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
                 <Suspense fallback={<TabFallback />}>
-                  {activeTab === "overview"  && <OverviewTab  result={activeResult!} riskScore={activeRiskScore} onMitreNavigate={navigateToMitre} pinnedFindings={pinnedFindings} onPin={handlePin} onUnpin={(i) => setPinnedFindings((prev) => prev.filter((_, j) => j !== i))} theme={theme} />}
-                  {activeTab === "identity"  && <IdentityTab  result={activeResult!} />}
-                  {activeTab === "entropy"   && <EntropyTab   result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} />}
-                  {activeTab === "imports"   && (
-                    <ImportsTab
-                      result={activeResult!}
-                      onMitreNavigate={navigateToMitre}
-                      onPin={handlePin}
-                    />
-                  )}
-                  {activeTab === "sections"  && <SectionsTab  result={activeResult!} suspiciousEntropy={thresholds.suspicious_entropy} packedEntropy={thresholds.packed_entropy} onPin={handlePin} />}
-                  {activeTab === "strings"   && <StringsTab   result={activeResult!} onPin={handlePin} />}
-                  {activeTab === "security"  && <SecurityTab  result={activeResult!} packedEntropy={thresholds.packed_entropy} />}
-                  {activeTab === "format"    && <FormatAnalysisTab result={activeResult!} />}
-                  {activeTab === "mitre"     && (
-                    <MitreTab
-                      result={activeResult!}
-                      highlightId={mitreHighlightId}
-                      onPin={handlePin}
-                    />
-                  )}
+                  {renderTabContent()}
                 </Suspense>
               </main>
               {/* Sidebar: always in DOM when file loaded; width transitions 0↔280 */}

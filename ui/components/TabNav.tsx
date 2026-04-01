@@ -9,6 +9,7 @@ import {
   Crosshair,
   Fingerprint,
   FileSearch,
+  Network,
 } from "lucide-react";
 import type { TabName } from "@/types/analysis";
 
@@ -34,6 +35,7 @@ const ALL_TABS: TabDef[] = [
   { id: "identity",  label: "Identity",  Icon: Fingerprint },
   ...DEFAULT_TABS.slice(1),    // rest
   { id: "format",    label: "Format",    Icon: FileSearch },
+  { id: "graph",     label: "Graph",     Icon: Network },
 ];
 
 const TAB_MAP = new Map(ALL_TABS.map((t) => [t.id, t]));
@@ -43,12 +45,14 @@ interface Props {
   onChange: (tab: TabName) => void;
   badges: (id: TabName) => boolean;
   disabled?: boolean;
+  /** Per-tab disable function — if provided, overrides `disabled` boolean */
+  disabledFn?: (id: TabName) => boolean;
   /** Controlled tab order — if provided, tabs render in this order */
   tabOrder?: TabName[];
   onTabOrderChange?: (order: TabName[]) => void;
 }
 
-export default function TabNav({ active, onChange, badges, disabled, tabOrder, onTabOrderChange }: Props) {
+export default function TabNav({ active, onChange, badges, disabled, disabledFn, tabOrder, onTabOrderChange }: Props) {
   const navRef = useRef<HTMLElement>(null);
   const tabRefs = useRef<Map<TabName, HTMLButtonElement>>(new Map());
   const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null);
@@ -103,6 +107,7 @@ export default function TabNav({ active, onChange, badges, disabled, tabOrder, o
       {orderedTabs.map(({ id, label, Icon }, i) => {
         const isActive = active === id;
         const hasBadge = badges(id);
+        const isDisabled = disabledFn ? disabledFn(id) : !!disabled;
         const isDragOver = dragOverIdx === i && dragIdx !== null && dragIdx !== i;
         return (
           <button
@@ -112,7 +117,7 @@ export default function TabNav({ active, onChange, badges, disabled, tabOrder, o
             aria-selected={isActive}
             aria-controls={`panel-${id}`}
             {...(id === "imports" ? { "data-tour": "tab-imports" } : {})}
-            draggable={disabled ? "false" : "true"}
+            draggable={isDisabled ? "false" : "true"}
             onDragStart={(e) => {
               setDragIdx(i);
               e.dataTransfer.effectAllowed = "move";
@@ -153,12 +158,12 @@ export default function TabNav({ active, onChange, badges, disabled, tabOrder, o
               color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
               background: "transparent",
               border: "none",
-              cursor: disabled ? "default" : dragIdx !== null ? "grabbing" : "grab",
+              cursor: isDisabled ? "default" : dragIdx !== null ? "grabbing" : "grab",
               whiteSpace: "nowrap",
               transition: "color 150ms ease-out, padding-left 120ms ease, opacity 150ms ease-out",
               outline: "none",
               paddingLeft: isDragOver ? 28 : 16,
-              ...(disabled ? { opacity: 0.35, pointerEvents: "none" as const } : {}),
+              ...(isDisabled ? { opacity: 0.35, pointerEvents: "none" as const } : {}),
               ...(dragIdx === i ? { opacity: 0.4 } : {}),
             }}
             onMouseEnter={(e) => {
@@ -192,7 +197,7 @@ export default function TabNav({ active, onChange, badges, disabled, tabOrder, o
       })}
 
       {/* Sliding active underline */}
-      {indicator && !disabled && (
+      {indicator && !(disabledFn ? disabledFn(active) : disabled) && (
         <span
           style={{
             position: "absolute",

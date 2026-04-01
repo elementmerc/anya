@@ -3,7 +3,8 @@
  * analysis, grouped by tactic in a horizontal card-column layout.
  */
 import { useState, useEffect, useRef } from "react";
-import { Shield, ExternalLink, X, ChevronDown, ChevronUp, Pin } from "lucide-react";
+import { ExternalLink, X, ChevronDown, ChevronUp, Pin } from "lucide-react";
+import AnimatedEmptyState from "@/components/AnimatedEmptyState";
 import type { AnalysisResult, MitreTechnique } from "@/types/analysis";
 import { useTeacherMode } from "@/hooks/useTeacherMode";
 import mitreData from "@/data/mitre_attack.json";
@@ -569,42 +570,7 @@ export default function MitreTab({ result, highlightId, onPin }: Props) {
   }, [highlightId]);
 
   if (mitre.length === 0) {
-    return (
-      <div
-        style={{
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 14,
-          padding: 40,
-        }}
-      >
-        <div
-          style={{
-            width: 52,
-            height: 52,
-            borderRadius: "50%",
-            background: "var(--bg-surface)",
-            border: "1px solid var(--border)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Shield size={22} style={{ color: "var(--risk-low)" }} />
-        </div>
-        <div style={{ textAlign: "center" }}>
-          <p style={{ margin: "0 0 6px", fontSize: "var(--font-size-base)", fontWeight: 500, color: "var(--text-primary)" }}>
-            No MITRE ATT&amp;CK techniques detected
-          </p>
-          <p style={{ margin: 0, fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>
-            No suspicious API combinations or indicators were mapped to ATT&amp;CK techniques.
-          </p>
-        </div>
-      </div>
-    );
+    return <AnimatedEmptyState icon="crosshair" title="No MITRE ATT&CK techniques detected" subtitle="No suspicious API combinations or indicators were mapped to ATT&CK techniques." />;
   }
 
   return (

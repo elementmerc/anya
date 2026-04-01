@@ -473,6 +473,54 @@ const SECURITY_EXPLANATIONS: Record<string, { title: string; explanation: string
     good: "Full RELRO — the GOT (Global Offset Table) is locked down after startup. Best protection.",
     bad: "Partial or no RELRO — an attacker can overwrite function pointers in memory to hijack program flow.",
   },
+  toolchain: {
+    title: "Compiler / Toolchain Detection",
+    explanation: "Identifies which programming language and compiler built the executable — like recognising a car manufacturer from the engine and body style. Each toolchain (MSVC, GCC, Go, Rust, Delphi) leaves distinctive fingerprints in the binary's structure, imports, and section layout.",
+    good: "Recognised, common toolchain — consistent with legitimate software development.",
+    bad: "Unknown toolchain or suspicious compiler (e.g., AutoIt, PyInstaller wrapping a single script) — may indicate a script-based dropper or packer.",
+  },
+  rich_header: {
+    title: "Rich Header",
+    explanation: "An undocumented metadata block that Microsoft's MSVC linker embeds in every PE file it builds. It records which compiler tools and versions were used — like a receipt from the factory. It's XOR-encrypted with a checksum, and most tools don't know to fake it.",
+    good: "Present — confirms the file was built with Microsoft's toolchain. Entries can be cross-referenced to identify the exact Visual Studio version.",
+    bad: "Absent — the file wasn't built with MSVC (could be GCC, Go, Delphi, or a packer), or the header was deliberately stripped to hide build information.",
+  },
+  cert_reputation: {
+    title: "Certificate Reputation",
+    explanation: "Evaluates the trust level of the code-signing certificate — like checking if a passport was issued by a real government. Microsoft-signed binaries are the most trusted. Self-signed certificates offer no third-party verification.",
+    good: "Signed by a trusted publisher (Microsoft, known vendor) — strong indicator of legitimacy.",
+    bad: "Self-signed or unknown publisher — anyone can create a self-signed certificate, so it proves nothing about the file's origin.",
+  },
+  ksd_match: {
+    title: "Known Sample Match (TLSH)",
+    explanation: "Compares the file's structural fingerprint (TLSH hash) against a database of known malware. TLSH is a fuzzy hash — it measures similarity rather than exact matches. Think of it like facial recognition for malware: even if the file is slightly modified, it can still be matched to a known family.",
+    good: "No match — the file doesn't resemble any known malware in the database.",
+    bad: "Close match — the file's structure is similar to known malware. The closer the match (higher percentage), the more likely it's a variant of that family.",
+  },
+  dotnet: {
+    title: ".NET Assembly Metadata",
+    explanation: ".NET executables contain a rich metadata layer describing every class, method, and reference — like a complete blueprint attached to a building. This metadata reveals obfuscation tools, suspicious P/Invoke calls to native code, and reflection usage that can load code dynamically.",
+    good: "Clean metadata — standard type names, no obfuscation detected, legitimate P/Invoke usage.",
+    bad: "Obfuscated names, suspicious P/Invoke (calls to process injection APIs), or known obfuscator detected — strong indicators of malicious intent.",
+  },
+  stripped: {
+    title: "Symbol Stripping",
+    explanation: "Symbols are like a phonebook for a program's functions — they map memory addresses to human-readable names. Stripping removes this phonebook, making reverse engineering harder. Like removing all the labels from a circuit board.",
+    good: "Symbols present — easier to analyse, common in debug builds and open-source software.",
+    bad: "Symbols stripped — harder to analyse. Normal for release builds, but combined with other suspicious indicators, may suggest deliberate obfuscation.",
+  },
+  yara: {
+    title: "YARA Rule Matches",
+    explanation: "YARA rules are pattern-matching signatures written by security researchers to identify specific malware families, tools, or techniques — like a field guide for identifying species of malware. Each rule describes a unique combination of strings, byte patterns, or structural features.",
+    good: "No matches — the file doesn't trigger any known detection rules.",
+    bad: "Rule matched — a security researcher's signature identified something in this file. Check the rule name and description for details on what was found.",
+  },
+  graph: {
+    title: "Relationship Graph",
+    explanation: "A visual map of connections between evidence found in the file — imported DLLs, suspicious APIs, IOCs (URLs, IPs, domains), and behavioral categories. In batch mode, it shows structural similarity (TLSH distance) between files. Hover any node to spotlight its connections; drag to rearrange; click to select.",
+    good: "Few connections, mostly benign infrastructure — the graph is sparse with clean verdicts and no suspicious API clusters.",
+    bad: "Dense web of suspicious APIs connected to dangerous DLLs, IOCs pointing to external infrastructure, and multiple behavioral categories flagged — indicates sophisticated malicious capability.",
+  },
 };
 
 function SecurityFocusContent({ item }: { item: { type: "security"; feature: string } }) {
