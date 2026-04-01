@@ -73,8 +73,10 @@ anya/
 │   ├── App.tsx                   # Root component, tab routing, batch state
 │   ├── types/analysis.ts         # Shared TypeScript types (schema_version aware)
 │   ├── components/
-│   │   ├── BatchGraph.tsx        # 3D force-directed network graph (Three.js)
-│   │   ├── BatchDashboard.tsx    # Summary/Graph toggle, verdict cards, donut chart
+│   │   ├── BatchGraph.tsx        # 2D force-directed network graph (batch TLSH relationships)
+│   │   ├── SingleFileGraph.tsx   # IOC/Import evidence web (single-file analysis)
+│   │   ├── AnimatedEmptyState.tsx # Cinematic SVG line-draw empty state icons
+│   │   ├── BatchDashboard.tsx    # Verdict summary cards and donut chart
 │   │   └── tabs/
 │   │       ├── OverviewTab.tsx   # Risk ring, KSD, forensic fragment, KSD graph
 │   │       ├── EntropyTab.tsx    # Section entropy, byte histogram, flatness analysis
@@ -303,7 +305,7 @@ AnalysisResult (schema_version: "2.0.0")
 |---|---|
 | `react`, `react-dom` | UI framework |
 | `@tauri-apps/api`, `plugin-sql`, `plugin-dialog`, `plugin-fs` | Tauri IPC |
-| `react-force-graph-3d` | 3D network graph (Three.js/WebGL) |
+| `force-graph` | 2D force-directed graph (canvas, d3-force) |
 | `recharts` | Charts (entropy, donut) |
 | `radix-ui` | UI primitives |
 | `tailwindcss` | Utility CSS |

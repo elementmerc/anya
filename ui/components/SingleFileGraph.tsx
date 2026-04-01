@@ -1,24 +1,22 @@
 /**
  * SingleFileGraph — IOC/Import evidence web for single-file analysis.
  *
- * Builds a 2D force-directed graph from the AnalysisResult showing
- * DLLs, suspicious APIs, IOCs, and behavioral categories as interconnected
- * nodes. Uses the same Obsidian-style physics as BatchGraph.
+ * Uses vanilla `force-graph` (kapsule) directly instead of react-force-graph-2d.
+ * This gives us direct access to fg.width()/fg.height() for responsive resizing
+ * without fighting React's prop reconciliation.
  */
 
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { RotateCcw } from "lucide-react";
 import type { AnalysisResult } from "@/types/analysis";
 import AnimatedEmptyState from "@/components/AnimatedEmptyState";
 
-// ── Props ───────────────────────────────────────────────────────────────────
+// ── Types ───────────────────────────────────────────────────────────────────
 
 interface Props {
   result: AnalysisResult;
   theme: "dark" | "light";
 }
-
-// ── Node/link types for the evidence graph ──────────────────────────────────
 
 interface EvidenceNode {
   id: string;
@@ -33,12 +31,12 @@ interface EvidenceNode {
 }
 
 interface EvidenceLink {
-  source: string;
-  target: string;
+  source: string | EvidenceNode;
+  target: string | EvidenceNode;
   label: string;
 }
 
-// ── Node colours by type ────────────────────────────────────────────────────
+// ── Constants ───────────────────────────────────────────────────────────────
 
 const TYPE_COLORS = {
   file: "#22c55e",
@@ -49,23 +47,11 @@ const TYPE_COLORS = {
 };
 
 const IOC_COLORS: Record<string, string> = {
-  url: "#ef4444",
-  domain: "#f59e0b",
-  ipv4: "#f97316",
-  ipv6: "#f97316",
-  email: "#ec4899",
-  registry_key: "#6366f1",
-  windows_path: "#6b7280",
-  linux_path: "#6b7280",
-  base64_blob: "#8b5cf6",
-  mutex: "#6b7280",
+  url: "#ef4444", domain: "#f59e0b", ipv4: "#f97316", ipv6: "#f97316",
+  email: "#ec4899", registry_key: "#6366f1", windows_path: "#6b7280",
+  linux_path: "#6b7280", base64_blob: "#8b5cf6", mutex: "#6b7280",
   script_obfuscation: "#ef4444",
 };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type FgInstance = any;
-
-// ── Physics (shared with BatchGraph) ────────────────────────────────────────
 
 const PHYSICS = {
   alphaDecay: 0.008,
@@ -73,27 +59,22 @@ const PHYSICS = {
   velocityDecay: 0.35,
   warmupTicks: 0,
   cooldownTicks: 999999,
-  chargeStrength: -150,
-  linkDistance: 50,
   reheatInterval: 4000,
 };
 
-// ── Build graph data from AnalysisResult ────────────────────────────────────
+// ── Build graph data ────────────────────────────────────────────────────────
 
 function buildGraphData(result: AnalysisResult): { nodes: EvidenceNode[]; links: EvidenceLink[] } {
   const nodes: EvidenceNode[] = [];
   const links: EvidenceLink[] = [];
   const nodeIds = new Set<string>();
-
   const addNode = (n: EvidenceNode) => { if (!nodeIds.has(n.id)) { nodeIds.add(n.id); nodes.push(n); } };
 
-  // Center: the file itself
   const fileName = result.file_info.path.split(/[\\/]/).pop() ?? "file";
   const fileColor = result.verdict_summary?.includes("MALICIOUS") ? "#ef4444"
     : result.verdict_summary?.includes("SUSPICIOUS") ? "#eab308" : "#22c55e";
   addNode({ id: "file", label: fileName, type: "file", color: fileColor, val: 8 });
 
-  // DLLs
   const libraries = result.pe_analysis?.imports?.libraries ?? result.elf_analysis?.imports?.libraries ?? [];
   for (const lib of libraries) {
     const id = `dll:${lib}`;
@@ -101,51 +82,28 @@ function buildGraphData(result: AnalysisResult): { nodes: EvidenceNode[]; links:
     links.push({ source: "file", target: id, label: "imports" });
   }
 
-  // Suspicious APIs
   const apis = result.pe_analysis?.imports?.suspicious_apis ?? result.elf_analysis?.imports?.suspicious_functions ?? [];
   const categories = new Set<string>();
   for (const api of apis) {
     const id = `api:${api.name}`;
     addNode({ id, label: api.name, type: "api", color: TYPE_COLORS.api, val: 2 });
-    // DLL → API edge (if dll field is populated)
-    if (api.dll) {
-      const dllId = `dll:${api.dll}`;
-      if (nodeIds.has(dllId)) {
-        links.push({ source: dllId, target: id, label: "exports" });
-      } else {
-        links.push({ source: "file", target: id, label: "uses" });
-      }
+    if (api.dll && nodeIds.has(`dll:${api.dll}`)) {
+      links.push({ source: `dll:${api.dll}`, target: id, label: "exports" });
     } else {
       links.push({ source: "file", target: id, label: "uses" });
     }
-    // Category hub
-    if (api.category) {
-      const catId = `cat:${api.category}`;
-      categories.add(api.category);
-      links.push({ source: id, target: catId, label: "categorised" });
-    }
+    if (api.category) { categories.add(api.category); links.push({ source: id, target: `cat:${api.category}`, label: "categorised" }); }
   }
+  for (const cat of categories) addNode({ id: `cat:${cat}`, label: cat, type: "category", color: TYPE_COLORS.category, val: 2.5 });
 
-  // Category hub nodes
-  for (const cat of categories) {
-    addNode({ id: `cat:${cat}`, label: cat, type: "category", color: TYPE_COLORS.category, val: 2.5 });
-  }
-
-  // IOCs from classified strings (capped at 50, prioritised by type)
   const classified = result.strings?.classified ?? [];
   const iocEntries: { value: string; type: string }[] = [];
   for (const cs of classified) {
-    if (cs.category && cs.category !== "Plain" && !cs.is_benign) {
-      iocEntries.push({ value: cs.value, type: cs.category.toLowerCase() });
-    }
+    if (cs.category && cs.category !== "Plain" && !cs.is_benign) iocEntries.push({ value: cs.value, type: cs.category.toLowerCase() });
   }
-
-  // Priority: non-benign first, then by type
   const typePriority: Record<string, number> = { url: 0, ipv4: 1, ipv6: 1, domain: 2, email: 3, script_obfuscation: 4 };
   iocEntries.sort((a, b) => (typePriority[a.type] ?? 9) - (typePriority[b.type] ?? 9));
-  const cappedIocs = iocEntries.slice(0, 50);
-
-  for (const ioc of cappedIocs) {
+  for (const ioc of iocEntries.slice(0, 50)) {
     const truncated = ioc.value.length > 40 ? ioc.value.slice(0, 37) + "..." : ioc.value;
     const id = `ioc:${ioc.value.slice(0, 60)}`;
     if (nodeIds.has(id)) continue;
@@ -156,224 +114,235 @@ function buildGraphData(result: AnalysisResult): { nodes: EvidenceNode[]; links:
   return { nodes, links };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type FgInstance = any;
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function SingleFileGraph({ result, theme }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const fgRef = useRef<FgInstance>(null);
-  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  const [hoveredLink, setHoveredLink] = useState<EvidenceLink | null>(null);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [ForceGraph2D, setForceGraph2D] = useState<any>(null);
-  const [loadError, setLoadError] = useState(false);
-  const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const graphRef = useRef<FgInstance>(null);
+  const [ready, setReady] = useState(false);
   const [legendVisible, setLegendVisible] = useState(true);
 
-  useEffect(() => {
-    import("react-force-graph-2d")
-      .then((mod) => setForceGraph2D(() => mod.default))
-      .catch(() => setLoadError(true));
-  }, []);
-
-  // Resize: component remounts on tab switch, so initial size is correct.
-  // Only need to handle window resize while the tab is active.
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        setDimensions({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
-      }
-    };
-    update(); // Initial read
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, []);
-
-  // Alive-when-idle
-  useEffect(() => {
-    const interval = setInterval(() => fgRef.current?.d3ReheatSimulation?.(), PHYSICS.reheatInterval);
-    return () => clearInterval(interval);
-  }, []);
-
   const graphData = useMemo(() => buildGraphData(result), [result]);
+  const bgColor = theme === "dark" ? "#1a1a1a" : "#f5f5f5";
 
-  // ── Constellation emerge: graph fades in from darkness ───────────────────
-
-  const emergeStart = useRef(0);
+  // Interaction state stored in refs (no re-renders needed for canvas drawing)
+  const hoveredNodeId = useRef<string | null>(null);
+  const selectedNodeId = useRef<string | null>(null);
+  const hoveredLinkRef = useRef<EvidenceLink | null>(null);
+  const nodeAlphas = useRef(new Map<string, number>());
+  const emergeStart = useRef(performance.now());
+  const hasZoomed = useRef(false);
   const EMERGE_DURATION = 1500;
   const EDGE_DELAY = 400;
-
-  useEffect(() => {
-    emergeStart.current = performance.now();
-  }, [graphData.nodes.length]);
-
-  // Neighbor sets
-  const { neighborNodes, neighborLinks } = useMemo(() => {
-    const nodes = new Set<string>();
-    const links = new Set<number>();
-    const activeId = hoveredNodeId ?? selectedNodeId;
-    if (activeId) {
-      nodes.add(activeId);
-      graphData.links.forEach((l, i) => {
-        const s = typeof l.source === "object" ? (l.source as EvidenceNode).id : l.source;
-        const t = typeof l.target === "object" ? (l.target as EvidenceNode).id : l.target;
-        if (s === activeId || t === activeId) { links.add(i); nodes.add(s); nodes.add(t); }
-      });
-    }
-    return { neighborNodes: nodes, neighborLinks: links };
-  }, [hoveredNodeId, selectedNodeId, graphData.links]);
-
-  const isSpotlight = hoveredNodeId !== null || selectedNodeId !== null;
-
-  // Smooth hover transitions
-  const nodeAlphas = useRef(new Map<string, number>());
   const LERP_SPEED = 0.15;
-
-  const handleNodeHover = useCallback((node: EvidenceNode | null) => {
-    setHoveredNodeId(node?.id ?? null);
-    if (containerRef.current) containerRef.current.style.cursor = node ? "pointer" : "grab";
-  }, []);
-
-  const handleNodeClick = useCallback((node: EvidenceNode) => {
-    setSelectedNodeId((prev) => (prev === node.id ? null : node.id));
-    if (fgRef.current?.centerAt && node.x != null && node.y != null) {
-      fgRef.current.centerAt(node.x, node.y, 600);
-    }
-  }, []);
-
-  const handleNodeDrag = useCallback((node: EvidenceNode) => { node.fx = node.x; node.fy = node.y; }, []);
-  const handleNodeDragEnd = useCallback((node: EvidenceNode) => { node.fx = undefined; node.fy = undefined; }, []);
-
-  const hasZoomed = useRef(false);
-  useEffect(() => { hasZoomed.current = false; }, [result]);
-
-  const bgColor = theme === "dark" ? "#1a1a1a" : "#f5f5f5";
 
   // Empty state
   if (graphData.nodes.length <= 1) {
     return <AnimatedEmptyState icon="network" title="No evidence graph available" subtitle="This file doesn't have enough DLLs, APIs, or IOCs to build a relationship graph." />;
   }
 
-  if (loadError) return <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}><p>2D graph unavailable.</p></div>;
-  if (!ForceGraph2D) return <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid var(--text-muted)", borderTopColor: "transparent", animation: "spinRing 800ms linear infinite" }} /><span style={{ fontSize: "var(--font-size-sm)" }}>Loading graph engine...</span></div></div>;
+  // ── Mount vanilla force-graph + handle resize ─────────────────────────────
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    let fg: FgInstance = null;
+    let destroyed = false;
+
+    // Create a child div for force-graph to own (it wipes innerHTML)
+    const graphEl = document.createElement("div");
+    graphEl.style.width = "100%";
+    graphEl.style.height = "100%";
+    el.appendChild(graphEl);
+
+    import("force-graph").then((mod) => {
+      if (destroyed) { graphEl.remove(); return; }
+      const ForceGraph = mod.default;
+      fg = new ForceGraph(graphEl);
+      graphRef.current = fg;
+
+      // ── Size ────────────────────────────────────────────────────
+      const rect = el.getBoundingClientRect();
+      fg.width(Math.floor(rect.width) || window.innerWidth)
+        .height(Math.floor(rect.height) || window.innerHeight);
+
+      // ── Physics ─────────────────────────────────────────────────
+      fg.d3AlphaDecay(PHYSICS.alphaDecay)
+        .d3AlphaMin(PHYSICS.alphaMin)
+        .d3VelocityDecay(PHYSICS.velocityDecay)
+        .warmupTicks(PHYSICS.warmupTicks)
+        .cooldownTicks(PHYSICS.cooldownTicks)
+        .backgroundColor(bgColor);
+
+      // ── Node rendering ──────────────────────────────────────────
+      fg.nodeCanvasObject((node: EvidenceNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
+        const isActive = hoveredNodeId.current ?? selectedNodeId.current;
+        const neighborSet = new Set<string>();
+        if (isActive) {
+          neighborSet.add(isActive);
+          for (const l of graphData.links) {
+            const s = typeof l.source === "object" ? (l.source as EvidenceNode).id : l.source;
+            const t = typeof l.target === "object" ? (l.target as EvidenceNode).id : l.target;
+            if (s === isActive || t === isActive) { neighborSet.add(s as string); neighborSet.add(t as string); }
+          }
+        }
+        const isNeighbor = !isActive || neighborSet.has(node.id);
+        const isHovered = node.id === hoveredNodeId.current;
+        const isSelected = node.id === selectedNodeId.current;
+
+        let targetAlpha = isActive && !isNeighbor ? 0.08 : 1;
+        const elapsed = performance.now() - emergeStart.current;
+        targetAlpha *= Math.min(elapsed / EMERGE_DURATION, 1);
+        const prev = nodeAlphas.current.get(node.id) ?? 0;
+        const alpha = prev + (targetAlpha - prev) * LERP_SPEED;
+        nodeAlphas.current.set(node.id, alpha);
+
+        const scale = isHovered ? 1.5 : (isSelected || (isActive && isNeighbor)) ? 1.2 : 1;
+        const r = node.val * 1.2 * scale / globalScale * 4;
+
+        ctx.globalAlpha = alpha;
+        if (isHovered || isSelected) { ctx.shadowColor = node.color; ctx.shadowBlur = 12 / globalScale; }
+        ctx.beginPath();
+        ctx.arc(node.x!, node.y!, r, 0, Math.PI * 2);
+        ctx.fillStyle = node.color;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        if (globalScale > 0.8 || isHovered || isSelected || node.type === "file") {
+          const fontSize = Math.max((node.type === "file" ? 12 : 9) / globalScale, 2);
+          ctx.font = `${node.type === "file" ? "bold " : ""}${fontSize}px Geist Mono, monospace`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
+          ctx.fillStyle = theme === "dark" ? `rgba(240,240,240,${alpha})` : `rgba(26,26,26,${alpha})`;
+          ctx.fillText(node.label, node.x!, node.y! + r + 2 / globalScale);
+        }
+        ctx.globalAlpha = 1;
+      });
+
+      fg.nodePointerAreaPaint((node: EvidenceNode, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
+        const r = node.val * 1.2 * 1.5 / globalScale * 4;
+        ctx.beginPath(); ctx.arc(node.x!, node.y!, r, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
+      });
+
+      // ── Link rendering ──────────────────────────────────────────
+      fg.linkCanvasObject((link: EvidenceLink & { source: EvidenceNode; target: EvidenceNode }, ctx: CanvasRenderingContext2D, globalScale: number) => {
+        const sx = link.source.x, sy = link.source.y, tx = link.target.x, ty = link.target.y;
+        if (sx == null || sy == null || tx == null || ty == null) return;
+
+        const isActive = hoveredNodeId.current ?? selectedNodeId.current;
+        let isNeighborLink = false;
+        if (isActive) {
+          const s = typeof link.source === "object" ? link.source.id : link.source;
+          const t = typeof link.target === "object" ? link.target.id : link.target;
+          isNeighborLink = s === isActive || t === isActive;
+        }
+        const edgeElapsed = performance.now() - emergeStart.current - EDGE_DELAY;
+        const edgeEmerge = Math.max(0, Math.min(edgeElapsed / EMERGE_DURATION, 1));
+        const opacity = isActive ? (isNeighborLink ? 0.7 : 0.03) : 0.2;
+        const color = isNeighborLink && isActive
+          ? (link.source.type === "ioc" || link.target.type === "ioc" ? "#ef4444" : "#a78bfa")
+          : (theme === "dark" ? "#ffffff" : "#000000");
+
+        ctx.globalAlpha = opacity * edgeEmerge;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = (isNeighborLink && isActive ? 1.5 : 0.5) / globalScale;
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.stroke();
+        ctx.globalAlpha = 1;
+
+        // Edge label on hover
+        const hl = hoveredLinkRef.current;
+        if (hl && hl === link && link.label) {
+          const mx = (sx + tx) / 2, my = (sy + ty) / 2;
+          const fontSize = Math.max(8 / globalScale, 2);
+          ctx.font = `${fontSize}px Geist Mono, monospace`;
+          ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          const pad = 2 / globalScale;
+          const m = ctx.measureText(link.label);
+          ctx.fillStyle = theme === "dark" ? "rgba(36,36,36,0.9)" : "rgba(255,255,255,0.9)";
+          ctx.fillRect(mx - m.width / 2 - pad, my - fontSize / 2 - pad, m.width + pad * 2, fontSize + pad * 2);
+          ctx.fillStyle = theme === "dark" ? "#f0f0f0" : "#1a1a1a";
+          ctx.fillText(link.label, mx, my);
+        }
+      });
+
+      fg.linkPointerAreaPaint((link: EvidenceLink & { source: EvidenceNode; target: EvidenceNode }, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
+        const sx = link.source.x, sy = link.source.y, tx = link.target.x, ty = link.target.y;
+        if (sx == null || sy == null || tx == null || ty == null) return;
+        ctx.strokeStyle = color; ctx.lineWidth = 6 / globalScale;
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.stroke();
+      });
+
+      // ── Interactions ────────────────────────────────────────────
+      fg.onNodeHover((node: EvidenceNode | null) => {
+        hoveredNodeId.current = node?.id ?? null;
+        if (el) el.style.cursor = node ? "pointer" : "grab";
+      });
+      fg.onNodeClick((node: EvidenceNode) => {
+        selectedNodeId.current = selectedNodeId.current === node.id ? null : node.id;
+        if (node.x != null && node.y != null) fg.centerAt(node.x, node.y, 600);
+      });
+      fg.onNodeDrag((node: EvidenceNode) => { node.fx = node.x; node.fy = node.y; });
+      fg.onNodeDragEnd((node: EvidenceNode) => { node.fx = undefined; node.fy = undefined; });
+      fg.onLinkHover((link: EvidenceLink | null) => { hoveredLinkRef.current = link; });
+      fg.onBackgroundClick(() => { selectedNodeId.current = null; hoveredNodeId.current = null; });
+
+      // ── Zoom to fit after settle ────────────────────────────────
+      fg.onRenderFramePost(() => {
+        if (!hasZoomed.current) {
+          hasZoomed.current = true;
+          setTimeout(() => fg?.zoomToFit?.(400, 80), 300);
+        }
+      });
+
+      // ── Load data ───────────────────────────────────────────────
+      fg.graphData(graphData);
+      emergeStart.current = performance.now();
+      setReady(true);
+    });
+
+    // ── Resize handler — direct kapsule call ────────────────────
+    const onResize = () => {
+      if (!fg) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        fg.width(Math.floor(rect.width)).height(Math.floor(rect.height));
+      }
+    };
+    window.addEventListener("resize", onResize);
+
+    // ── Alive-when-idle ─────────────────────────────────────────
+    const reheat = setInterval(() => fg?.d3ReheatSimulation?.(), PHYSICS.reheatInterval);
+
+    return () => {
+      destroyed = true;
+      window.removeEventListener("resize", onResize);
+      clearInterval(reheat);
+      if (fg) { fg.pauseAnimation(); fg._destructor(); }
+      graphRef.current = null;
+      graphEl.remove();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, theme]);
 
   return (
-    <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: "hidden", background: bgColor }}>
-      <ForceGraph2D
-        ref={fgRef}
-        graphData={graphData}
-        width={dimensions.width}
-        height={dimensions.height}
-        backgroundColor={bgColor}
-        d3AlphaDecay={PHYSICS.alphaDecay}
-        d3AlphaMin={PHYSICS.alphaMin}
-        d3VelocityDecay={PHYSICS.velocityDecay}
-        warmupTicks={PHYSICS.warmupTicks}
-        cooldownTicks={PHYSICS.cooldownTicks}
-
-        nodeCanvasObject={(node: EvidenceNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
-          const isNeighbor = neighborNodes.has(node.id);
-          const isHovered = node.id === hoveredNodeId;
-          const isSelected = node.id === selectedNodeId;
-          let targetAlpha = isSpotlight && !isNeighbor ? 0.08 : 1;
-          // Constellation emerge
-          const elapsed = performance.now() - emergeStart.current;
-          targetAlpha *= Math.min(elapsed / EMERGE_DURATION, 1);
-          const prevAlpha = nodeAlphas.current.get(node.id) ?? 0;
-          const alpha = prevAlpha + (targetAlpha - prevAlpha) * LERP_SPEED;
-          nodeAlphas.current.set(node.id, alpha);
-          const scale = isHovered ? 1.5 : (isSelected || isNeighbor) ? 1.2 : 1;
-          const baseR = node.val * 1.2;
-          const r = baseR * scale / globalScale * 4;
-
-          ctx.globalAlpha = alpha;
-          if (isHovered || isSelected) { ctx.shadowColor = node.color; ctx.shadowBlur = 12 / globalScale; }
-
-          ctx.beginPath();
-          ctx.arc(node.x!, node.y!, r, 0, Math.PI * 2);
-          ctx.fillStyle = node.color;
-          ctx.fill();
-          ctx.shadowBlur = 0;
-
-          // Label
-          if (globalScale > 0.8 || isHovered || isSelected || node.type === "file") {
-            const fontSize = Math.max((node.type === "file" ? 12 : 9) / globalScale, 2);
-            ctx.font = `${node.type === "file" ? "bold " : ""}${fontSize}px Geist Mono, monospace`;
-            ctx.textAlign = "center";
-            ctx.textBaseline = "top";
-            ctx.fillStyle = theme === "dark" ? `rgba(240,240,240,${alpha})` : `rgba(26,26,26,${alpha})`;
-            ctx.fillText(node.label, node.x!, node.y! + r + 2 / globalScale);
-          }
-          ctx.globalAlpha = 1;
-        }}
-        nodePointerAreaPaint={(node: EvidenceNode, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
-          const r = node.val * 1.2 * 1.5 / globalScale * 4;
-          ctx.beginPath(); ctx.arc(node.x!, node.y!, r, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
-        }}
-
-        linkCanvasObject={(link: EvidenceLink & { source: EvidenceNode; target: EvidenceNode }, ctx: CanvasRenderingContext2D, globalScale: number) => {
-          const sx = link.source.x; const sy = link.source.y;
-          const tx = link.target.x; const ty = link.target.y;
-          if (sx == null || sy == null || tx == null || ty == null) return;
-
-          const idx = graphData.links.indexOf(link);
-          const isNeighborLink = neighborLinks.has(idx);
-          const edgeElapsed = performance.now() - emergeStart.current - EDGE_DELAY;
-          const edgeEmerge = Math.max(0, Math.min(edgeElapsed / EMERGE_DURATION, 1));
-          const opacity = isSpotlight ? (isNeighborLink ? 0.7 : 0.03) : 0.2;
-          const color = isNeighborLink && isSpotlight
-            ? (link.source.type === "ioc" || link.target.type === "ioc" ? "#ef4444" : "#a78bfa")
-            : (theme === "dark" ? "#ffffff" : "#000000");
-
-          ctx.globalAlpha = opacity * edgeEmerge;
-          ctx.strokeStyle = color;
-          ctx.lineWidth = (isNeighborLink && isSpotlight ? 1.5 : 0.5) / globalScale;
-          ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.stroke();
-          ctx.globalAlpha = 1;
-
-          // Edge label on hover
-          if (hoveredLink === link && link.label) {
-            const mx = (sx + tx) / 2; const my = (sy + ty) / 2;
-            const fontSize = Math.max(8 / globalScale, 2);
-            ctx.font = `${fontSize}px Geist Mono, monospace`;
-            ctx.textAlign = "center"; ctx.textBaseline = "middle";
-            const pad = 2 / globalScale;
-            const metrics = ctx.measureText(link.label);
-            ctx.fillStyle = theme === "dark" ? "rgba(36,36,36,0.9)" : "rgba(255,255,255,0.9)";
-            ctx.fillRect(mx - metrics.width / 2 - pad, my - fontSize / 2 - pad, metrics.width + pad * 2, fontSize + pad * 2);
-            ctx.fillStyle = theme === "dark" ? "#f0f0f0" : "#1a1a1a";
-            ctx.fillText(link.label, mx, my);
-          }
-        }}
-        linkPointerAreaPaint={(link: EvidenceLink & { source: EvidenceNode; target: EvidenceNode }, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
-          const sx = link.source.x; const sy = link.source.y;
-          const tx = link.target.x; const ty = link.target.y;
-          if (sx == null || sy == null || tx == null || ty == null) return;
-          ctx.strokeStyle = color; ctx.lineWidth = 6 / globalScale;
-          ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.stroke();
-        }}
-
-        onRenderFramePost={() => {
-          if (!hasZoomed.current && fgRef.current?.zoomToFit) {
-            hasZoomed.current = true;
-            setTimeout(() => fgRef.current?.zoomToFit?.(400, 80), 300);
-          }
-        }}
-
-        onNodeHover={handleNodeHover}
-        onNodeClick={handleNodeClick}
-        onNodeDrag={handleNodeDrag}
-        onNodeDragEnd={handleNodeDragEnd}
-        onLinkHover={(link: EvidenceLink | null) => setHoveredLink(link)}
-        onBackgroundClick={() => { setSelectedNodeId(null); setHoveredNodeId(null); }}
-      />
+    <div ref={containerRef} style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden", background: bgColor }}>
+      {/* Loading state before force-graph mounts */}
+      {!ready && (
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid var(--text-muted)", borderTopColor: "transparent", animation: "spinRing 800ms linear infinite" }} />
+            <span style={{ fontSize: "var(--font-size-sm)" }}>Loading graph engine...</span>
+          </div>
+        </div>
+      )}
 
       {/* Reset camera */}
       <div style={{ position: "absolute", top: 12, right: 12, zIndex: 10 }}>
-        <button onClick={() => { fgRef.current?.zoomToFit?.(400, 60); setSelectedNodeId(null); }} title="Reset view" className="ghost-btn"
+        <button onClick={() => { graphRef.current?.zoomToFit?.(400, 60); selectedNodeId.current = null; }} title="Reset view" className="ghost-btn"
           style={{ width: 32, height: 32, padding: 0, justifyContent: "center", background: theme === "dark" ? "rgba(36,36,36,0.85)" : "rgba(255,255,255,0.85)", backdropFilter: "blur(8px)" }}>
           <RotateCcw size={14} />
         </button>

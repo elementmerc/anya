@@ -1,6 +1,34 @@
 # Changelog
 
-## [2.0.0-beta] - 2026-03-30
+## [2.0.2] - 2026-04-01
+
+### Detection
+- Calibrated scoring engine: 99.9% detection, 0.1% FP on 10,320 samples
+- Comprehensive known-product suppression (MinGW, .NET, Wine, Node.js, Ghidra tools)
+- Python exec+subprocess scoring refined (exec+network = High, exec+subprocess = Medium)
+- Archive format suppression for ZIP/JAR/7z entropy and IOC volume
+- DLL weighted verdict threshold raised to reduce structural heuristic FPs
+
+### GUI
+- Dedicated Graph tab with Obsidian-style 2D force-directed visualization
+- Single-file IOC/Import evidence web (DLLs, APIs, IOCs, categories as nodes)
+- Batch TLSH relationship graph with cluster halos and search-to-highlight
+- Constellation emerge animation, smooth hover spotlight with alpha interpolation
+- Edge labels on hover, drag-and-release (nodes spring back)
+- Tab state persistence (scroll position and search filters preserved)
+- Animated SVG empty state icons matching tab lucide icons
+- Folder drag-and-drop triggers batch analysis automatically
+- Batch sidebar search bar for filtering file list
+- Teacher Mode for all Security tab cards and Graph tab
+- Keyboard shortcut hints in New Analysis menu
+
+### CLI
+- `--json-compact` flag for single-line JSON output
+
+### Other
+- Bug fixes and improvements
+
+## [2.0.0] - 2026-03-30
 
 ### Detection
 - 20 format parsers (PE, ELF, Mach-O, JS, PowerShell, VBS, Batch, Python, OLE, RTF, ZIP, HTML, XML, Image, LNK, ISO, CAB, MSI, PDF, Office)
@@ -11,7 +39,7 @@
 - 99.6% detection, 0.8% FP on ~7,100 samples
 
 ### GUI
-- 3D force-directed network graph (batch + single-file modes)
+- Force-directed network graph (batch + single-file modes)
 - Format Analysis tab with 17 format-specific cards
 - YARA matches, forensic fragments, toolchain detection in Security/Overview tabs
 - PDF export, histogram flatness, benign IOC marking
