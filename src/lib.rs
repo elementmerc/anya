@@ -746,6 +746,9 @@ fn looks_like_ipv4(s: &str) -> bool {
 static FRAGMENT_DB: LazyLock<serde_json::Value> =
     LazyLock::new(|| serde_json::from_str(anya_data::FRAGMENT_DB_JSON).unwrap_or_default());
 
+static KNOWN_SAMPLES_DB: LazyLock<serde_json::Value> =
+    LazyLock::new(|| serde_json::from_str(anya_data::KNOWN_SAMPLES_DB_JSON).unwrap_or_default());
+
 /// Look up a SHA256 in the forensic fragment database.
 /// Returns a ForensicFragment annotation if matched, None otherwise.
 fn lookup_fragment_db(sha256: &str) -> Option<output::ForensicFragment> {
@@ -756,6 +759,19 @@ fn lookup_fragment_db(sha256: &str) -> Option<output::ForensicFragment> {
     Some(output::ForensicFragment {
         associated_family: family.to_string(),
         explanation: description.to_string(),
+    })
+}
+
+/// Look up a SHA256 in the known samples database (tools, PUPs, test files).
+/// Returns a KnownSampleMatch if found, which overrides the heuristic verdict.
+fn lookup_known_sample(sha256: &str) -> Option<output::KnownSampleMatch> {
+    let samples = KNOWN_SAMPLES_DB.get("samples")?.as_object()?;
+    let entry = samples.get(sha256)?;
+    Some(output::KnownSampleMatch {
+        verdict: entry.get("verdict")?.as_str()?.to_string(),
+        category: entry.get("category")?.as_str()?.to_string(),
+        name: entry.get("name")?.as_str()?.to_string(),
+        description: entry.get("description")?.as_str()?.to_string(),
     })
 }
 
@@ -1515,6 +1531,7 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         top_findings: vec![],    // filled below after struct is built
         ksd_match: None,         // filled below after TLSH is available
         forensic_fragment: None, // filled below for sub-100B files
+        known_sample: None,      // filled below after SHA256 is available
         mach_analysis: result.mach_analysis.clone(),
         pdf_analysis: result.pdf_analysis.clone(),
         office_analysis: result.office_analysis.clone(),
@@ -1582,9 +1599,18 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         }
     }
 
+    // Check known samples database (tools, PUPs, test files)
+    out.known_sample = lookup_known_sample(&out.hashes.sha256);
+
     // Populate verdict and top findings so all consumers (CLI + GUI) get complete output
-    let (_, verdict_text) = compute_verdict(&out);
-    out.verdict_summary = Some(verdict_text);
+    let (verdict_word, verdict_text) = compute_verdict(&out);
+    // Known sample match overrides the heuristic verdict
+    if let Some(ref ks) = out.known_sample {
+        out.verdict_summary = Some(format!("{} — {}", ks.verdict, ks.name));
+    } else {
+        out.verdict_summary = Some(verdict_text);
+    }
+    let _ = verdict_word; // suppress unused warning
 
     let top = confidence::top_detections(&out, 3);
     out.top_findings = top
