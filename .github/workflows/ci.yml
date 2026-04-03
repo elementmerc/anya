@@ -34,8 +34,11 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
       - name: Security audit
-        uses: actions-rust-lang/audit@v1
+        run: cargo audit
 
       - uses: Swatinem/rust-cache@v2
 
