@@ -845,7 +845,12 @@ fn analyse_single_file(
     let json_result = to_json_output(&analysis);
 
     // verdict_summary and top_findings are now populated by to_json_output()
-    let (verdict_word, verdict_summary) = compute_verdict(&json_result);
+    let (mut verdict_word, verdict_summary) = compute_verdict(&json_result);
+
+    // Known sample match overrides the heuristic verdict word
+    if let Some(ref ks) = json_result.known_sample {
+        verdict_word = ks.verdict.clone();
+    }
 
     // ── JSON output ──────────────────────────────────────────────────────────
     if effective_json {
@@ -904,9 +909,37 @@ fn analyse_single_file(
             "MALICIOUS" => format!("VERDICT: {}", verdict_summary).red().bold(),
             "SUSPICIOUS" => format!("VERDICT: {}", verdict_summary).yellow().bold(),
             "CLEAN" => format!("VERDICT: {}", verdict_summary).green().bold(),
+            "TOOL" => format!("VERDICT: {}", verdict_summary).cyan().bold(),
+            "PUP" => format!("VERDICT: {}", verdict_summary).yellow(),
+            "TEST" => format!("VERDICT: {}", verdict_summary).magenta().bold(),
             _ => format!("VERDICT: {}", verdict_summary).white().dimmed(),
         };
         println!("{}", coloured_verdict);
+
+        // Known sample annotation
+        if let Some(ref ks) = json_result.known_sample {
+            println!("  {} [{}]", ks.name.cyan(), ks.category);
+            println!("  {}", ks.description.dimmed());
+        }
+
+        // Forensic fragment annotation
+        if let Some(ref frag) = json_result.forensic_fragment {
+            println!(
+                "  {} Associated family: {}",
+                "FORENSIC FRAGMENT".yellow(),
+                frag.associated_family
+            );
+            println!("  {}", frag.explanation.dimmed());
+        }
+
+        // Family annotation from KSD match
+        if let Some(ref fa) = json_result.family_annotation {
+            println!("  {} [{}]", fa.name.blue().bold(), fa.category);
+            println!("  {}", fa.description.dimmed());
+            if !fa.aliases.is_empty() {
+                println!("  Also known as: {}", fa.aliases.join(", ").dimmed());
+            }
+        }
     }
 
     // 2. File type mismatch warning
@@ -1263,7 +1296,12 @@ fn analyse_directory(
                 Ok(result) => {
                     summary.analysed += 1;
                     let json_result = to_json_output(&result);
-                    let (verdict_word, _) = compute_verdict(&json_result);
+                    let (mut verdict_word, _) = compute_verdict(&json_result);
+
+                    // Known sample match overrides heuristic verdict
+                    if let Some(ref ks) = json_result.known_sample {
+                        verdict_word = ks.verdict.clone();
+                    }
                     let top = anya_security_core::confidence::top_detections(&json_result, 1);
                     let top_indicator = top
                         .first()
@@ -1368,6 +1406,9 @@ fn analyse_directory(
                 "MALICIOUS" => format!("{:<12}", row.verdict).red().bold(),
                 "SUSPICIOUS" => format!("{:<12}", row.verdict).yellow().bold(),
                 "CLEAN" => format!("{:<12}", row.verdict).green(),
+                "TOOL" => format!("{:<12}", row.verdict).cyan().bold(),
+                "PUP" => format!("{:<12}", row.verdict).yellow(),
+                "TEST" => format!("{:<12}", row.verdict).magenta().bold(),
                 _ => format!("{:<12}", row.verdict).white().dimmed(),
             };
             println!("{:<30} {} {}", name, verdict_coloured, row.top_indicator);
@@ -1903,7 +1944,18 @@ fn run_benchmark(
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(workers)
         .build()
-        .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
+        .unwrap_or_else(|e| {
+            eprintln!(
+                "Failed to create thread pool with {} workers: {}. Using default.",
+                workers, e
+            );
+            rayon::ThreadPoolBuilder::new()
+                .build()
+                .unwrap_or_else(|e2| {
+                    eprintln!("Fatal: could not create any thread pool: {}", e2);
+                    std::process::exit(1);
+                })
+        });
 
     pool.scope(|s| {
         for file_path in &files {

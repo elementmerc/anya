@@ -7,10 +7,11 @@
  */
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, GraduationCap, ChevronDown, ChevronUp } from "lucide-react";
 import type { AnalysisResult } from "@/types/analysis";
 import AnimatedEmptyState from "@/components/AnimatedEmptyState";
 import GraphSettingsPanel, { type GraphSettings, DEFAULT_SETTINGS } from "@/components/GraphSettingsPanel";
+import { useTeacherFocus } from "@/hooks/useTeacherMode";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,7 @@ interface EvidenceNode {
   id: string;
   label: string;
   type: "file" | "dll" | "api" | "ioc" | "category";
+  group?: string;
   color: string;
   val: number;
   x?: number;
@@ -87,7 +89,7 @@ function buildGraphData(result: AnalysisResult): { nodes: EvidenceNode[]; links:
   const categories = new Set<string>();
   for (const api of apis) {
     const id = `api:${api.name}`;
-    addNode({ id, label: api.name, type: "api", color: TYPE_COLORS.api, val: 2 });
+    addNode({ id, label: api.name, type: "api", group: api.category, color: TYPE_COLORS.api, val: 2 });
     if (api.dll && nodeIds.has(`dll:${api.dll}`)) {
       links.push({ source: `dll:${api.dll}`, target: id, label: "exports" });
     } else {
@@ -108,7 +110,7 @@ function buildGraphData(result: AnalysisResult): { nodes: EvidenceNode[]; links:
     const truncated = ioc.value.length > 40 ? ioc.value.slice(0, 37) + "..." : ioc.value;
     const id = `ioc:${ioc.value.slice(0, 60)}`;
     if (nodeIds.has(id)) continue;
-    addNode({ id, label: truncated, type: "ioc", color: IOC_COLORS[ioc.type] ?? "#ef4444", val: 1.5 });
+    addNode({ id, label: truncated, type: "ioc", group: ioc.type, color: IOC_COLORS[ioc.type] ?? "#ef4444", val: 1.5 });
     links.push({ source: "file", target: id, label: ioc.type });
   }
 
@@ -125,8 +127,14 @@ export default function SingleFileGraph({ result, theme }: Props) {
   const graphRef = useRef<FgInstance>(null);
   const [ready, setReady] = useState(false);
   const [graphSettings, setGraphSettings] = useState<GraphSettings>({ ...DEFAULT_SETTINGS });
+  const { teacherEnabled, focus: teacherFocus } = useTeacherFocus();
+  const [teacherExpanded, setTeacherExpanded] = useState(true);
   const settingsRef = useRef(graphSettings);
   settingsRef.current = graphSettings;
+  const teacherFocusRef = useRef(teacherFocus);
+  teacherFocusRef.current = teacherFocus;
+  const teacherEnabledRef = useRef(teacherEnabled);
+  teacherEnabledRef.current = teacherEnabled;
 
   const graphData = useMemo(() => buildGraphData(result), [result]);
   const bgColor = theme === "dark" ? "#1a1a1a" : "#f5f5f5";
@@ -327,6 +335,20 @@ export default function SingleFileGraph({ result, theme }: Props) {
       fg.onNodeClick((node: EvidenceNode) => {
         selectedNodeId.current = selectedNodeId.current === node.id ? null : node.id;
         if (node.x != null && node.y != null) fg.centerAt(node.x, node.y, 600);
+
+        // Teacher Mode: focus the sidebar on the clicked node
+        if (teacherEnabledRef.current && node.type !== "file") {
+          const focus = teacherFocusRef.current;
+          if (node.type === "dll") {
+            focus({ type: "dll", name: node.label });
+          } else if (node.type === "api") {
+            focus({ type: "api", name: node.label, category: node.group ?? undefined });
+          } else if (node.type === "ioc") {
+            focus({ type: "ioc", iocType: node.group ?? "unknown", value: node.label });
+          } else if (node.type === "category") {
+            focus({ type: "category", name: node.label });
+          }
+        }
       });
       fg.onNodeDrag((node: EvidenceNode) => { node.fx = node.x; node.fy = node.y; });
       fg.onNodeDragEnd((node: EvidenceNode) => {
@@ -396,6 +418,36 @@ export default function SingleFileGraph({ result, theme }: Props) {
 
       {/* Settings panel */}
       <GraphSettingsPanel settings={graphSettings} onChange={setGraphSettings} theme={theme} />
+
+      {/* Teacher Mode guidance */}
+      {teacherEnabled && (
+        <div style={{
+          position: "absolute", top: 12, left: 12, zIndex: 10, maxWidth: 320,
+          background: theme === "dark" ? "rgba(36,36,36,0.92)" : "rgba(255,255,255,0.92)",
+          border: `1px solid ${theme === "dark" ? "#3a3a3a" : "#d4d4d4"}`,
+          borderRadius: 8, backdropFilter: "blur(8px)", overflow: "hidden",
+        }}>
+          <button
+            onClick={() => setTeacherExpanded(v => !v)}
+            style={{
+              display: "flex", alignItems: "center", gap: 6, width: "100%",
+              padding: "8px 12px", background: "none", border: "none",
+              color: "var(--text-primary)", cursor: "pointer", fontSize: 12, fontWeight: 600,
+            }}
+          >
+            <GraduationCap size={14} style={{ color: "rgb(129,140,248)", flexShrink: 0 }} />
+            What am I looking at?
+            {teacherExpanded ? <ChevronUp size={12} style={{ marginLeft: "auto" }} /> : <ChevronDown size={12} style={{ marginLeft: "auto" }} />}
+          </button>
+          {teacherExpanded && (
+            <div style={{ padding: "0 12px 10px", fontSize: 12, lineHeight: 1.6, color: "var(--text-secondary)" }}>
+              <p style={{ margin: "0 0 6px" }}>The <strong>centre node</strong> is your file. Surrounding nodes show what it connects to.</p>
+              <p style={{ margin: "0 0 6px" }}><span style={{ color: TYPE_COLORS.dll }}>Purple nodes</span> are DLLs (libraries the file imports). <span style={{ color: TYPE_COLORS.api }}>Orange nodes</span> are specific API functions it calls. <span style={{ color: TYPE_COLORS.ioc }}>Red nodes</span> are indicators of compromise (suspicious URLs, IPs, domains). <span style={{ color: TYPE_COLORS.category }}>Blue nodes</span> are behaviour categories.</p>
+              <p style={{ margin: 0 }}><strong>Click any node</strong> with Teacher Mode on to learn what it does. A file with many red IOC nodes and process manipulation APIs is far more suspicious than one that only imports standard system libraries.</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Legend (permanent) */}
       <div style={{

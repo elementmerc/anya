@@ -372,6 +372,7 @@ export interface AnalysisResult {
   forensic_fragment?: ForensicFragment;
   // Known sample match (tool, PUP, or test file)
   known_sample?: KnownSampleMatch;
+  family_annotation?: FamilyAnnotation;
   // YARA rule matches
   yara_matches?: YaraMatchResult[];
   // Verdict summary
@@ -734,6 +735,14 @@ export interface KnownSampleMatch {
   category: string;
   name: string;
   description: string;
+}
+
+export interface FamilyAnnotation {
+  name: string;
+  category: string;
+  description: string;
+  aliases: string[];
+  first_seen?: string;
 }
 
 // ── YARA match results ──────────────────────────────────────────────

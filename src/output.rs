@@ -140,6 +140,10 @@ pub struct AnalysisResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub known_sample: Option<KnownSampleMatch>,
 
+    /// Family annotation from the malware family context database
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family_annotation: Option<FamilyAnnotation>,
+
     /// Mach-O binary analysis (if applicable)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mach_analysis: Option<MachoAnalysis>,
@@ -976,6 +980,18 @@ pub struct KnownSampleMatch {
     pub description: String,
 }
 
+/// Contextual annotation for a malware family from the family annotations database.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FamilyAnnotation {
+    pub name: String,
+    pub category: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_seen: Option<String>,
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Script analysis structures
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1308,6 +1324,7 @@ mod tests {
             ksd_match: None,
             forensic_fragment: None,
             known_sample: None,
+            family_annotation: None,
             top_findings: vec![],
             mach_analysis: None,
             pdf_analysis: None,
@@ -1585,6 +1602,7 @@ mod tests {
             ksd_match: None,
             forensic_fragment: None,
             known_sample: None,
+            family_annotation: None,
             top_findings: vec![],
             mach_analysis: None,
             pdf_analysis: None,

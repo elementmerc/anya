@@ -24,7 +24,8 @@ export type TeacherFocusItem =
   | { type: "dll"; name: string; description?: string }
   | { type: "ioc"; iocType: string; value: string }
   | { type: "batch"; context: "dashboard" | "file" }
-  | { type: "security"; feature: string };
+  | { type: "security"; feature: string }
+  | { type: "category"; name: string };
 
 // ── Context shape ───────────────────────────────────────────────────────────
 

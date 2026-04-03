@@ -132,11 +132,28 @@ pub mod commands {
         );
 
         let blocked: &[&str] = &[
-            "/etc", "/bin", "/sbin", "/usr", "/boot", "/proc", "/sys", "/dev",
+            // Linux
+            "/etc",
+            "/bin",
+            "/sbin",
+            "/usr",
+            "/boot",
+            "/proc",
+            "/sys",
+            "/dev",
+            // macOS
+            "/System",
+            "/Library",
+            "/private/var",
+            // Windows (case insensitive check below)
+            "C:\\Windows",
+            "C:\\Program Files",
+            "C:\\Program Files (x86)",
         ];
         let canonical_str = canonical.to_string_lossy();
+        let canonical_lower = canonical_str.to_lowercase();
         for prefix in blocked {
-            if canonical_str.starts_with(prefix) {
+            if canonical_lower.starts_with(&prefix.to_lowercase()) {
                 return Err(format!(
                     "Refused to write to restricted path: {canonical_str}"
                 ));
@@ -810,6 +827,36 @@ pub mod commands {
         }
     }
 
+    /// Return DLL explanations data from the proprietary data crate.
+    #[tauri::command]
+    pub fn get_dll_explanations() -> String {
+        anya_security_core::proprietary_data::DLL_EXPLANATIONS_JSON.to_string()
+    }
+
+    /// Return function explanations data from the proprietary data crate.
+    #[tauri::command]
+    pub fn get_function_explanations() -> String {
+        anya_security_core::proprietary_data::FUNCTION_EXPLANATIONS_JSON.to_string()
+    }
+
+    /// Return technique explanations data from the proprietary data crate.
+    #[tauri::command]
+    pub fn get_technique_explanations() -> String {
+        anya_security_core::proprietary_data::TECHNIQUE_EXPLANATIONS_JSON.to_string()
+    }
+
+    /// Return MITRE ATT&CK descriptions from the proprietary data crate.
+    #[tauri::command]
+    pub fn get_mitre_attack_data() -> String {
+        anya_security_core::proprietary_data::MITRE_ATTACK_JSON.to_string()
+    }
+
+    /// Return API category explanations from the proprietary data crate.
+    #[tauri::command]
+    pub fn get_category_explanations() -> String {
+        anya_security_core::proprietary_data::CATEGORY_EXPLANATIONS_JSON.to_string()
+    }
+
     /// Install bundled YARA rules from the app resources to the user's rules directory.
     /// Called on first run or when user explicitly requests rule installation.
     #[tauri::command]
@@ -1016,6 +1063,11 @@ pub fn run() {
             commands::get_batch_graph_data,
             commands::get_ksd_neighborhood,
             commands::install_bundled_yara_rules,
+            commands::get_dll_explanations,
+            commands::get_function_explanations,
+            commands::get_technique_explanations,
+            commands::get_mitre_attack_data,
+            commands::get_category_explanations,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Anya");

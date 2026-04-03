@@ -9,6 +9,7 @@ import { useFontSize } from "@/hooks/useFontSize";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { TeacherModeContext, type TeacherModeContextValue, type TeacherFocusItem } from "@/hooks/useTeacherMode";
 import { loadTeacherSettings, saveTeacherSettings, loadSettings, saveSettingsToDb, isGuidedTourCompleted, markGuidedTourCompleted } from "@/lib/db";
+import { initAllExplanations } from "@/lib/apiDescriptions";
 import { getThresholds, openFolderPicker, openFilePicker, analyzeDirectory, onBatchStarted, onBatchFileResult, onBatchComplete, pollDirectory, exportJson, saveJsonPicker, onFileDrop, getBatchGraphData } from "@/lib/tauri-bridge";
 import type { GraphData } from "@/types/analysis";
 import { BibleVerseBar } from "@/components/BibleVerseBar";
@@ -127,6 +128,7 @@ export default function App() {
     isGuidedTourCompleted().then((done) => {
       if (!done) setTourEligible(true);
     }).catch(() => setTourEligible(true));
+    initAllExplanations();
   }, []);
 
   useEffect(() => {

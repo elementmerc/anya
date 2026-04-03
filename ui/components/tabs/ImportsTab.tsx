@@ -3,7 +3,7 @@ import { ChevronRight, AlertTriangle, Search, Pin } from "lucide-react";
 import AnimatedEmptyState from "@/components/AnimatedEmptyState";
 import { getApiDescription } from "@/lib/apiDescriptions";
 import { useTeacherFocus } from "@/hooks/useTeacherMode";
-import dllExplanations from "@/data/dll_explanations.json";
+import { getDllSummary } from "@/lib/apiDescriptions";
 import type { AnalysisResult } from "@/types/analysis";
 
 interface PinnedFinding {
@@ -24,10 +24,8 @@ interface DllEntry {
   suspiciousCount: number;
 }
 
-const dllDescriptions = dllExplanations as Record<string, string>;
-
 function getDllDescription(dll: string): string | undefined {
-  return dllDescriptions[dll] ?? dllDescriptions[dll.toUpperCase()] ?? dllDescriptions[dll.toLowerCase()];
+  return getDllSummary(dll);
 }
 
 function Highlight({ text, query }: { text: string; query: string }) {

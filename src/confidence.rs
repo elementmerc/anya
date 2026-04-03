@@ -1092,6 +1092,7 @@ mod tests {
             ksd_match: None,
             forensic_fragment: None,
             known_sample: None,
+            family_annotation: None,
             top_findings: vec![],
             mach_analysis: None,
             pdf_analysis: None,
