@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { TeacherModeContext, type TeacherModeContextValue } from "../../ui/hooks/useTeacherMode";
 import SettingsModal from "../../ui/components/SettingsModal";
 
@@ -28,7 +28,7 @@ const defaultProps = {
   onClose: vi.fn(),
 };
 
-function renderSettingsModal(
+async function renderSettingsModal(
   contextOverrides: Partial<TeacherModeContextValue> = {},
   propOverrides: Partial<typeof defaultProps> = {}
 ) {
@@ -41,11 +41,15 @@ function renderSettingsModal(
     ...contextOverrides,
   };
   const props = { ...defaultProps, ...propOverrides };
-  return render(
-    <TeacherModeContext.Provider value={contextValue}>
-      <SettingsModal {...props} />
-    </TeacherModeContext.Provider>
-  );
+  let result: ReturnType<typeof render>;
+  await act(async () => {
+    result = render(
+      <TeacherModeContext.Provider value={contextValue}>
+        <SettingsModal {...props} />
+      </TeacherModeContext.Provider>
+    );
+  });
+  return result!;
 }
 
 describe("SettingsModal toggles", () => {
@@ -53,39 +57,34 @@ describe("SettingsModal toggles", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the Bible Verses label", () => {
-    renderSettingsModal();
+  it("renders the Bible Verses label", async () => {
+    await renderSettingsModal();
     expect(screen.getByText("Bible Verses")).toBeInTheDocument();
   });
 
-  it("renders the Teacher Mode label", () => {
-    renderSettingsModal();
+  it("renders the Teacher Mode label", async () => {
+    await renderSettingsModal();
     expect(screen.getByText("Teacher Mode")).toBeInTheDocument();
   });
 
-  it("Teacher Mode toggle reflects context enabled state via aria-checked", () => {
-    renderSettingsModal({ enabled: true });
+  it("Teacher Mode toggle reflects context enabled state via aria-checked", async () => {
+    await renderSettingsModal({ enabled: true });
     const toggles = screen.getAllByRole("switch");
-    const teacherToggle = toggles.find(
-      (btn) => btn.getAttribute("aria-checked") !== null
-    );
-    // The Teacher Mode toggle is the first switch; aria-checked should match context
     expect(toggles[0].getAttribute("aria-checked")).toBe("true");
   });
 
-  it("Bible Verses toggle reflects bibleVersesEnabled prop via aria-checked", () => {
-    renderSettingsModal({}, { bibleVersesEnabled: false });
+  it("Bible Verses toggle reflects bibleVersesEnabled prop via aria-checked", async () => {
+    await renderSettingsModal({}, { bibleVersesEnabled: false });
     const toggles = screen.getAllByRole("switch");
-    // Bible Verses is the second switch in the Learning section
     const bibleToggle = toggles[1];
     expect(bibleToggle.getAttribute("aria-checked")).toBe("false");
   });
 
-  it("clicking the Bible Verses toggle calls onSetBibleVerses", () => {
+  it("clicking the Bible Verses toggle calls onSetBibleVerses", async () => {
     const onSetBibleVerses = vi.fn();
-    renderSettingsModal({}, { bibleVersesEnabled: true, onSetBibleVerses });
+    await renderSettingsModal({}, { bibleVersesEnabled: true, onSetBibleVerses });
     const toggles = screen.getAllByRole("switch");
-    fireEvent.click(toggles[1]);
+    await act(async () => { fireEvent.click(toggles[1]); });
     expect(onSetBibleVerses).toHaveBeenCalledWith(false);
   });
 });

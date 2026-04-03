@@ -89,12 +89,9 @@ anya/
 │   └── lib/
 │       ├── db.ts                 # SQLite with versioned migration system
 │       └── tauri-bridge.ts       # Typed IPC wrappers (api_version aware)
-├── anya-stubs/                   # Stub crates (public repo)
-│   ├── scoring/                  # Scoring interface stubs
-│   └── data/                     # Data interface stubs
-└── anya-proprietary/             # Git submodule
-    ├── scoring/                  # Scoring crate
-    └── data/                     # Data crate
+└── anya-stubs/                   # Stub crates (public repo)
+    ├── scoring/                  # Scoring interface stubs
+    └── data/                     # Data interface stubs
 ```
 
 ---
@@ -207,6 +204,11 @@ invoke("get_ksd_neighborhood", { … })     →  { neighbors: KsdNeighbor[] }
 invoke("install_bundled_yara_rules")      →  copies rules from app resources
 invoke("is_first_run")                    →  "first_run" | "upgrade" | "current"
 invoke("complete_setup", { … })           →  writes version marker + installs YARA rules
+invoke("get_dll_explanations")            →  DLL descriptions JSON
+invoke("get_function_explanations")       →  API function descriptions JSON
+invoke("get_technique_explanations")      →  MITRE technique explanations JSON
+invoke("get_mitre_attack_data")           →  MITRE ATT&CK catalogue JSON
+invoke("get_category_explanations")       →  API category descriptions JSON
 ```
 
 ---
@@ -242,8 +244,10 @@ FileAnalysisResult
     ├── confidence::extract_signals() → SignalSet (80+ signals)
     │       │
     │       ▼
-    │   anya_scoring::score_signals() → weighted verdict + findings
+    │   score_signals() → weighted verdict + findings
     │
+    ├── Known sample lookup (tools, test files, known clean binaries)
+    ├── Family annotation lookup (malware family context)
     ├── KSD lookup (TLSH similarity to known malware)
     ├── Forensic fragment annotation (sub-100B files)
     │
@@ -306,7 +310,7 @@ AnalysisResult (schema_version: "2.0.0")
 | `react`, `react-dom` | UI framework |
 | `@tauri-apps/api`, `plugin-sql`, `plugin-dialog`, `plugin-fs` | Tauri IPC |
 | `force-graph` | 2D force-directed graph (canvas, d3-force) |
-| `recharts` | Charts (entropy, donut) |
+| `recharts` | Charts (entropy) |
 | `radix-ui` | UI primitives |
 | `tailwindcss` | Utility CSS |
 | `lucide-react` | Icons |
@@ -317,14 +321,14 @@ AnalysisResult (schema_version: "2.0.0")
 
 | Suite | Count | Runner |
 |---|---|---|
-| Rust unit tests | 263 | `cargo test -p anya-security-core` |
+| Rust unit tests | 23 | `cargo test -p anya-security-core` |
 | Frontend tests | 46 | `npx vitest run` |
-| Integration tests | 298 | `private/scripts/integration_test.sh` |
-| **Total** | **607** | |
+| Integration tests | 304 | `scripts/integration_test.sh` |
+| **Total** | **373** | |
 
 Integration tests cover: CLI flags, edge cases (unicode paths, malformed input, 1-byte files, all-zeros, random data), format parsers, report generation (HTML/PDF/Markdown), batch analysis, case management, YARA engine, schema versioning, and output invariants.
 
 ---
 
-**Last updated:** 2026-03-30 (v2.0.0-beta)
+**Last updated:** 2026-04-03 (v2.0.3)
 **Maintainer:** Daniel Iwugo — daniel@themalwarefiles.com

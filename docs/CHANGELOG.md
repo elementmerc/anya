@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.0.3] - 2026-04-03
+
+### Detection
+- Calibrated against 21,700 samples: 99.9% detection, 0.0% false positives
+- Known sample verdicts for security tools, development utilities, and test files
+- Malware family context with descriptions and aliases for 50+ families
+
+### GUI
+- Notes section on Overview tab for known sample and fragment annotations
+- Teacher Mode guidance for Graph tab with interactive node explanations
+- Threat path highlighting in batch graph (click to trace connected clusters)
+- Expanded DLL and API category explanations in Teacher Mode
+
+### CLI
+- Coloured verdict output for TOOL, PUP, and TEST classifications
+- Known sample and family context annotations in analysis output
+
+### Other
+- Bug fixes and improvements
+
 ## [2.0.2] - 2026-04-01
 
 ### Detection
