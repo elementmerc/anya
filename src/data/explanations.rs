@@ -21,7 +21,7 @@ struct RawFinding {
 
 fn build_map() -> HashMap<String, PlainEnglishFinding> {
     let raw: HashMap<String, RawFinding> =
-        serde_json::from_str(EXPLANATIONS_JSON).expect("explanations_data.json is malformed");
+        serde_json::from_str(EXPLANATIONS_JSON).unwrap_or_default();
 
     raw.into_iter()
         .map(|(key, r)| {

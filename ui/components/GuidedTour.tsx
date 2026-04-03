@@ -11,7 +11,7 @@ const STEPS: TourStep[] = [
   { target: "[data-tour='risk-ring']", title: "Your Verdict", body: "This is the risk score \u2014 the higher the number, the more suspicious the file. Green means clean, red means danger.", position: "right" },
   { target: "[data-tour='tab-nav']", title: "Explore the Tabs", body: "Each tab shows a different angle of the analysis. Start with Overview, then explore Entropy, Imports, and more.", position: "bottom" },
   { target: "[data-tour='tab-imports']", title: "Imports Matter", body: "Imports show what Windows features the file uses. Red flags here \u2014 like process injection APIs \u2014 are the biggest clues.", position: "bottom" },
-  { target: "[data-tour='teacher-toggle']", title: "Teacher Mode", body: "Turn this on anytime for plain-English explanations of everything you see. Perfect for learning.", position: "left" },
+  { target: "[data-tour='teacher-toggle']", title: "Teacher Mode", body: "Turn this on anytime for plain English explanations of everything you see. Perfect for learning.", position: "left" },
   { target: "[data-tour='new-analysis']", title: "Analyse More", body: "Click here to analyse another file, or use Batch Analysis to scan a whole folder at once.", position: "bottom" },
 ];
 

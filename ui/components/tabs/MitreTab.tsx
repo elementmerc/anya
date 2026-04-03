@@ -7,7 +7,7 @@ import { ExternalLink, X, ChevronDown, ChevronUp, Pin } from "lucide-react";
 import AnimatedEmptyState from "@/components/AnimatedEmptyState";
 import type { AnalysisResult, MitreTechnique } from "@/types/analysis";
 import { useTeacherMode } from "@/hooks/useTeacherMode";
-import mitreData from "@/data/mitre_attack.json";
+import { getMitreAttackData } from "@/lib/tauri-bridge";
 
 interface PinnedFinding {
   type: string;
@@ -32,12 +32,26 @@ interface TechniqueEntry {
   subtechniques: { id: string; name: string; description: string }[];
 }
 
-const techniqueMap = new Map<string, TechniqueEntry>();
-for (const t of (mitreData as { techniques: TechniqueEntry[] }).techniques) {
-  techniqueMap.set(t.id, t);
-  for (const sub of t.subtechniques) {
-    techniqueMap.set(sub.id, { ...sub, tactic: t.tactic, subtechniques: [] });
-  }
+let _mitreTabCache: Map<string, TechniqueEntry> | null = null;
+
+function useMitreMap(): Map<string, TechniqueEntry> {
+  const [data, setData] = useState<Map<string, TechniqueEntry>>(_mitreTabCache ?? new Map());
+  useEffect(() => {
+    if (_mitreTabCache) return;
+    getMitreAttackData().then((json) => {
+      const parsed = JSON.parse(json) as { techniques: TechniqueEntry[] };
+      const map = new Map<string, TechniqueEntry>();
+      for (const t of parsed.techniques) {
+        map.set(t.id, t);
+        for (const sub of t.subtechniques) {
+          map.set(sub.id, { ...sub, tactic: t.tactic, subtechniques: [] });
+        }
+      }
+      _mitreTabCache = map;
+      setData(map);
+    }).catch(() => {});
+  }, []);
+  return data;
 }
 
 // ── Tactic ordering (ATT&CK Enterprise canonical order) ──────────────────────
@@ -81,17 +95,17 @@ interface DetectedTechnique {
   detectedSubs: { id: string; name: string }[];
 }
 
-function groupTechniques(mitre: MitreTechnique[]): DetectedGroup[] {
+function groupTechniques(mitre: MitreTechnique[], tMap: Map<string, TechniqueEntry>): DetectedGroup[] {
   // Map parent_id → DetectedTechnique
   const byParent = new Map<string, DetectedTechnique>();
 
   for (const m of mitre) {
     const parentId = m.technique_id;
     const subId = m.sub_technique_id ? `${parentId}.${m.sub_technique_id}` : null;
-    const catalogEntry = techniqueMap.get(parentId);
+    const catalogEntry = tMap.get(parentId);
 
     if (!catalogEntry) {
-      console.warn(`[MitreTab] Technique ID "${parentId}" detected but not found in mitre_attack.json — rendering fallback card.`);
+      console.warn(`[MitreTab] Technique ID "${parentId}" detected but not found in MITRE catalogue data — rendering fallback card.`);
     }
 
     if (!byParent.has(parentId)) {
@@ -109,7 +123,7 @@ function groupTechniques(mitre: MitreTechnique[]): DetectedGroup[] {
     entry.indicators.push(m);
 
     if (subId) {
-      const subEntry = techniqueMap.get(subId);
+      const subEntry = tMap.get(subId);
       if (subEntry && !entry.detectedSubs.some((s) => s.id === subId)) {
         entry.detectedSubs.push({ id: subId, name: subEntry.name });
       }
@@ -551,11 +565,12 @@ function TechniqueModal({
 
 export default function MitreTab({ result, highlightId, onPin }: Props) {
   const { enabled: teacherEnabled, focus, blur } = useTeacherMode();
+  const techniqueMap = useMitreMap();
   const [selectedTech, setSelectedTech] = useState<DetectedTechnique | null>(null);
   const [localHighlight, setLocalHighlight] = useState<string | null>(highlightId ?? null);
 
   const mitre = result.mitre_techniques ?? [];
-  const groups = groupTechniques(mitre);
+  const groups = groupTechniques(mitre, techniqueMap);
 
   // Clear highlight after animation completes
   useEffect(() => {

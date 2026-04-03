@@ -6,10 +6,11 @@
  */
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, GraduationCap, ChevronDown, ChevronUp } from "lucide-react";
 import type { GraphData, GraphNode, GraphLink } from "@/types/analysis";
 import GraphSettingsPanel, { type GraphSettings, DEFAULT_SETTINGS } from "@/components/GraphSettingsPanel";
 import AnimatedEmptyState from "@/components/AnimatedEmptyState";
+import { useTeacherFocus } from "@/hooks/useTeacherMode";
 
 // ── Props ───────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,36 @@ function getNodeColor(verdict: string): string {
   return "#22c55e";
 }
 function isThreatEdge(link: GraphLink): boolean { return link.strength > 0 && link.label !== "mesh"; }
+
+function bfsThreatCluster(startId: number, links: GraphLink[]): { nodes: Set<number>; edges: Set<string> } {
+  const visited = new Set<number>();
+  const edgeSet = new Set<string>();
+  const queue: number[] = [startId];
+  visited.add(startId);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const l of links) {
+      if (!isThreatEdge(l)) continue;
+      const s = typeof l.source === "object" ? (l.source as GraphNode).id : l.source as number;
+      const t = typeof l.target === "object" ? (l.target as GraphNode).id : l.target as number;
+      let neighbor: number | null = null;
+      if (s === current && !visited.has(t)) neighbor = t;
+      else if (t === current && !visited.has(s)) neighbor = s;
+      if (neighbor !== null) {
+        visited.add(neighbor);
+        queue.push(neighbor);
+        const edgeKey = `${Math.min(s, t)}-${Math.max(s, t)}`;
+        edgeSet.add(edgeKey);
+      } else if ((s === current || t === current) && visited.has(s) && visited.has(t)) {
+        const edgeKey = `${Math.min(s, t)}-${Math.max(s, t)}`;
+        edgeSet.add(edgeKey);
+      }
+    }
+  }
+
+  return { nodes: visited, edges: edgeSet };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type FgInstance = any;
@@ -67,6 +98,12 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery, high
   const graphRef = useRef<FgInstance>(null);
   const [ready, setReady] = useState(false);
   const [graphSettings, setGraphSettings] = useState<GraphSettings>({ ...DEFAULT_SETTINGS });
+  const { teacherEnabled, focus: teacherFocus } = useTeacherFocus();
+  const [teacherExpanded, setTeacherExpanded] = useState(true);
+  const teacherFocusRef = useRef(teacherFocus);
+  teacherFocusRef.current = teacherFocus;
+  const teacherEnabledRef = useRef(teacherEnabled);
+  teacherEnabledRef.current = teacherEnabled;
   const settingsRef = useRef(graphSettings);
   settingsRef.current = graphSettings;
 
@@ -111,6 +148,8 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery, high
   // Interaction state in refs (canvas redraws without React re-renders)
   const hoveredNodeId = useRef<number | null>(null);
   const selectedNodeId = useRef<number | null>(null);
+  const threatPathNodes = useRef<Set<number>>(new Set());
+  const threatPathLinks = useRef<Set<string>>(new Set());
   const hoveredLinkRef = useRef<RuntimeLink | null>(null);
   const nodeAlphas = useRef(new Map<number, number>());
   const emergeStart = useRef(performance.now());
@@ -244,6 +283,12 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery, high
           ctx.beginPath(); ctx.arc(node.x!, node.y!, r * pulse * 1.8, 0, Math.PI * 2);
           ctx.strokeStyle = color; ctx.lineWidth = 1.5 / globalScale; ctx.stroke();
         }
+
+        if (threatPathNodes.current.has(id) && threatPathNodes.current.size > 1) {
+          const pulse = 1 + Math.sin(performance.now() * 0.004) * 0.2;
+          ctx.beginPath(); ctx.arc(node.x!, node.y!, r * pulse * 1.6, 0, Math.PI * 2);
+          ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 2 / globalScale; ctx.stroke();
+        }
         ctx.shadowBlur = 0;
 
         if (settingsRef.current.showLabels && (globalScale > 1.5 || isHovered || isSelected || isSearchMatch)) {
@@ -266,6 +311,20 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery, high
       fg.linkCanvasObject((link: RuntimeLink, ctx: CanvasRenderingContext2D, globalScale: number) => {
         const sx = link.source.x, sy = link.source.y, tx = link.target.x, ty = link.target.y;
         if (sx == null || sy == null || tx == null || ty == null) return;
+
+        // Threat path: animated red dashes
+        const tpSrcId = typeof link.source === "object" ? (link.source as RuntimeNode).id : link.source as number;
+        const tpTgtId = typeof link.target === "object" ? (link.target as RuntimeNode).id : link.target as number;
+        const tpKey = `${Math.min(tpSrcId, tpTgtId)}-${Math.max(tpSrcId, tpTgtId)}`;
+        if (threatPathLinks.current.has(tpKey) && threatPathLinks.current.size > 0) {
+          ctx.strokeStyle = "#ef4444";
+          ctx.lineWidth = 3 * settingsRef.current.linkThickness / globalScale;
+          ctx.setLineDash([6 / globalScale, 4 / globalScale]);
+          ctx.lineDashOffset = -performance.now() * 0.02;
+          ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.stroke();
+          ctx.setLineDash([]);
+          return;
+        }
 
         const activeId = hoveredNodeId.current ?? selectedNodeId.current;
         const isActive = activeId !== null;
@@ -336,16 +395,30 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery, high
       // ── Interactions ────────────────────────────────────────────
       fg.onNodeHover((node: RuntimeNode | null) => { hoveredNodeId.current = node?.id ?? null; if (el) el.style.cursor = node ? "pointer" : "grab"; });
       fg.onNodeClick((node: RuntimeNode) => {
-        selectedNodeId.current = selectedNodeId.current === node.id ? null : node.id;
+        if (selectedNodeId.current === node.id) {
+          selectedNodeId.current = null;
+          threatPathNodes.current = new Set();
+          threatPathLinks.current = new Set();
+        } else {
+          selectedNodeId.current = node.id;
+          const cluster = bfsThreatCluster(node.id, enhancedData.links);
+          threatPathNodes.current = cluster.nodes;
+          threatPathLinks.current = cluster.edges;
+        }
         onNodeClick?.(node.id);
         if (node.x != null && node.y != null) { fg.centerAt(node.x, node.y, 600); fg.zoom(3, 600); }
+
+        // Teacher Mode: focus sidebar with batch file context
+        if (teacherEnabledRef.current) {
+          teacherFocusRef.current({ type: "batch", context: "file" });
+        }
       });
       fg.onNodeDrag((node: RuntimeNode) => { node.fx = node.x; node.fy = node.y; });
       fg.onNodeDragEnd((node: RuntimeNode) => {
         if (!settingsRef.current.frozen) { node.fx = undefined; node.fy = undefined; }
       });
       fg.onLinkHover((link: RuntimeLink | null) => { hoveredLinkRef.current = link; });
-      fg.onBackgroundClick(() => { selectedNodeId.current = null; hoveredNodeId.current = null; });
+      fg.onBackgroundClick(() => { selectedNodeId.current = null; hoveredNodeId.current = null; threatPathNodes.current = new Set(); threatPathLinks.current = new Set(); });
 
       fg.graphData(enhancedData);
       emergeStart.current = performance.now();
@@ -394,6 +467,36 @@ export default function BatchGraph({ data, theme, onNodeClick, searchQuery, high
 
       {/* Settings panel */}
       <GraphSettingsPanel settings={graphSettings} onChange={setGraphSettings} theme={theme} />
+
+      {/* Teacher Mode guidance */}
+      {teacherEnabled && (
+        <div style={{
+          position: "absolute", top: 12, left: 12, zIndex: 10, maxWidth: 320,
+          background: theme === "dark" ? "rgba(36,36,36,0.92)" : "rgba(255,255,255,0.92)",
+          border: `1px solid ${theme === "dark" ? "#3a3a3a" : "#d4d4d4"}`,
+          borderRadius: 8, backdropFilter: "blur(8px)", overflow: "hidden",
+        }}>
+          <button
+            onClick={() => setTeacherExpanded(v => !v)}
+            style={{
+              display: "flex", alignItems: "center", gap: 6, width: "100%",
+              padding: "8px 12px", background: "none", border: "none",
+              color: "var(--text-primary)", cursor: "pointer", fontSize: 12, fontWeight: 600,
+            }}
+          >
+            <GraduationCap size={14} style={{ color: "rgb(129,140,248)", flexShrink: 0 }} />
+            What am I looking at?
+            {teacherExpanded ? <ChevronUp size={12} style={{ marginLeft: "auto" }} /> : <ChevronDown size={12} style={{ marginLeft: "auto" }} />}
+          </button>
+          {teacherExpanded && (
+            <div style={{ padding: "0 12px 10px", fontSize: 12, lineHeight: 1.6, color: "var(--text-secondary)" }}>
+              <p style={{ margin: "0 0 6px" }}>Each <strong>circle</strong> represents a file you scanned. The colour shows the verdict: <span style={{ color: "#ef4444" }}>red</span> for malicious, <span style={{ color: "#eab308" }}>yellow</span> for suspicious, <span style={{ color: "#22c55e" }}>green</span> for clean.</p>
+              <p style={{ margin: "0 0 6px" }}>Lines between files mean they are <strong>structurally similar</strong> (measured by TLSH fuzzy hashing). Thick lines mean near identical files; thinner lines mean looser similarity. Clusters of connected nodes often belong to the same malware family or were built with the same toolkit.</p>
+              <p style={{ margin: 0 }}><strong>Click a node</strong> to highlight its entire threat cluster. Click it again or click the background to clear. Drag nodes to rearrange the layout.</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Legend (permanent) */}
       <div style={{

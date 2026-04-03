@@ -16,6 +16,15 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use walkdir::WalkDir;
 
+// Re-export proprietary data constants for IPC access
+pub mod proprietary_data {
+    pub use anya_data::CATEGORY_EXPLANATIONS_JSON;
+    pub use anya_data::DLL_EXPLANATIONS_JSON;
+    pub use anya_data::FUNCTION_EXPLANATIONS_JSON;
+    pub use anya_data::MITRE_ATTACK_JSON;
+    pub use anya_data::TECHNIQUE_EXPLANATIONS_JSON;
+}
+
 // Re-export modules
 pub mod cab_parser;
 pub mod case;
@@ -746,6 +755,13 @@ fn looks_like_ipv4(s: &str) -> bool {
 static FRAGMENT_DB: LazyLock<serde_json::Value> =
     LazyLock::new(|| serde_json::from_str(anya_data::FRAGMENT_DB_JSON).unwrap_or_default());
 
+static KNOWN_SAMPLES_DB: LazyLock<serde_json::Value> =
+    LazyLock::new(|| serde_json::from_str(anya_data::KNOWN_SAMPLES_DB_JSON).unwrap_or_default());
+
+static FAMILY_ANNOTATIONS_DB: LazyLock<serde_json::Value> = LazyLock::new(|| {
+    serde_json::from_str(anya_data::FAMILY_ANNOTATIONS_DB_JSON).unwrap_or_default()
+});
+
 /// Look up a SHA256 in the forensic fragment database.
 /// Returns a ForensicFragment annotation if matched, None otherwise.
 fn lookup_fragment_db(sha256: &str) -> Option<output::ForensicFragment> {
@@ -756,6 +772,49 @@ fn lookup_fragment_db(sha256: &str) -> Option<output::ForensicFragment> {
     Some(output::ForensicFragment {
         associated_family: family.to_string(),
         explanation: description.to_string(),
+    })
+}
+
+/// Look up a SHA256 in the known samples database (tools, PUPs, test files).
+/// Returns a KnownSampleMatch if found, which overrides the heuristic verdict.
+fn lookup_known_sample(sha256: &str) -> Option<output::KnownSampleMatch> {
+    let samples = KNOWN_SAMPLES_DB.get("samples")?.as_object()?;
+    let entry = samples.get(sha256)?;
+    Some(output::KnownSampleMatch {
+        verdict: entry.get("verdict")?.as_str()?.to_string(),
+        category: entry.get("category")?.as_str()?.to_string(),
+        name: entry.get("name")?.as_str()?.to_string(),
+        description: entry.get("description")?.as_str()?.to_string(),
+    })
+}
+
+/// Look up a malware family in the family annotations database.
+/// Strips `sig_` prefix for signature-tagged families.
+fn lookup_family_annotation(family: &str) -> Option<output::FamilyAnnotation> {
+    let families = FAMILY_ANNOTATIONS_DB.get("families")?.as_object()?;
+    let key = family.to_lowercase();
+    let key = key.strip_prefix("sig_").unwrap_or(&key);
+    // Also handle "agent-tesla" → "agenttesla" style normalisation
+    let key_no_dash = key.replace('-', "");
+    let entry = families.get(key).or_else(|| families.get(&key_no_dash))?;
+    Some(output::FamilyAnnotation {
+        name: entry.get("name")?.as_str()?.to_string(),
+        category: entry.get("category")?.as_str()?.to_string(),
+        description: entry.get("description")?.as_str()?.to_string(),
+        aliases: entry
+            .get("aliases")
+            .and_then(|a| a.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        first_seen: entry
+            .get("first_seen")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from),
     })
 }
 
@@ -1515,6 +1574,8 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         top_findings: vec![],    // filled below after struct is built
         ksd_match: None,         // filled below after TLSH is available
         forensic_fragment: None, // filled below for sub-100B files
+        known_sample: None,      // filled below after SHA256 is available
+        family_annotation: None, // filled below after KSD match
         mach_analysis: result.mach_analysis.clone(),
         pdf_analysis: result.pdf_analysis.clone(),
         office_analysis: result.office_analysis.clone(),
@@ -1556,6 +1617,11 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         }
     }
 
+    // Attach family annotation if KSD matched a family
+    if let Some(ref ksd) = out.ksd_match {
+        out.family_annotation = lookup_family_annotation(&ksd.family);
+    }
+
     // Forensic fragment annotation — for sub-100B files with KSD or SHA256 association
     if out.file_info.size_bytes < 100
         && out.pe_analysis.is_none()
@@ -1582,9 +1648,18 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         }
     }
 
+    // Check known samples database (tools, PUPs, test files)
+    out.known_sample = lookup_known_sample(&out.hashes.sha256);
+
     // Populate verdict and top findings so all consumers (CLI + GUI) get complete output
-    let (_, verdict_text) = compute_verdict(&out);
-    out.verdict_summary = Some(verdict_text);
+    let (verdict_word, verdict_text) = compute_verdict(&out);
+    // Known sample match overrides the heuristic verdict
+    if let Some(ref ks) = out.known_sample {
+        out.verdict_summary = Some(format!("{} — {}", ks.verdict, ks.name));
+    } else {
+        out.verdict_summary = Some(verdict_text);
+    }
+    let _ = verdict_word; // suppress unused warning
 
     let top = confidence::top_detections(&out, 3);
     out.top_findings = top

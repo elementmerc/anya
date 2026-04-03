@@ -114,8 +114,7 @@ pub struct Lesson {
 // ── Static lesson map ──────────────────────────────────────────────────────────
 
 fn build_lesson_map() -> HashMap<String, Lesson> {
-    let raw: Vec<Lesson> =
-        serde_json::from_str(LESSONS_JSON).expect("lessons_data.json is malformed");
+    let raw: Vec<Lesson> = serde_json::from_str(LESSONS_JSON).unwrap_or_default();
     raw.into_iter().map(|l| (l.id.clone(), l)).collect()
 }
 

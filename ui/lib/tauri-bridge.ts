@@ -163,3 +163,20 @@ export const getKsdNeighborhood = (
   maxResults?: number,
 ): Promise<{ neighbors: KsdNeighbor[] }> =>
   invoke("get_ksd_neighborhood", { tlshHash, family: family ?? null, maxResults: maxResults ?? null });
+
+// ── Proprietary data access ──────────────────────────────────────────────────
+
+export const getDllExplanations = (): Promise<string> =>
+  invoke("get_dll_explanations");
+
+export const getFunctionExplanations = (): Promise<string> =>
+  invoke("get_function_explanations");
+
+export const getTechniqueExplanations = (): Promise<string> =>
+  invoke("get_technique_explanations");
+
+export const getMitreAttackData = (): Promise<string> =>
+  invoke("get_mitre_attack_data");
+
+export const getCategoryExplanations = (): Promise<string> =>
+  invoke("get_category_explanations");

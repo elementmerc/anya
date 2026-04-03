@@ -136,6 +136,14 @@ pub struct AnalysisResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forensic_fragment: Option<ForensicFragment>,
 
+    /// Known sample match (tool, PUP, or test file — overrides heuristic verdict)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known_sample: Option<KnownSampleMatch>,
+
+    /// Family annotation from the malware family context database
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family_annotation: Option<FamilyAnnotation>,
+
     /// Mach-O binary analysis (if applicable)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mach_analysis: Option<MachoAnalysis>,
@@ -959,6 +967,31 @@ pub struct ForensicFragment {
     pub explanation: String,
 }
 
+/// Known sample match — overrides heuristic verdict for tools, PUPs, and test files.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnownSampleMatch {
+    /// Verdict override: "TOOL", "PUP", or "TEST"
+    pub verdict: String,
+    /// Category subtitle (e.g. "Dual-use/Security Tool", "Potentially Unwanted Program", "Test File")
+    pub category: String,
+    /// Name of the tool/program
+    pub name: String,
+    /// Description for the analyst
+    pub description: String,
+}
+
+/// Contextual annotation for a malware family from the family annotations database.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FamilyAnnotation {
+    pub name: String,
+    pub category: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_seen: Option<String>,
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Script analysis structures
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1290,6 +1323,8 @@ mod tests {
             verdict_summary: None,
             ksd_match: None,
             forensic_fragment: None,
+            known_sample: None,
+            family_annotation: None,
             top_findings: vec![],
             mach_analysis: None,
             pdf_analysis: None,
@@ -1566,6 +1601,8 @@ mod tests {
             verdict_summary: None,
             ksd_match: None,
             forensic_fragment: None,
+            known_sample: None,
+            family_annotation: None,
             top_findings: vec![],
             mach_analysis: None,
             pdf_analysis: None,

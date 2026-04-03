@@ -453,6 +453,50 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate, pinned
             </div>
           )}
 
+          {/* ── Family Context Annotation ── */}
+          {result.family_annotation && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                padding: "10px 16px",
+                borderRadius: "var(--radius)",
+                border: "1px solid var(--border)",
+                borderLeft: "3px solid #6366f1",
+                background: "var(--bg-surface)",
+                animation: "settings-panel-in 300ms ease-out",
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: "var(--font-size-xs)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6366f1" }}>
+                    Family Context
+                  </span>
+                  <span style={{ fontSize: "var(--font-size-xs)", padding: "1px 6px", borderRadius: 999, background: "rgba(99,102,241,0.12)", color: "#6366f1", border: "1px solid rgba(99,102,241,0.3)" }}>
+                    {result.family_annotation.category}
+                  </span>
+                </div>
+                <p style={{ margin: "0 0 2px 0", fontSize: "var(--font-size-sm)", fontWeight: 500, color: "var(--text-primary)" }}>
+                  {result.family_annotation.name}
+                  {result.family_annotation.first_seen && (
+                    <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)", marginLeft: 8 }}>
+                      First seen: {result.family_annotation.first_seen}
+                    </span>
+                  )}
+                </p>
+                <p style={{ margin: 0, fontSize: "var(--font-size-xs)", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                  {result.family_annotation.description}
+                </p>
+                {result.family_annotation.aliases.length > 0 && (
+                  <p style={{ margin: "4px 0 0 0", fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>
+                    Also known as: {result.family_annotation.aliases.join(", ")}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* KSD Neighborhood Graph */}
           {ksdGraph && ksdGraph.nodes.length > 1 && !graphExpanded && (
             <div style={{ borderRadius: "var(--radius)", overflow: "hidden", border: "1px solid var(--border)" }}>
@@ -559,26 +603,83 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate, pinned
 
         {/* ── Right column ── */}
         <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 24 }}>
-          <p
-            style={{
-              fontSize: "var(--font-size-xs)",
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: "0.08em",
-              color: "var(--text-muted)",
-              marginBottom: 12,
-            }}
-          >
-            Hashes
-          </p>
-          <div
-            style={{
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              overflow: "hidden",
-            }}
-          >
+
+          {/* ── Notes (known sample / forensic fragment annotations) ── */}
+          {result.known_sample && (
+            <div>
+              <p style={{ fontSize: "var(--font-size-xs)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 12 }}>
+                Notes
+              </p>
+              <div
+                style={{
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border)",
+                  borderLeft: `3px solid ${
+                    result.known_sample.verdict === "TOOL" ? "#06b6d4"
+                    : result.known_sample.verdict === "PUP" ? "var(--risk-medium)"
+                    : result.known_sample.verdict === "TEST" ? "#a855f7"
+                    : "#22c55e"
+                  }`,
+                  borderRadius: 8,
+                  padding: "10px 16px",
+                  animation: "settings-panel-in 300ms ease-out",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <span style={{
+                    fontSize: "var(--font-size-xs)",
+                    padding: "2px 8px",
+                    borderRadius: 999,
+                    background: result.known_sample.verdict === "TOOL" ? "rgba(6,182,212,0.12)"
+                      : result.known_sample.verdict === "PUP" ? "rgba(234,179,8,0.12)"
+                      : result.known_sample.verdict === "TEST" ? "rgba(168,85,247,0.12)"
+                      : "rgba(34,197,94,0.12)",
+                    color: result.known_sample.verdict === "TOOL" ? "#06b6d4"
+                      : result.known_sample.verdict === "PUP" ? "var(--risk-medium)"
+                      : result.known_sample.verdict === "TEST" ? "#a855f7"
+                      : "#22c55e",
+                    border: `1px solid ${
+                      result.known_sample.verdict === "TOOL" ? "rgba(6,182,212,0.3)"
+                      : result.known_sample.verdict === "PUP" ? "rgba(234,179,8,0.3)"
+                      : result.known_sample.verdict === "TEST" ? "rgba(168,85,247,0.3)"
+                      : "rgba(34,197,94,0.3)"
+                    }`,
+                    flexShrink: 0,
+                  }}>
+                    {result.known_sample.category}
+                  </span>
+                </div>
+                <span style={{ fontSize: "var(--font-size-sm)", fontWeight: 500, color: "var(--text-primary)" }}>
+                  {result.known_sample.name}
+                </span>
+                <p style={{ margin: "2px 0 0", fontSize: "var(--font-size-xs)", color: "var(--text-muted)", lineHeight: 1.4 }}>
+                  {result.known_sample.description}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <p
+              style={{
+                fontSize: "var(--font-size-xs)",
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                color: "var(--text-muted)",
+                marginBottom: 12,
+              }}
+            >
+              Hashes
+            </p>
+            <div
+              style={{
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                overflow: "hidden",
+              }}
+            >
             {hashRows.map(([label, value], i) => (
               <div
                 key={label}
@@ -619,6 +720,7 @@ export default function OverviewTab({ result, riskScore, onMitreNavigate, pinned
                 <CopyBtn text={`${label}: ${value}`} />
               </div>
             ))}
+            </div>
           </div>
 
           {/* ── Analyst Findings ── */}

@@ -1,7 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { TeacherModeContext, type TeacherModeContextValue } from "../../ui/hooks/useTeacherMode";
 import MitreTab from "../../ui/components/tabs/MitreTab";
+
+// Suppress expected console.warn from MitreTab when MITRE data isn't loaded via IPC in test env
+const originalWarn = console.warn;
+beforeAll(() => { console.warn = (...args: unknown[]) => { if (typeof args[0] === "string" && args[0].includes("[MitreTab]")) return; originalWarn(...args); }; });
+afterAll(() => { console.warn = originalWarn; });
 import type { AnalysisResult } from "../../ui/types/analysis";
 
 const teacherCtx: TeacherModeContextValue = {

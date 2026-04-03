@@ -370,6 +370,9 @@ export interface AnalysisResult {
   ksd_match?: KsdMatch;
   // Forensic fragment annotation (sub-100B files associated with known malware)
   forensic_fragment?: ForensicFragment;
+  // Known sample match (tool, PUP, or test file)
+  known_sample?: KnownSampleMatch;
+  family_annotation?: FamilyAnnotation;
   // YARA rule matches
   yara_matches?: YaraMatchResult[];
   // Verdict summary
@@ -725,6 +728,21 @@ export interface GraphData {
 export interface ForensicFragment {
   associated_family: string;
   explanation: string;
+}
+
+export interface KnownSampleMatch {
+  verdict: string;
+  category: string;
+  name: string;
+  description: string;
+}
+
+export interface FamilyAnnotation {
+  name: string;
+  category: string;
+  description: string;
+  aliases: string[];
+  first_seen?: string;
 }
 
 // ── YARA match results ──────────────────────────────────────────────

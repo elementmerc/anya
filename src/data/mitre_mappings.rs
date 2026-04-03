@@ -19,7 +19,7 @@ struct RawEntry {
 
 fn build_map() -> HashMap<String, Vec<MitreTechnique>> {
     let raw: HashMap<String, Vec<RawEntry>> =
-        serde_json::from_str(MAPPING_JSON).expect("mitre_data.json is malformed");
+        serde_json::from_str(MAPPING_JSON).unwrap_or_default();
 
     raw.into_iter()
         .map(|(api, entries)| {

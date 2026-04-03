@@ -25,7 +25,7 @@
 
 ---
 
-Anya analyses files without executing them. Drop a PE, ELF, Mach-O, PDF, Office doc, script, archive, or any of 20+ supported formats onto the GUI, or pipe files through the CLI. Get hashes, entropy, imports, sections, IOC indicators, MITRE ATT&CK mappings, known malware family matching, a confidence-scored verdict, and a risk score. 200+ files per minute, entirely offline.
+Anya analyses files without executing them. Drop a PE, ELF, Mach-O, PDF, Office doc, script, archive, or any of 20+ supported formats onto the GUI, or pipe files through the CLI. Get hashes, entropy, imports, sections, IOC indicators, MITRE ATT&CK mappings, known malware family matching, a confidence-scored verdict, and a risk score. 250+ files per minute, entirely offline.
 
 **Anya** (AHN-yah) means "eye" in Igbo.
 
@@ -37,7 +37,7 @@ Anya analyses files without executing them. Drop a PE, ELF, Mach-O, PDF, Office 
 
 | Platform | GUI | CLI |
 |---|---|---|
-| **Windows** | `.msi` installer | `.zip` |
+| **Windows** | `.exe` installer (NSIS) | `.zip` |
 | **macOS** | `.dmg` (Intel + Apple Silicon) | Universal binary (`.tar.gz`) |
 | **Linux** | `.AppImage` / `.deb` / `.rpm` | Static musl binary (`.tar.gz`) |
 
@@ -75,25 +75,21 @@ Full flag reference: `anya --help`
 
 ## GUI
 
-Launch Anya, drag a file or folder onto the drop zone — or use the **+** button for single file, batch analysis, or file comparison.
+Drag a file or folder onto the window, or use the **+** button.
 
-| Tab | What it shows |
-|---|---|
-| Overview | Risk score ring, file metadata, hashes, KSD match, forensic fragment |
-| Entropy | Section entropy chart, byte histogram, distribution flatness analysis |
-| Imports | DLL tree with expandable function lists and inline explanations |
-| Sections | Section permissions, per-section entropy, characteristics |
-| Strings | Extracted strings with IOC extraction, classification, and filtering |
-| Security | ASLR, DEP, Authenticode, overlay, debug artifacts, toolchain detection, certificate reputation |
-| Format | Format-specific analysis for JS, PowerShell, VBS, OLE, ZIP, HTML, XML, LNK, ISO, and more |
-| MITRE | Mapped ATT&CK techniques with tactic tagging and real-world attack examples |
-| Graph | IOC/Import evidence web (single file) or TLSH relationship graph (batch) with Obsidian-style interactions |
+- **Overview** — risk score, hashes, verdict, notes
+- **Entropy** — section chart, byte histogram, flatness
+- **Imports** — DLL tree with inline explanations
+- **Sections** — permissions, entropy, characteristics
+- **Strings** — extracted strings with IOC classification
+- **Security** — ASLR, DEP, Authenticode, toolchain, certificates
+- **Format** — deep analysis for 20+ file types
+- **MITRE** — mapped techniques with tactic grouping
+- **Graph** — evidence web (single file) or relationship graph (batch)
 
-**Batch Analysis** — drop a folder to scan all executables. Files appear in a searchable sidebar with colour-coded verdicts. The Graph tab shows an interactive relationship graph with TLSH similarity edges, cluster halos, and hover spotlight.
+**Batch mode:** drop a folder to scan everything. Searchable sidebar, interactive relationship graph.
 
-**Single-File Graph** — the Graph tab visualises DLLs, suspicious APIs, IOCs, and behavioural categories as an interconnected evidence web. Hover any node to spotlight its connections.
-
-**Teacher Mode** (toggle in Settings) surfaces contextual lessons as you navigate. Click any DLL, security card, IOC, or MITRE technique for beginner-friendly explanations with real-world examples.
+**Teacher Mode:** toggle in Settings for contextual explanations on every finding.
 
 ---
 
@@ -122,17 +118,17 @@ Anya's scoring engine is calibrated against real malware and benign samples. Eve
 ```mermaid
 xychart-beta
     title "Detection & False Positive Rate"
-    x-axis ["v1.0", "v1.1", "v1.2", "v2.0"]
+    x-axis ["v1.0", "v1.1", "v1.2", "v2.0", "v2.0.3"]
     y-axis "%" 0 --> 100
-    line "Detection" [73.0, 82.0, 87.5, 99.9]
-    line "FP rate (x10)" [27.0, 15.0, 3.0, 1.0]
+    line "Detection" [73.0, 82.0, 87.5, 99.9, 99.9]
+    line "FP rate (x10)" [27.0, 15.0, 3.0, 1.0, 0.0]
 ```
 
 *FP rate scaled 10x for visibility on the same axis.*
 
 | Version | Malware | Benign | Total | Detection | FP Rate |
 |---|---|---|---|---|---|
-| **v2.0** | **~5,100** | **~5,300** | **~10,300** | **99.9%** | **0.1%** |
+| **v2.0.3** | **~9,100** | **~11,300** | **~21,700** | **99.9%** | **0.0%** |
 
 > **Verify independently:** `anya benchmark ./your-samples/ --ground-truth malware --json`
 

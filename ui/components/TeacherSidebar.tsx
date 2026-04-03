@@ -11,9 +11,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { GraduationCap, X, ExternalLink, BookOpen } from "lucide-react";
 import { useTeacherMode, type TeacherFocusItem } from "@/hooks/useTeacherMode";
-import mitreData from "@/data/mitre_attack.json";
-import explanations from "@/data/technique_explanations.json";
-import { getApiDescription } from "@/lib/apiDescriptions";
+import { getTechniqueExplanations, getMitreAttackData } from "@/lib/tauri-bridge";
+import { getApiDescription, getDllTeacher, getCategoryTeacher } from "@/lib/apiDescriptions";
 
 // ── Data look-up helpers ─────────────────────────────────────────────────────
 
@@ -25,30 +24,64 @@ interface MitreTechniqueEntry {
   subtechniques: { id: string; name: string; description: string }[];
 }
 
-const techniqueMap = new Map<string, MitreTechniqueEntry>();
-for (const t of (mitreData as { techniques: MitreTechniqueEntry[] }).techniques) {
-  techniqueMap.set(t.id, t);
-  for (const sub of t.subtechniques) {
-    techniqueMap.set(sub.id, { ...sub, tactic: t.tactic, subtechniques: [] });
-  }
+let _mitreCache: Map<string, MitreTechniqueEntry> | null = null;
+
+function useMitreData(): Map<string, MitreTechniqueEntry> {
+  const [data, setData] = useState<Map<string, MitreTechniqueEntry>>(_mitreCache ?? new Map());
+  useEffect(() => {
+    if (_mitreCache) return;
+    getMitreAttackData().then((json) => {
+      const parsed = JSON.parse(json) as { techniques: MitreTechniqueEntry[] };
+      const map = new Map<string, MitreTechniqueEntry>();
+      for (const t of parsed.techniques) {
+        map.set(t.id, t);
+        for (const sub of t.subtechniques) {
+          map.set(sub.id, { ...sub, tactic: t.tactic, subtechniques: [] });
+        }
+      }
+      _mitreCache = map;
+      setData(map);
+    }).catch(() => {});
+  }, []);
+  return data;
 }
 
-const explanationMap = explanations as Record<string, { simple: string; real_world_example?: string }>;
+// Backwards compatible accessor for non-hook contexts
+function getTechniqueMap(): Map<string, MitreTechniqueEntry> {
+  return _mitreCache ?? new Map();
+}
+
+let _explanationCache: Record<string, { simple: string; real_world_example?: string }> | null = null;
+
+function useExplanationMap(): Record<string, { simple: string; real_world_example?: string }> {
+  const [data, setData] = useState<Record<string, { simple: string; real_world_example?: string }>>(_explanationCache ?? {});
+  useEffect(() => {
+    if (_explanationCache) return;
+    getTechniqueExplanations().then((json) => {
+      const parsed = JSON.parse(json);
+      _explanationCache = parsed;
+      setData(parsed);
+    }).catch(() => {});
+  }, []);
+  return data;
+}
 
 function getSimpleExplanation(techniqueId: string): string | null {
-  const exact = explanationMap[techniqueId]?.simple;
+  const m = _explanationCache ?? {};
+  const exact = m[techniqueId]?.simple;
   if (exact) return exact;
-  return explanationMap[techniqueId.split(".")[0]]?.simple ?? null;
+  return m[techniqueId.split(".")[0]]?.simple ?? null;
 }
 
 function getTechniqueData(techniqueId: string): { simple: string; real_world_example?: string } | null {
-  const exact = explanationMap[techniqueId];
+  const m = _explanationCache ?? {};
+  const exact = m[techniqueId];
   if (exact) return exact;
-  return explanationMap[techniqueId.split(".")[0]] ?? null;
+  return m[techniqueId.split(".")[0]] ?? null;
 }
 
 function getTechniqueDescription(techniqueId: string): string | null {
-  return techniqueMap.get(techniqueId)?.description ?? null;
+  return getTechniqueMap().get(techniqueId)?.description ?? null;
 }
 
 // ── Simple explanation card ──────────────────────────────────────────────────
@@ -266,39 +299,17 @@ function ApiFocusContent({ item }: { item: Extract<TeacherFocusItem, { type: "ap
 
 // ── DLL focus content ─────────────────────────────────────────────────────────
 
-const DLL_TEACHER_EXPLANATIONS: Record<string, string> = {
-  "KERNEL32.dll": "This is like the main toolbox Windows uses for basic tasks — opening files, managing memory, starting programs. If Windows were a phone, this would be the operating system itself. Almost every program uses it, so seeing it is totally normal.",
-  "NTDLL.dll": "The deepest layer of Windows that talks directly to the hardware — like the engine under a car's hood that most people never see. Malware sometimes calls this directly to bypass security software watching the normal route.",
-  "USER32.dll": "Handles everything you see and click on screen — windows, buttons, menus, keyboard input. Like the part of your phone that makes the touchscreen work. Normal for most apps, but keyloggers abuse it to record what you type.",
-  "ADVAPI32.dll": "Windows' security and settings toolkit — manages passwords, the registry (Windows' settings database), and system services. Malware uses it to create services that start automatically or to mess with security settings.",
-  "WS2_32.dll": "Handles all internet and network connections — this is what lets programs send and receive data online, like a browser loading a webpage. If a program you don't expect to go online imports this, that's worth investigating.",
-  "WININET.dll": "A higher-level internet toolkit built on top of WS2_32 — provides ready-made functions for HTTP requests and FTP transfers. Malware uses it to download payloads or send stolen data to the attacker's server.",
-  "CRYPT32.dll": "Windows' encryption and certificate toolkit — it handles the padlock you see in your browser's address bar. Malware might use it to encrypt files (ransomware) or to verify fake certificates.",
-  "SHELL32.dll": "Controls Windows Explorer features — file operations, desktop shortcuts, the recycle bin. Like the home screen on your phone. Malware uses it to run programs or manage files without you noticing.",
-  "GDI32.dll": "The drawing toolkit — renders text, shapes, and images on screen. Like a program's paintbrush. Mostly harmless, but screen-capture malware uses it to take screenshots of your desktop.",
-  "OLEAUT32.dll": "Handles automation and scripting in Windows — lets programs control other programs. Like a universal remote control. Malware uses it to automate attacks through Office macros or scripts.",
-  "MSVCRT.dll": "The C programming language's standard toolkit for Windows — basic math, text handling, file operations. Almost every program written in C or C++ needs it. Completely normal to see.",
-  "PSAPI.dll": "Lets programs inspect what other programs are running — process names, memory usage, loaded modules. Like a task manager for code. Malware uses it to find and target specific running programs.",
-  "IPHLPAPI.dll": "Provides network configuration info — IP addresses, network adapters, routing tables. Like checking your phone's Wi-Fi settings. Malware uses it to map out the network it landed on.",
-  "WINTRUST.dll": "Verifies digital signatures — checks if a file was actually made by who it claims. Like checking the seal on a package. Malware sometimes uses it to appear legitimate or to bypass signature checks.",
-  "DBGHELP.dll": "A debugging toolkit — reads program crash dumps and symbol files. Like a mechanic's diagnostic tool. Malware uses it to dump passwords from memory (like the famous Mimikatz tool).",
-  "SHLWAPI.dll": "Shell utility functions — URL parsing, file path handling, string operations. A helper toolkit for Windows Explorer features. Generally harmless, commonly seen in normal software.",
-  "COMCTL32.dll": "Provides common Windows controls — toolbars, progress bars, list views, tree views. The building blocks of a Windows app's interface. Completely normal, no security concerns.",
-  "COMDLG32.dll": "Provides the standard 'Open File' and 'Save File' dialog boxes you see in every Windows app. Completely normal — every app that lets you open or save files uses this.",
-  "WINMM.dll": "Handles multimedia — sound playback, MIDI, timers. Like the audio player on your phone. Rarely suspicious unless combined with screen recording.",
-  "WINSPOOL.DRV": "Manages printer communication — sending documents to printers, managing print queues. Normal for any app that can print. Very rarely seen in malware.",
-};
-
 function DllFocusContent({ item }: { item: Extract<TeacherFocusItem, { type: "dll" }> }) {
+  const teacherText = getDllTeacher(item.name);
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
       <h3 style={{ margin: "0 0 6px", fontSize: "var(--font-size-sm)", fontWeight: 600, fontFamily: "var(--font-mono)", color: "var(--text-primary)", wordBreak: "break-all" }}>
         {item.name}
       </h3>
       <span style={{ display: "inline-block", marginBottom: 14, fontSize: 10, padding: "1px 6px", borderRadius: 999, background: "var(--bg-elevated)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
-        Dynamic-Link Library
+        Dynamic Link Library
       </span>
-      <SimpleExplanationCard text={DLL_TEACHER_EXPLANATIONS[item.name] ?? item.description ?? null} />
+      <SimpleExplanationCard text={teacherText ?? item.description ?? null} />
     </div>
   );
 }
@@ -318,37 +329,37 @@ const IOC_DESCRIPTIONS: Record<string, { label: string; description: string; fal
   },
   registry: {
     label: "Registry Keys",
-    description: "The Windows Registry is like a giant settings notebook that controls how your computer behaves. Malware writes entries here to start itself every time you turn on your computer — like secretly adding itself to your morning alarm. Common targets are the 'Run' keys that auto-start programs.",
+    description: "The Windows Registry is like a giant settings notebook that controls how your computer behaves. Malware writes entries here to start itself every time you turn on your computer — like secretly adding itself to your morning alarm. Common targets are the 'Run' keys that automatically start programs.",
     falsePositiveGuidance: "Most legitimate software writes to the registry too — for settings, file associations, and installation info. Suspicious keys are ones under Run/RunOnce or that modify security settings.",
   },
   base64: {
     label: "Base64 Encoded Data",
-    description: "Base64 is a way to disguise binary data or text as random-looking characters — like writing a message in code that only looks like gibberish. Attackers use it to hide commands, URLs, or stolen data so antivirus software can't easily read it.",
+    description: "Base64 is a way to disguise binary data or text as characters that look random — like writing a message in code that only looks like gibberish. Attackers use it to hide commands, URLs, or stolen data so antivirus software can't easily read it.",
     falsePositiveGuidance: "Base64 is also used legitimately for embedding images, certificates, and configuration data. Long Base64 strings (100+ characters) in unexpected places are more suspicious.",
   },
   filepath: {
     label: "File Paths",
     description: "File paths show where on the computer the malware reads from or writes to. Paths to system folders (like Windows\\System32) or temp directories are common targets — malware drops files there because they're trusted locations that users rarely check.",
-    falsePositiveGuidance: "Normal software also references system paths. Suspicious paths are ones in temp folders combined with random-looking filenames, or paths to other users' directories.",
+    falsePositiveGuidance: "Normal software also references system paths. Suspicious paths are ones in temp folders combined with filenames that look random, or paths to other users' directories.",
   },
   path: {
     label: "File Paths",
     description: "File paths show where on the computer the malware reads from or writes to. Paths to system folders (like Windows\\System32) or temp directories are common targets — malware drops files there because they're trusted locations that users rarely check.",
-    falsePositiveGuidance: "Normal software also references system paths. Suspicious paths are ones in temp folders combined with random-looking filenames, or paths to other users' directories.",
+    falsePositiveGuidance: "Normal software also references system paths. Suspicious paths are ones in temp folders combined with filenames that look random, or paths to other users' directories.",
   },
   suspicious: {
     label: "Suspicious Strings",
-    description: "These are strings that match patterns commonly seen in malware — command-line tools (cmd.exe, powershell), script interpreters, or known malicious keywords. They suggest the program might be trying to run commands or scripts on your computer.",
+    description: "These are strings that match patterns commonly seen in malware — command line tools (cmd.exe, powershell), script interpreters, or known malicious keywords. They suggest the program might be trying to run commands or scripts on your computer.",
     falsePositiveGuidance: "System administration tools, installers, and development software legitimately reference these. Context matters — a text editor referencing cmd.exe is normal, a PDF reader doing so is not.",
   },
   command: {
     label: "Command Strings",
-    description: "Commands that could be executed on the system — like someone typing instructions into a terminal. Malware uses these to download files, delete evidence, disable security, or spread to other computers. Think of it as finding a to-do list of malicious actions.",
+    description: "Commands that could be executed on the system — like someone typing instructions into a terminal. Malware uses these to download files, delete evidence, disable security, or spread to other computers. Think of it as finding a checklist of malicious actions.",
     falsePositiveGuidance: "Build tools, package managers, and IT administration software naturally contain command strings. Look for commands that download files, modify security settings, or delete logs.",
   },
   crypto: {
     label: "Cryptographic Strings",
-    description: "References to encryption algorithms or crypto libraries. Malware uses encryption to hide its communications (so network monitors can't read them) or to encrypt your files for ransom. It's like finding lock-picking tools in someone's bag.",
+    description: "References to encryption algorithms or crypto libraries. Malware uses encryption to hide its communications (so network monitors can't read them) or to encrypt your files for ransom. It's like finding lock picks in someone's bag.",
     falsePositiveGuidance: "Legitimate software uses encryption extensively — HTTPS, password storage, file protection. Suspicious when combined with file enumeration (ransomware) or network activity (C2).",
   },
 };
@@ -409,7 +420,7 @@ const SECURITY_EXPLANATIONS: Record<string, { title: string; explanation: string
   },
   dep: {
     title: "DEP / NX (Data Execution Prevention)",
-    explanation: "Marks data areas of memory as non-executable — like putting a 'no entry' sign on a storage room. Even if an attacker manages to inject code into memory, the CPU refuses to run it.",
+    explanation: "Marks data areas of memory so they cannot execute code — like putting a 'no entry' sign on a storage room. Even if an attacker manages to inject code into memory, the CPU refuses to run it.",
     good: "Enabled — injected code in data areas will be blocked by the CPU.",
     bad: "Disabled — an attacker who gets code into memory can run it directly.",
   },
@@ -417,11 +428,11 @@ const SECURITY_EXPLANATIONS: Record<string, { title: string; explanation: string
     title: "Authenticode (Digital Signature)",
     explanation: "Microsoft's way of proving a file was made by who it claims — like a wax seal on a letter. The publisher's identity is verified by a trusted certificate authority, and any tampering breaks the seal.",
     good: "Present and valid — the file was signed by a verified publisher and hasn't been modified.",
-    bad: "Absent or self-signed — there's no proof of who made this file. Self-signed means anyone could have created the signature.",
+    bad: "Absent or self signed — there's no proof of who made this file. Self signed means anyone could have created the signature.",
   },
   checksum: {
     title: "PE Checksum",
-    explanation: "A mathematical fingerprint stored in the file header that should match the actual file contents — like a tamper-evident seal on a medicine bottle. If someone modifies the file, the checksum won't match.",
+    explanation: "A mathematical fingerprint stored in the file header that should match the actual file contents — like a tamper evident seal on a medicine bottle. If someone modifies the file, the checksum won't match.",
     good: "Match — the stored checksum matches the computed one. The file hasn't been tampered with (or was correctly rebuilt).",
     bad: "Mismatch — the file was modified after the checksum was set. This could be tampering, or just a tool that didn't update the checksum.",
   },
@@ -453,7 +464,7 @@ const SECURITY_EXPLANATIONS: Record<string, { title: string; explanation: string
     title: "Version Info",
     explanation: "Metadata embedded in the executable describing what it is — company name, product name, version number, copyright. Like the label on a jar. Legitimate software always fills this in; malware often fakes it or leaves it empty.",
     good: "Version info is present and matches a known publisher.",
-    bad: "Version info is missing, blank, or claims to be from a well-known company but doesn't match the file's other characteristics.",
+    bad: "Version info is missing, blank, or claims to be from a well known company but doesn't match the file's other characteristics.",
   },
   pie: {
     title: "PIE (Position Independent Executable)",
@@ -462,13 +473,13 @@ const SECURITY_EXPLANATIONS: Record<string, { title: string; explanation: string
     bad: "Disabled — the program always loads at a fixed address, making exploitation easier.",
   },
   nx: {
-    title: "NX Stack (Non-Executable Stack)",
-    explanation: "Marks the stack (a temporary memory area) as non-executable — the Linux equivalent of DEP. Prevents the classic 'stack buffer overflow to code execution' attack.",
-    good: "Enabled — stack-based code execution is blocked.",
+    title: "NX Stack (Non Executable Stack)",
+    explanation: "Marks the stack (a temporary memory area) so it cannot execute code — the Linux equivalent of DEP. Prevents the classic 'stack buffer overflow to code execution' attack.",
+    good: "Enabled — code execution from the stack is blocked.",
     bad: "Disabled — an attacker exploiting a stack overflow can directly execute injected code.",
   },
   relro: {
-    title: "RELRO (Relocation Read-Only)",
+    title: "RELRO (Relocation Read Only)",
     explanation: "Protects critical memory tables from being overwritten after the program starts — like locking the control panel after the machine is running. Prevents attackers from redirecting function calls.",
     good: "Full RELRO — the GOT (Global Offset Table) is locked down after startup. Best protection.",
     bad: "Partial or no RELRO — an attacker can overwrite function pointers in memory to hijack program flow.",
@@ -477,19 +488,19 @@ const SECURITY_EXPLANATIONS: Record<string, { title: string; explanation: string
     title: "Compiler / Toolchain Detection",
     explanation: "Identifies which programming language and compiler built the executable — like recognising a car manufacturer from the engine and body style. Each toolchain (MSVC, GCC, Go, Rust, Delphi) leaves distinctive fingerprints in the binary's structure, imports, and section layout.",
     good: "Recognised, common toolchain — consistent with legitimate software development.",
-    bad: "Unknown toolchain or suspicious compiler (e.g., AutoIt, PyInstaller wrapping a single script) — may indicate a script-based dropper or packer.",
+    bad: "Unknown toolchain or suspicious compiler (e.g., AutoIt, PyInstaller wrapping a single script) — may indicate a dropper or packer built from a script.",
   },
   rich_header: {
     title: "Rich Header",
-    explanation: "An undocumented metadata block that Microsoft's MSVC linker embeds in every PE file it builds. It records which compiler tools and versions were used — like a receipt from the factory. It's XOR-encrypted with a checksum, and most tools don't know to fake it.",
-    good: "Present — confirms the file was built with Microsoft's toolchain. Entries can be cross-referenced to identify the exact Visual Studio version.",
+    explanation: "An undocumented metadata block that Microsoft's MSVC linker embeds in every PE file it builds. It records which compiler tools and versions were used — like a receipt from the factory. It's encrypted with XOR and a checksum, and most tools don't know to fake it.",
+    good: "Present — confirms the file was built with Microsoft's toolchain. Entries can be compared against references to identify the exact Visual Studio version.",
     bad: "Absent — the file wasn't built with MSVC (could be GCC, Go, Delphi, or a packer), or the header was deliberately stripped to hide build information.",
   },
   cert_reputation: {
     title: "Certificate Reputation",
-    explanation: "Evaluates the trust level of the code-signing certificate — like checking if a passport was issued by a real government. Microsoft-signed binaries are the most trusted. Self-signed certificates offer no third-party verification.",
+    explanation: "Evaluates the trust level of the code signing certificate — like checking if a passport was issued by a real government. Binaries signed by Microsoft are the most trusted. Self signed certificates offer no third party verification.",
     good: "Signed by a trusted publisher (Microsoft, known vendor) — strong indicator of legitimacy.",
-    bad: "Self-signed or unknown publisher — anyone can create a self-signed certificate, so it proves nothing about the file's origin.",
+    bad: "Self signed or unknown publisher — anyone can create a self signed certificate, so it proves nothing about the file's origin.",
   },
   ksd_match: {
     title: "Known Sample Match (TLSH)",
@@ -511,7 +522,7 @@ const SECURITY_EXPLANATIONS: Record<string, { title: string; explanation: string
   },
   yara: {
     title: "YARA Rule Matches",
-    explanation: "YARA rules are pattern-matching signatures written by security researchers to identify specific malware families, tools, or techniques — like a field guide for identifying species of malware. Each rule describes a unique combination of strings, byte patterns, or structural features.",
+    explanation: "YARA rules are pattern matching signatures written by security researchers to identify specific malware families, tools, or techniques — like a field guide for identifying species of malware. Each rule describes a unique combination of strings, byte patterns, or structural features.",
     good: "No matches — the file doesn't trigger any known detection rules.",
     bad: "Rule matched — a security researcher's signature identified something in this file. Check the rule name and description for details on what was found.",
   },
@@ -546,6 +557,25 @@ function SecurityFocusContent({ item }: { item: { type: "security"; feature: str
 
 // ── Batch focus content ───────────────────────────────────────────────────────
 
+// ── Category focus content ────────────────────────────────────────────────────
+
+function CategoryFocusContent({ item }: { item: Extract<TeacherFocusItem, { type: "category" }> }) {
+  const teacherText = getCategoryTeacher(item.name);
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+      <h3 style={{ margin: "0 0 6px", fontSize: "var(--font-size-sm)", fontWeight: 600, color: "var(--text-primary)" }}>
+        {item.name}
+      </h3>
+      <span style={{ display: "inline-block", marginBottom: 14, fontSize: 10, padding: "1px 6px", borderRadius: 999, background: "rgba(59,130,246,0.12)", color: "#3b82f6", border: "1px solid rgba(59,130,246,0.3)" }}>
+        API Category
+      </span>
+      <SimpleExplanationCard text={teacherText ?? null} />
+    </div>
+  );
+}
+
+// ── Batch focus content ──────────────────────────────────────────────────────
+
 function BatchFocusContent({ item }: { item: Extract<TeacherFocusItem, { type: "batch" }> }) {
   const isDashboard = item.context === "dashboard";
   return (
@@ -570,7 +600,7 @@ function BatchFocusContent({ item }: { item: Extract<TeacherFocusItem, { type: "
 
       <SimpleExplanationCard
         text={isDashboard
-          ? "Batch analysis processes multiple files at once and aggregates the results. Start with the highest-risk files and work your way down. Look for shared indicators across files to identify campaigns."
+          ? "Batch analysis processes multiple files at once and aggregates the results. Start with the files that have the highest risk and work your way down. Look for shared indicators across files to identify campaigns."
           : "This file is part of a larger batch. Compare its findings with other files in the batch. Shared C2 addresses, packer signatures, or import patterns can link files to the same threat actor or campaign."}
       />
     </div>
@@ -584,6 +614,8 @@ const MAX_WIDTH_RATIO = 0.5;
 
 export default function TeacherSidebar() {
   const { enabled, setEnabled, focusedItem } = useTeacherMode();
+  useExplanationMap(); // triggers async load into module cache
+  useMitreData();
   const [sidebarWidth, setSidebarWidth] = useState(MIN_WIDTH);
   const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef(false);
@@ -703,6 +735,7 @@ export default function TeacherSidebar() {
         {focusedItem?.type === "ioc" && <IocFocusContent item={focusedItem} />}
         {focusedItem?.type === "security" && <SecurityFocusContent item={focusedItem} />}
         {focusedItem?.type === "batch" && <BatchFocusContent item={focusedItem} />}
+        {focusedItem?.type === "category" && <CategoryFocusContent item={focusedItem} />}
       </div>
     </div>
   );
