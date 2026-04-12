@@ -6,8 +6,13 @@ fn main() {
     // Cargo from stubs to the real submodule content) AND the submodule is
     // populated with real (non-stub) code.
     let has_config_override = std::path::Path::new(".cargo/config.toml").exists();
+    // The Anya Protocol monorepo layout: proprietary lives at ../proprietary
+    // (sibling of engine/). Pre-monorepo layout had it at anya-proprietary/
+    // as a submodule under engine. Try the new path first, fall back to the
+    // old path so this build.rs works in both layouts during the migration.
     let scoring_content =
-        std::fs::read_to_string("anya-proprietary/scoring/src/detection_patterns.rs")
+        std::fs::read_to_string("../proprietary/scoring/src/detection_patterns.rs")
+            .or_else(|_| std::fs::read_to_string("anya-proprietary/scoring/src/detection_patterns.rs"))
             .unwrap_or_default();
     let submodule_is_real = scoring_content.contains("obfstr");
 
@@ -41,9 +46,13 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=.cargo/config.toml");
+    // Watch both possible proprietary paths so the build re-runs when
+    // either the monorepo layout or the legacy submodule layout changes.
+    println!("cargo:rerun-if-changed=../proprietary/scoring/src/");
+    println!("cargo:rerun-if-changed=../proprietary/data/src/");
     println!("cargo:rerun-if-changed=anya-proprietary/scoring/src/");
-    println!("cargo:rerun-if-changed=anya-stubs/scoring/src/");
     println!("cargo:rerun-if-changed=anya-proprietary/data/src/");
+    println!("cargo:rerun-if-changed=anya-stubs/scoring/src/");
     println!("cargo:rerun-if-changed=anya-stubs/data/src/");
 }
 

@@ -1,5 +1,7 @@
-# Path overrides — redirect stub crates to real content from the submodule.
-# Copy this file to .cargo/config.toml after initialising the submodule:
-#   git submodule update --init
+# Path overrides — redirect stub crates to real content.
+# In The Anya Protocol monorepo layout, proprietary lives as a sibling
+# directory of engine/, so the relative path is "../proprietary/...".
+# Copy this file to .cargo/config.toml after the proprietary repo is
+# present at ../proprietary:
 #   cp .cargo/config.toml.example .cargo/config.toml
-paths = ["anya-proprietary/scoring", "anya-proprietary/data"]
+paths = ["../proprietary/scoring", "../proprietary/data"]
