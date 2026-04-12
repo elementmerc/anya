@@ -1,7 +1,12 @@
-# Path overrides — redirect stub crates to real content.
-# In The Anya Protocol monorepo layout, proprietary lives as a sibling
-# directory of engine/, so the relative path is "../proprietary/...".
-# Copy this file to .cargo/config.toml after the proprietary repo is
-# present at ../proprietary:
+# Path overrides — redirect the stub scoring and data crates in anya-stubs/
+# to a local implementation you maintain yourself. Building this crate
+# requires a real scoring + data implementation with the same public API
+# shape as the stubs; contact the maintainer if you need access.
+#
+# Copy this file to .cargo/config.toml and update the paths below to
+# point at your local scoring and data crates:
 #   cp .cargo/config.toml.example .cargo/config.toml
-paths = ["../proprietary/scoring", "../proprietary/data"]
+paths = [
+    "/absolute/path/to/your/scoring-impl",
+    "/absolute/path/to/your/data-impl",
+]

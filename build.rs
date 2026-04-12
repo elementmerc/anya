@@ -2,18 +2,20 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 fn main() {
-    // The build is only valid when .cargo/config.toml is present (redirecting
-    // Cargo from stub crates to the real proprietary sibling) AND that sibling
-    // is populated with real (non-stub) code.
+    // A real build requires two things:
+    //   1. .cargo/config.toml exists (so cargo is redirecting the anya-scoring
+    //      and anya-data stub crates to a real local impl via path override).
+    //   2. The scoring crate that ends up in the dep graph emits a "real" token
+    //      via its own build.rs, forwarded to us as DEP_SCORING_IMPL_TOKEN.
+    //      The anya-stubs/scoring crate declares no `links` value so its
+    //      presence in the graph leaves DEP_SCORING_IMPL_* unset, and we fall
+    //      through to the scare message.
     let has_config_override = std::path::Path::new(".cargo/config.toml").exists();
-    // In The Anya Protocol monorepo, proprietary lives at ../proprietary
-    // (sibling of engine/).
-    let scoring_content =
-        std::fs::read_to_string("../proprietary/scoring/src/detection_patterns.rs")
-            .unwrap_or_default();
-    let submodule_is_real = scoring_content.contains("obfstr");
+    let impl_token = std::env::var("DEP_SCORING_IMPL_TOKEN").unwrap_or_default();
+    let impl_hash = std::env::var("DEP_SCORING_IMPL_HASH").unwrap_or_default();
+    let impl_is_real = impl_token == "real";
 
-    if !(has_config_override && submodule_is_real) {
+    if !(has_config_override && impl_is_real) {
         // Stub or missing — show the scare message, then fail the build
         print_scare_message();
 
@@ -24,10 +26,8 @@ fn main() {
         println!("cargo:warning=\x1b[31mBuild failed: missing private scoring engine.\x1b[0m");
         std::process::exit(1);
     } else {
-        let mut hasher = DefaultHasher::new();
-        scoring_content.hash(&mut hasher);
-        let h = format!("{:08x}", hasher.finish());
-
+        // Host fingerprint: hash of username + hostname, used to distinguish
+        // builds across machines. Pure local signal, never transmitted.
         let a = std::env::var("HOSTNAME")
             .or_else(|_| std::env::var("COMPUTERNAME"))
             .unwrap_or_else(|_| "unknown".to_string());
@@ -38,13 +38,13 @@ fn main() {
         format!("{}:{}", a, b).hash(&mut h2);
 
         println!("cargo:rustc-env=ANYA_VERSION_SUFFIX= (Verified build)");
-        println!("cargo:rustc-env=ANYA_BUILD_HASH={}", h);
+        println!("cargo:rustc-env=ANYA_BUILD_HASH={impl_hash}");
         println!("cargo:rustc-env=ANYA_BUILD_FP={:016x}", h2.finish());
     }
 
     println!("cargo:rerun-if-changed=.cargo/config.toml");
-    println!("cargo:rerun-if-changed=../proprietary/scoring/src/");
-    println!("cargo:rerun-if-changed=../proprietary/data/src/");
+    println!("cargo:rerun-if-env-changed=DEP_SCORING_IMPL_TOKEN");
+    println!("cargo:rerun-if-env-changed=DEP_SCORING_IMPL_HASH");
     println!("cargo:rerun-if-changed=anya-stubs/scoring/src/");
     println!("cargo:rerun-if-changed=anya-stubs/data/src/");
 }
