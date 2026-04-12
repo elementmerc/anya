@@ -177,6 +177,7 @@ export interface PEAnalysis {
   weak_crypto?: WeakCryptoIndicator[];
   compiler_deps?: CompilerDep[];
   dotnet_metadata?: DotNetMetadata;
+  driver_analysis?: DriverAnalysis;
 }
 
 export interface DebugArtifacts {
@@ -366,6 +367,16 @@ export interface AnalysisResult {
   iso_analysis?: IsoAnalysis;
   cab_analysis?: CabAnalysis;
   msi_analysis?: MsiAnalysis;
+  // Layer 2 format analysis
+  vhd_analysis?: VhdAnalysis;
+  onenote_analysis?: OneNoteAnalysis;
+  img_analysis?: ImgAnalysis;
+  rar_analysis?: RarAnalysis;
+  gzip_analysis?: GzipAnalysis;
+  sevenz_analysis?: SevenZipAnalysis;
+  tar_analysis?: TarAnalysis;
+  // Secrets detection
+  secrets_detected?: SecretFinding[];
   // Known Sample Database match
   ksd_match?: KsdMatch;
   // Forensic fragment annotation (sub-100B files associated with known malware)
@@ -700,6 +711,70 @@ export interface MsiAnalysis {
   suspicious_properties: string[];
 }
 
+export interface VhdAnalysis {
+  format_version: string;
+  disk_size_bytes: number;
+  has_executables: boolean;
+  executable_count: number;
+}
+
+export interface OneNoteAnalysis {
+  embedded_count: number;
+  has_executable_attachments: boolean;
+  attachment_names: string[];
+}
+
+export interface ImgAnalysis {
+  partition_count: number;
+  has_executables: boolean;
+  executable_count: number;
+  is_gpt: boolean;
+}
+
+export interface RarAnalysis {
+  file_count: number;
+  has_executables: boolean;
+  has_encrypted_entries: boolean;
+  has_double_extensions: boolean;
+  executable_names: string[];
+}
+
+export interface GzipAnalysis {
+  original_filename?: string;
+  compressed_size: number;
+  has_executable_content: boolean;
+  inner_format?: string;
+}
+
+export interface SevenZipAnalysis {
+  version_major: number;
+  version_minor: number;
+  header_size: number;
+}
+
+export interface TarAnalysis {
+  file_count: number;
+  has_executables: boolean;
+  has_scripts: boolean;
+  executable_names: string[];
+  has_setuid: boolean;
+}
+
+/** A structured credential or secret pattern detected in extracted strings */
+export interface SecretFinding {
+  secret_type: string;
+  value_preview: string;
+}
+
+/** Driver specific analysis for .sys files or PE binaries with IMAGE_SUBSYSTEM_NATIVE */
+export interface DriverAnalysis {
+  is_kernel_driver: boolean;
+  imports_ntoskrnl: boolean;
+  imports_hal: boolean;
+  dangerous_kernel_apis: string[];
+  is_signed: boolean;
+}
+
 // ── Network graph data ──────────────────────────────────────────────
 
 export interface GraphNode {
@@ -743,6 +818,12 @@ export interface FamilyAnnotation {
   description: string;
   aliases: string[];
   first_seen?: string;
+}
+
+export interface YaraOnlyResult {
+  path: string;
+  size_bytes: number;
+  yara_matches: YaraMatchResult[];
 }
 
 // ── YARA match results ──────────────────────────────────────────────

@@ -424,6 +424,9 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
         }
     };
 
+    // ── Driver (.sys) detection ──────────────────────────────────────────────
+    let driver_analysis = detect_driver_analysis(&pe, &authenticode);
+
     Ok(output::PEAnalysis {
         architecture,
         is_64bit: pe.is_64,
@@ -463,6 +466,56 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
         } else {
             None
         },
+        driver_analysis,
+    })
+}
+
+/// Detect kernel driver characteristics from PE headers and imports.
+///
+/// A PE file is considered a driver if it has IMAGE_SUBSYSTEM_NATIVE (1)
+/// in its optional header. When detected, this function checks for
+/// ntoskrnl.exe/hal.dll imports and flags dangerous kernel APIs.
+fn detect_driver_analysis(
+    pe: &PE,
+    authenticode: &Option<output::AuthenticodeInfo>,
+) -> Option<output::DriverAnalysis> {
+    // Check for IMAGE_SUBSYSTEM_NATIVE (value 1) in optional header
+    let subsystem = pe
+        .header
+        .optional_header
+        .as_ref()
+        .map(|oh| oh.windows_fields.subsystem)
+        .unwrap_or(0);
+
+    let is_native_subsystem = subsystem == 1; // IMAGE_SUBSYSTEM_NATIVE
+
+    if !is_native_subsystem {
+        return None;
+    }
+
+    let libs_lower: Vec<String> = pe.libraries.iter().map(|s| s.to_lowercase()).collect();
+    let imports_ntoskrnl = libs_lower.iter().any(|l| l == "ntoskrnl.exe");
+    let imports_hal = libs_lower.iter().any(|l| l == "hal.dll");
+
+    // Collect dangerous kernel APIs from imports
+    let mut dangerous_kernel_apis = Vec::new();
+    for import in &pe.imports {
+        let name = import.name.as_ref();
+        if anya_scoring::detection_patterns::is_dangerous_kernel_api(name) {
+            dangerous_kernel_apis.push(name.to_string());
+        }
+    }
+    dangerous_kernel_apis.sort();
+    dangerous_kernel_apis.dedup();
+
+    let is_signed = authenticode.as_ref().map(|a| a.present).unwrap_or(false);
+
+    Some(output::DriverAnalysis {
+        is_kernel_driver: true,
+        imports_ntoskrnl,
+        imports_hal,
+        dangerous_kernel_apis,
+        is_signed,
     })
 }
 

@@ -42,7 +42,7 @@ fn main() -> anyhow::Result<()> {
             file.display()
         );
 
-        match analyse_file(file, 4) {
+        match analyse_file(file, 4, anya_security_core::config::AnalysisDepth::Standard) {
             Ok(result) => {
                 summary.analysed += 1;
 

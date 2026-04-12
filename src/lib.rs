@@ -38,9 +38,11 @@ pub mod errors;
 pub mod events;
 pub mod export;
 pub mod guided_output;
+pub mod gzip_parser;
 pub mod hash_check;
 pub mod html_parser;
 pub mod image_parser;
+pub mod img_parser;
 pub mod ioc;
 pub mod iso_parser;
 pub mod js_parser;
@@ -48,15 +50,20 @@ pub mod lnk_parser;
 pub mod macho_parser;
 pub mod msi_parser;
 pub mod ole_parser;
+pub mod onenote_parser;
 pub mod output;
 pub mod parser_registry;
 pub mod pe_parser;
 pub mod ps_parser;
 pub mod python_parser;
+pub mod rar_parser;
 pub mod report;
 pub mod rtf_parser;
 pub mod script_parser;
+pub mod sevenz_parser;
+pub mod tar_parser;
 pub mod vbs_parser;
+pub mod vhd_parser;
 pub mod xml_parser;
 pub mod yara;
 pub mod zip_parser;
@@ -126,6 +133,14 @@ pub struct FileAnalysisResult {
     pub iso_analysis: Option<output::IsoAnalysis>,
     pub cab_analysis: Option<output::CabAnalysis>,
     pub msi_analysis: Option<output::MsiAnalysis>,
+    pub vhd_analysis: Option<output::VhdAnalysis>,
+    pub onenote_analysis: Option<output::OneNoteAnalysis>,
+    pub img_analysis: Option<output::ImgAnalysis>,
+    pub rar_analysis: Option<output::RarAnalysis>,
+    pub gzip_analysis: Option<output::GzipAnalysis>,
+    pub sevenz_analysis: Option<output::SevenZipAnalysis>,
+    pub tar_analysis: Option<output::TarAnalysis>,
+    pub secrets_detected: Option<Vec<output::SecretFinding>>,
     pub yara_matches: Vec<output::YaraMatchResult>,
     /// PE OriginalFilename vs actual filename mismatch (original, actual)
     pub pe_filename_mismatch: Option<(String, String)>,
@@ -299,7 +314,15 @@ pub fn extract_strings_with_offsets(
     data: &[u8],
     min_length: usize,
 ) -> (Vec<(String, usize)>, usize) {
-    const MAX_COLLECT: usize = 500;
+    extract_strings_with_offsets_limit(data, min_length, 500)
+}
+
+/// Extract printable ASCII strings with byte offsets, capped at `max_collect`.
+pub fn extract_strings_with_offsets_limit(
+    data: &[u8],
+    min_length: usize,
+    max_collect: usize,
+) -> (Vec<(String, usize)>, usize) {
     let mut strings = Vec::new();
     let mut total_count: usize = 0;
     let mut current = Vec::new();
@@ -313,7 +336,7 @@ pub fn extract_strings_with_offsets(
             current.push(byte);
         } else if current.len() >= min_length {
             total_count += 1;
-            if strings.len() < MAX_COLLECT {
+            if strings.len() < max_collect {
                 strings.push((String::from_utf8_lossy(&current).to_string(), start_offset));
             }
             current.clear();
@@ -324,7 +347,7 @@ pub fn extract_strings_with_offsets(
 
     if current.len() >= min_length {
         total_count += 1;
-        if strings.len() < MAX_COLLECT {
+        if strings.len() < max_collect {
             strings.push((String::from_utf8_lossy(&current).to_string(), start_offset));
         }
     }
@@ -1108,6 +1131,7 @@ pub fn analyse_bytes(
     data: &[u8],
     metadata: &FileMetadata,
     min_string_length: usize,
+    depth: config::AnalysisDepth,
 ) -> Result<FileAnalysisResult> {
     let path = &metadata.path;
     let size_bytes = data.len();
@@ -1132,21 +1156,31 @@ pub fn analyse_bytes(
         .map(|m| m.starts_with("image/"))
         .unwrap_or(false);
 
-    // Extract strings + IOC detection (suppressed for image files)
+    // Extract strings + IOC detection (suppressed for image files and Quick depth)
     // Single-pass: extract strings once, reuse for both StringsInfo and IOC detection
-    let (strings, ioc_summary) = if is_image {
+    let skip_strings = is_image || depth == config::AnalysisDepth::Quick;
+    let (strings, ioc_summary) = if skip_strings {
+        let reason = if is_image {
+            "Image file — string extraction not applicable"
+        } else {
+            "Skipped in quick analysis mode"
+        };
         let suppressed = output::StringsInfo {
             min_length: min_string_length,
             total_count: 0,
             samples: vec![],
             sample_count: 0,
             classified: None,
-            suppressed_reason: Some("Image file — string extraction not applicable".to_string()),
+            suppressed_reason: Some(reason.to_string()),
         };
         (suppressed, None)
     } else {
+        let max_collect = match depth {
+            config::AnalysisDepth::Deep => 2000,
+            _ => 500,
+        };
         let (strings_with_offsets, total_count) =
-            extract_strings_with_offsets(data, min_string_length);
+            extract_strings_with_offsets_limit(data, min_string_length, max_collect);
 
         // Build StringsInfo from the shared extraction
         let sample_count = 10.min(strings_with_offsets.len());
@@ -1177,62 +1211,84 @@ pub fn analyse_bytes(
         (s, ioc)
     };
 
-    // Determine file format and analyse
-    let (file_format, pe_analysis, elf_analysis, mach_analysis) = match Object::parse(data) {
-        Ok(Object::PE(_)) => {
-            let pe_data = pe_parser::analyse_pe_data(data).with_context(|| {
-                format!(
-                    "PE analysis failed for '{}'. The file may be corrupted or truncated.",
-                    path.display()
-                )
-            })?;
-            ("Windows PE".to_string(), Some(pe_data), None, None)
-        }
-        Ok(Object::Elf(_)) => {
-            let elf_data = elf_parser::analyse_elf_data(data).with_context(|| {
-                format!(
-                    "ELF analysis failed for '{}'. The file may be corrupted or truncated.",
-                    path.display()
-                )
-            })?;
-            ("Linux ELF".to_string(), None, Some(elf_data), None)
-        }
-        Ok(Object::Mach(_)) => {
-            let macho = macho_parser::analyse_macho_data(data);
-            ("macOS Mach-O".to_string(), None, None, macho)
-        }
-        Ok(_) | Err(_) => {
-            // goblin didn't recognise it — use MIME type, then extension fallback
-            let format_label = mime_type
-                .as_deref()
-                .map(mime_to_format_label)
-                .unwrap_or_else(|| {
-                    extension_to_format_label(path.extension().and_then(|e| e.to_str()))
-                });
+    // Determine file format and analyse (Quick mode skips deep format parsing)
+    let (file_format, pe_analysis, elf_analysis, mach_analysis) =
+        if depth == config::AnalysisDepth::Quick {
+            // Quick: detect format label only, skip full PE/ELF/Mach-O analysis
+            let format_label = match Object::parse(data) {
+                Ok(Object::PE(_)) => "Windows PE".to_string(),
+                Ok(Object::Elf(_)) => "Linux ELF".to_string(),
+                Ok(Object::Mach(_)) => "macOS Mach-O".to_string(),
+                Ok(_) | Err(_) => mime_type
+                    .as_deref()
+                    .map(mime_to_format_label)
+                    .unwrap_or_else(|| {
+                        extension_to_format_label(path.extension().and_then(|e| e.to_str()))
+                    }),
+            };
             (format_label, None, None, None)
-        }
-    };
+        } else {
+            match Object::parse(data) {
+                Ok(Object::PE(_)) => {
+                    let pe_data = pe_parser::analyse_pe_data(data).with_context(|| {
+                        format!(
+                            "PE analysis failed for '{}'. The file may be corrupted or truncated.",
+                            path.display()
+                        )
+                    })?;
+                    ("Windows PE".to_string(), Some(pe_data), None, None)
+                }
+                Ok(Object::Elf(_)) => {
+                    let elf_data = elf_parser::analyse_elf_data(data).with_context(|| {
+                        format!(
+                            "ELF analysis failed for '{}'. The file may be corrupted or truncated.",
+                            path.display()
+                        )
+                    })?;
+                    ("Linux ELF".to_string(), None, Some(elf_data), None)
+                }
+                Ok(Object::Mach(_)) => {
+                    let macho = macho_parser::analyse_macho_data(data);
+                    ("macOS Mach-O".to_string(), None, None, macho)
+                }
+                Ok(_) | Err(_) => {
+                    // goblin didn't recognise it — use MIME type, then extension fallback
+                    let format_label = mime_type
+                        .as_deref()
+                        .map(mime_to_format_label)
+                        .unwrap_or_else(|| {
+                            extension_to_format_label(path.extension().and_then(|e| e.to_str()))
+                        });
+                    (format_label, None, None, None)
+                }
+            }
+        };
 
     // File type mismatch detection
     let file_type_mismatch =
         detect_file_type_mismatch(data, path.extension().and_then(|e| e.to_str()));
 
     // ── Format-specific analysis dispatch (via parser registry) ─────────
+    // Skipped in Quick mode to keep analysis fast.
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
 
-    let parse_ctx = parser_registry::ParseContext {
-        data,
-        extension: &ext,
-        format_label: file_format.as_str(),
-        mime_type: mime_type.as_deref(),
-        path,
-        is_image,
+    let format_results = if depth == config::AnalysisDepth::Quick {
+        Vec::new()
+    } else {
+        let parse_ctx = parser_registry::ParseContext {
+            data,
+            extension: &ext,
+            format_label: file_format.as_str(),
+            mime_type: mime_type.as_deref(),
+            path,
+            is_image,
+        };
+        parser_registry::REGISTRY.analyze_all(&parse_ctx)
     };
-    let format_results = parser_registry::REGISTRY.analyze_all(&parse_ctx);
 
     let mut result = FileAnalysisResult {
         path: path.to_path_buf(),
@@ -1266,6 +1322,14 @@ pub fn analyse_bytes(
         iso_analysis: None,
         cab_analysis: None,
         msi_analysis: None,
+        vhd_analysis: None,
+        onenote_analysis: None,
+        img_analysis: None,
+        rar_analysis: None,
+        gzip_analysis: None,
+        sevenz_analysis: None,
+        tar_analysis: None,
+        secrets_detected: None,
         yara_matches: Vec::new(),
         pe_filename_mismatch: None,
     };
@@ -1301,7 +1365,11 @@ pub fn analyse_bytes(
 ///
 /// Opens the file, memory-maps it, then delegates to `analyse_bytes()`.
 /// For in-memory analysis (tests, pipelines), call `analyse_bytes()` directly.
-pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysisResult> {
+pub fn analyse_file(
+    path: &Path,
+    min_string_length: usize,
+    depth: config::AnalysisDepth,
+) -> Result<FileAnalysisResult> {
     let file = fs::File::open(path).with_context(|| {
         format!(
             "Couldn't read '{}'. Check that the file exists and you have read permission.",
@@ -1326,7 +1394,40 @@ pub fn analyse_file(path: &Path, min_string_length: usize) -> Result<FileAnalysi
         .with_context(|| format!("Failed to memory-map '{}'.", path.display()))?;
 
     let metadata = FileMetadata::from_path(path);
-    analyse_bytes(&data, &metadata, min_string_length)
+    analyse_bytes(&data, &metadata, min_string_length, depth)
+}
+
+/// Run only YARA rules against a file, skipping all other analysis.
+///
+/// Opens and memory-maps the file, then scans it with the compiled YARA rules.
+/// Returns a lightweight result containing just the path, file size, and matches.
+pub fn scan_yara_only(path: &Path) -> Result<output::YaraOnlyResult> {
+    let file = fs::File::open(path).with_context(|| {
+        format!(
+            "Couldn't read '{}'. Check that the file exists and you have read permission.",
+            path.display()
+        )
+    })?;
+    let file_size = file.metadata()?.len();
+
+    if file_size == 0 {
+        return Ok(output::YaraOnlyResult {
+            path: path.to_string_lossy().to_string(),
+            size_bytes: 0,
+            yara_matches: Vec::new(),
+        });
+    }
+
+    let data = unsafe { Mmap::map(&file) }
+        .with_context(|| format!("Failed to memory-map '{}'.", path.display()))?;
+
+    let yara_matches = yara::scanner::scan_bytes(&data);
+
+    Ok(output::YaraOnlyResult {
+        path: path.to_string_lossy().to_string(),
+        size_bytes: file_size as usize,
+        yara_matches,
+    })
 }
 
 /// Find all executable files in a directory
@@ -1594,6 +1695,14 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         iso_analysis: result.iso_analysis.clone(),
         cab_analysis: result.cab_analysis.clone(),
         msi_analysis: result.msi_analysis.clone(),
+        vhd_analysis: result.vhd_analysis.clone(),
+        onenote_analysis: result.onenote_analysis.clone(),
+        img_analysis: result.img_analysis.clone(),
+        rar_analysis: result.rar_analysis.clone(),
+        gzip_analysis: result.gzip_analysis.clone(),
+        sevenz_analysis: result.sevenz_analysis.clone(),
+        tar_analysis: result.tar_analysis.clone(),
+        secrets_detected: None, // filled below after scoring extracts signals
         yara_matches: result.yara_matches.clone(),
     };
 
@@ -1653,6 +1762,8 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
 
     // Populate verdict and top findings so all consumers (CLI + GUI) get complete output
     let (verdict_word, verdict_text) = compute_verdict(&out);
+    // Retrieve secret findings computed during signal extraction
+    out.secrets_detected = confidence::take_secret_findings();
     // Known sample match overrides the heuristic verdict
     if let Some(ref ks) = out.known_sample {
         out.verdict_summary = Some(format!("{} — {}", ks.verdict, ks.name));
@@ -1799,7 +1910,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(b"Test file content").unwrap();
 
-        let result = analyse_file(temp_file.path(), 4).unwrap();
+        let result = analyse_file(temp_file.path(), 4, config::AnalysisDepth::Standard).unwrap();
 
         assert_eq!(result.size_bytes, 17);
         assert_eq!(result.hashes.md5.len(), 32);
@@ -1920,6 +2031,7 @@ mod tests {
             overlay_has_exe: false,
             string_density: 0.0,
             dotnet_metadata: None,
+            driver_analysis: None,
         }
     }
 
@@ -1955,6 +2067,14 @@ mod tests {
             iso_analysis: None,
             cab_analysis: None,
             msi_analysis: None,
+            vhd_analysis: None,
+            onenote_analysis: None,
+            img_analysis: None,
+            rar_analysis: None,
+            gzip_analysis: None,
+            sevenz_analysis: None,
+            tar_analysis: None,
+            secrets_detected: None,
             yara_matches: Vec::new(),
             pe_filename_mismatch: None,
         }
@@ -2270,6 +2390,14 @@ mod tests {
             iso_analysis: None,
             cab_analysis: None,
             msi_analysis: None,
+            vhd_analysis: None,
+            onenote_analysis: None,
+            img_analysis: None,
+            rar_analysis: None,
+            gzip_analysis: None,
+            sevenz_analysis: None,
+            tar_analysis: None,
+            secrets_detected: None,
             yara_matches: Vec::new(),
             pe_filename_mismatch: None,
         };

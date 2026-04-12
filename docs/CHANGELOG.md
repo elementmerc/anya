@@ -1,9 +1,13 @@
 # Changelog
 
-## [2.0.3] - 2026-04-03
+## [2.0.3] - 2026-04-11
 
 ### Detection
-- Calibrated against 21,700 samples: 99.9% detection, 0.0% false positives
+- 7 new format parsers (VHD, OneNote, IMG, RAR, GZIP, 7-Zip, TAR)
+- Secrets detection (AWS keys, JWTs, private keys, API tokens)
+- Kernel driver analysis (.sys files)
+- Improved scoring for HTA, JavaScript, VBScript, shell scripts, ISO, and XML
+- Scoring engine recalibrated for improved detection across all file formats
 - Known sample verdicts for security tools, development utilities, and test files
 - Malware family context with descriptions and aliases for 50+ families
 
@@ -11,11 +15,16 @@
 - Notes section on Overview tab for known sample and fragment annotations
 - Teacher Mode guidance for Graph tab with interactive node explanations
 - Threat path highlighting in batch graph (click to trace connected clusters)
-- Expanded DLL and API category explanations in Teacher Mode
+- 260 DLL explanations and 8 API category explanations in Teacher Mode
+- Proprietary explanation data served via IPC
 
 ### CLI
+- JSONL streaming output (`--jsonl`) for pipeline integration
+- YARA only scanning mode (`--yara-only`) for fast rule testing
+- Configurable analysis depth (`--depth quick|standard|deep`)
+- Exit code from verdict (`--exit-code-from-verdict`) for CI/CD integration
+- Watch mode JSON output (`anya watch --json`) for structured monitoring
 - Coloured verdict output for TOOL, PUP, and TEST classifications
-- Known sample and family context annotations in analysis output
 
 ### Other
 - Bug fixes and improvements

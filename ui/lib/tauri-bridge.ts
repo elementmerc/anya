@@ -180,3 +180,6 @@ export const getMitreAttackData = (): Promise<string> =>
 
 export const getCategoryExplanations = (): Promise<string> =>
   invoke("get_category_explanations");
+
+export const yaraScanOnly = (path: string): Promise<unknown> =>
+  invoke("yara_scan_only", { path });

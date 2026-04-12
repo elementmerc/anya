@@ -3,9 +3,11 @@
 // Extracts signals from AnalysisResult into SignalSet, then delegates
 // scoring to the anya-scoring crate.
 
-use crate::output::{AnalysisResult, ConfidenceLevel, MitreTechnique, SectionInfo};
+use crate::output::{AnalysisResult, ConfidenceLevel, MitreTechnique, SecretFinding, SectionInfo};
 use anya_scoring::types::{AntiAnalysisSignal, IocSignal, PackerSignal, ScoringResult, SignalSet};
+use regex::Regex;
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 // Re-export scoring functions and types.
 pub use anya_scoring::confidence::{
@@ -464,6 +466,35 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
             .count();
     }
 
+    // ── Secrets detection ──────────────────────────────────────────
+    // Scan classified strings for structured credential patterns.
+    // Patterns are defined in the scoring crate (detection_patterns).
+    if let Some(ref classified) = result.strings.classified {
+        let (findings, count, has_private_key) = scan_secrets(classified);
+        s.secrets_count = count;
+        s.secrets_has_private_key = has_private_key;
+        // Store redacted findings on the result (caller patches this in)
+        // We use a thread-local side channel here; the caller reads it back.
+        LAST_SECRET_FINDINGS.with(|cell| {
+            *cell.borrow_mut() = if findings.is_empty() {
+                None
+            } else {
+                Some(findings)
+            };
+        });
+    }
+
+    // ── Driver signal extraction ────────────────────────────────────
+    if let Some(ref pe) = result.pe_analysis {
+        if let Some(ref driver) = pe.driver_analysis {
+            s.pe_is_kernel_driver = driver.is_kernel_driver;
+            s.pe_driver_imports_ntoskrnl = driver.imports_ntoskrnl;
+            s.pe_driver_imports_hal = driver.imports_hal;
+            s.pe_driver_dangerous_api_count = driver.dangerous_kernel_apis.len();
+            s.pe_driver_is_signed = driver.is_signed;
+        }
+    }
+
     // ── Resource language analysis ───────────────────────────────────
     // PE resource language detection is not yet extracted by pe_parser;
     // populate from version info locale heuristic instead
@@ -734,6 +765,62 @@ pub fn is_benign_ioc(value: &str) -> bool {
         "::1",
     ];
     benign_domains.iter().any(|d| lower.contains(d))
+}
+
+// ── Secrets detection ───────────────────────────────────────────────────────
+
+// Thread-local storage to pass secret findings from extract_signals back to callers.
+// This avoids modifying the AnalysisResult inside extract_signals (which takes &).
+thread_local! {
+    pub static LAST_SECRET_FINDINGS: std::cell::RefCell<Option<Vec<SecretFinding>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Compiled secret detection regex patterns, initialised once.
+static SECRET_REGEXES: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
+    anya_scoring::detection_patterns::secret_patterns()
+        .into_iter()
+        .filter_map(|(name, pattern)| Regex::new(pattern).ok().map(|re| (name, re)))
+        .collect()
+});
+
+/// Scan classified strings for structured credential patterns.
+/// Returns (findings, total_count, has_private_key).
+fn scan_secrets(
+    classified: &[crate::output::ClassifiedString],
+) -> (Vec<SecretFinding>, usize, bool) {
+    let mut findings = Vec::new();
+    let mut has_private_key = false;
+
+    for cs in classified {
+        for (secret_type, re) in SECRET_REGEXES.iter() {
+            if re.is_match(&cs.value) {
+                // Redact: show first 8 chars + "..."
+                let preview = if cs.value.len() > 8 {
+                    format!("{}...", &cs.value[..8])
+                } else {
+                    cs.value.clone()
+                };
+                if *secret_type == "Private Key" {
+                    has_private_key = true;
+                }
+                findings.push(SecretFinding {
+                    secret_type: secret_type.to_string(),
+                    value_preview: preview,
+                });
+                break; // one match per string is sufficient
+            }
+        }
+    }
+
+    let count = findings.len();
+    (findings, count, has_private_key)
+}
+
+/// Retrieve the last set of secret findings from the thread-local.
+/// Call this after `extract_signals()` to get the findings for the AnalysisResult.
+pub fn take_secret_findings() -> Option<Vec<SecretFinding>> {
+    LAST_SECRET_FINDINGS.with(|cell| cell.borrow_mut().take())
 }
 
 // ── Compiler/toolchain fingerprinting ────────────────────────────────────────
@@ -1038,6 +1125,7 @@ mod tests {
             overlay_has_exe: false,
             string_density: 0.0,
             dotnet_metadata: None,
+            driver_analysis: None,
         }
     }
 
@@ -1112,6 +1200,14 @@ mod tests {
             iso_analysis: None,
             cab_analysis: None,
             msi_analysis: None,
+            vhd_analysis: None,
+            onenote_analysis: None,
+            img_analysis: None,
+            rar_analysis: None,
+            gzip_analysis: None,
+            sevenz_analysis: None,
+            tar_analysis: None,
+            secrets_detected: None,
             yara_matches: Vec::new(),
         }
     }
@@ -1222,5 +1318,140 @@ mod tests {
         assert_eq!(confidence_from_str("High"), ConfidenceLevel::High);
         assert_eq!(confidence_from_str("Critical"), ConfidenceLevel::Critical);
         assert_eq!(confidence_from_str("unknown"), ConfidenceLevel::Low);
+    }
+
+    // ── Secrets detection tests ────────────────────────────────────────────
+
+    fn make_classified(value: &str) -> ClassifiedString {
+        ClassifiedString {
+            value: value.to_string(),
+            category: "Plain".to_string(),
+            offset: None,
+            is_benign: false,
+        }
+    }
+
+    #[test]
+    fn test_scan_secrets_aws_access_key() {
+        let strings = vec![make_classified("AKIAIOSFODNN7EXAMPLE")];
+        let (findings, count, has_pk) = scan_secrets(&strings);
+        assert_eq!(count, 1);
+        assert!(!has_pk);
+        assert_eq!(findings[0].secret_type, "AWS Access Key");
+        // Value is redacted to first 8 chars
+        assert!(findings[0].value_preview.ends_with("..."));
+        assert_eq!(&findings[0].value_preview[..8], "AKIAIOSF");
+    }
+
+    #[test]
+    fn test_scan_secrets_jwt_token() {
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnop";
+        let strings = vec![make_classified(jwt)];
+        let (findings, count, _) = scan_secrets(&strings);
+        assert_eq!(count, 1);
+        assert_eq!(findings[0].secret_type, "JWT Token");
+    }
+
+    #[test]
+    fn test_scan_secrets_private_key() {
+        let pk = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpA...";
+        let strings = vec![make_classified(pk)];
+        let (_, count, has_pk) = scan_secrets(&strings);
+        assert_eq!(count, 1);
+        assert!(has_pk, "Private key should set has_private_key flag");
+    }
+
+    #[test]
+    fn test_scan_secrets_github_token() {
+        let token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn";
+        let strings = vec![make_classified(token)];
+        let (findings, count, _) = scan_secrets(&strings);
+        assert_eq!(count, 1);
+        assert_eq!(findings[0].secret_type, "GitHub Token");
+    }
+
+    #[test]
+    fn test_scan_secrets_no_false_positives_on_plain() {
+        let strings = vec![
+            make_classified("Hello World"),
+            make_classified("kernel32.dll"),
+            make_classified("CreateRemoteThread"),
+        ];
+        let (_, count, _) = scan_secrets(&strings);
+        assert_eq!(count, 0, "Plain strings should not match secret patterns");
+    }
+
+    #[test]
+    fn test_scan_secrets_redaction() {
+        let long_key = "AKIAIOSFODNN7EXAMPLELONG";
+        let strings = vec![make_classified(long_key)];
+        let (findings, _, _) = scan_secrets(&strings);
+        assert_eq!(findings[0].value_preview, "AKIAIOSF...");
+        // Full value must NOT appear in preview
+        assert!(!findings[0].value_preview.contains(long_key));
+    }
+
+    #[test]
+    fn test_scan_secrets_multiple() {
+        let strings = vec![
+            make_classified("AKIAIOSFODNN7EXAMPLE"),
+            make_classified("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"),
+            make_classified("-----BEGIN PRIVATE KEY-----"),
+        ];
+        let (_, count, has_pk) = scan_secrets(&strings);
+        assert_eq!(count, 3);
+        assert!(has_pk);
+    }
+
+    // ── Driver signal extraction tests ────────────────────────────────────
+
+    #[test]
+    fn test_driver_signals_extracted() {
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.driver_analysis = Some(crate::output::DriverAnalysis {
+            is_kernel_driver: true,
+            imports_ntoskrnl: true,
+            imports_hal: false,
+            dangerous_kernel_apis: vec![
+                "IoCreateDevice".to_string(),
+                "ObRegisterCallbacks".to_string(),
+            ],
+            is_signed: false,
+        });
+        result.pe_analysis = Some(pe);
+        let signals = extract_signals(&result);
+        assert!(signals.pe_is_kernel_driver);
+        assert!(signals.pe_driver_imports_ntoskrnl);
+        assert!(!signals.pe_driver_imports_hal);
+        assert_eq!(signals.pe_driver_dangerous_api_count, 2);
+        assert!(!signals.pe_driver_is_signed);
+    }
+
+    #[test]
+    fn test_driver_signals_not_set_for_normal_pe() {
+        let mut result = empty_result();
+        result.pe_analysis = Some(empty_pe());
+        let signals = extract_signals(&result);
+        assert!(!signals.pe_is_kernel_driver);
+        assert_eq!(signals.pe_driver_dangerous_api_count, 0);
+    }
+
+    #[test]
+    fn test_secrets_signals_extracted() {
+        let mut result = empty_result();
+        result.strings.classified = Some(vec![
+            make_classified("AKIAIOSFODNN7EXAMPLE"),
+            make_classified("-----BEGIN PRIVATE KEY-----"),
+        ]);
+        let signals = extract_signals(&result);
+        assert_eq!(signals.secrets_count, 2);
+        assert!(signals.secrets_has_private_key);
+
+        // Also verify thread-local findings are populated
+        let findings = take_secret_findings();
+        assert!(findings.is_some());
+        let findings = findings.unwrap();
+        assert_eq!(findings.len(), 2);
     }
 }

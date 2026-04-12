@@ -13,7 +13,7 @@
   <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform" /></a>
 </p>
 <p>
-  <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/any%20file-20%2B%20deep%20parsers-brightgreen" alt="Any file, 20+ deep parsers" /></a>
+  <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/any%20file-24%2B%20deep%20parsers-brightgreen" alt="Any file, 24+ deep parsers" /></a>
   <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/detection-99.9%25-brightgreen" alt="99.9% detection" /></a>
   <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/network-zero%20calls-success" alt="Zero network calls" /></a>
   <a href="https://github.com/elementmerc/anya"><img src="https://img.shields.io/badge/MITRE%20ATT%26CK-mapped-blueviolet" alt="MITRE ATT&CK" /></a>
@@ -25,7 +25,7 @@
 
 ---
 
-Anya analyses files without executing them. Drop a PE, ELF, Mach-O, PDF, Office doc, script, archive, or any of 20+ supported formats onto the GUI, or pipe files through the CLI. Get hashes, entropy, imports, sections, IOC indicators, MITRE ATT&CK mappings, known malware family matching, a confidence-scored verdict, and a risk score. 250+ files per minute, entirely offline.
+Anya analyses files without executing them. Drop a PE, ELF, Mach-O, PDF, Office doc, script, archive, disk image, or any of 24+ supported formats onto the GUI, or pipe files through the CLI. Get hashes, entropy, imports, sections, IOC indicators, MITRE ATT&CK mappings, known malware family matching, a confidence-scored verdict, and a risk score. 250+ files per minute, entirely offline.
 
 **Anya** (AHN-yah) means "eye" in Igbo.
 
@@ -83,7 +83,7 @@ Drag a file or folder onto the window, or use the **+** button.
 - **Sections** — permissions, entropy, characteristics
 - **Strings** — extracted strings with IOC classification
 - **Security** — ASLR, DEP, Authenticode, toolchain, certificates
-- **Format** — deep analysis for 20+ file types
+- **Format** — deep analysis for 24+ file types
 - **MITRE** — mapped techniques with tactic grouping
 - **Graph** — evidence web (single file) or relationship graph (batch)
 
@@ -98,7 +98,7 @@ Drag a file or folder onto the window, or use the **+** button.
 | | Anya | VirusTotal | PEStudio | CAPA | DIE |
 |---|---|---|---|---|---|
 | Offline / no upload | ✓ | ✗ | ✓ | ✓ | ✓ |
-| Formats | Any file (20+ deep) | Many | PE only | PE/ELF | PE/ELF/Mach-O |
+| Formats | Any file (24+ deep) | Many | PE only | PE/ELF | PE/ELF/Mach-O |
 | Heuristic verdict | ✓ | Aggregates | ✗ | ✗ | ✗ |
 | MITRE ATT&CK | ✓ | Partial | ✗ | ✓ | ✗ |
 | YARA scanning | ✓ | ✓ (cloud) | ✗ | ✗ | ✗ |

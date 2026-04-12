@@ -175,11 +175,16 @@ pub mod commands {
     #[tauri::command]
     pub async fn analyze_file(path: String) -> Result<AnalyzeResponse, String> {
         let path_clone = path.clone();
-        let result =
-            tokio::task::spawn_blocking(move || lib_analyse_file(Path::new(&path_clone), 4))
-                .await
-                .map_err(|e| with_hint(format!("Task error: {e}")))?
-                .map_err(|e| with_hint(format!("Analysis error: {e}")))?;
+        let result = tokio::task::spawn_blocking(move || {
+            lib_analyse_file(
+                Path::new(&path_clone),
+                4,
+                anya_security_core::config::AnalysisDepth::Standard,
+            )
+        })
+        .await
+        .map_err(|e| with_hint(format!("Task error: {e}")))?
+        .map_err(|e| with_hint(format!("Analysis error: {e}")))?;
 
         let is_suspicious = lib_is_suspicious_file(&result);
         let json_result = lib_to_json_output(&result);
@@ -377,7 +382,11 @@ pub mod commands {
 
                     let fp_inner = fp.clone();
                     let analysis = tokio::task::spawn_blocking(move || {
-                        anya_security_core::analyse_file(Path::new(&fp_inner), 4)
+                        anya_security_core::analyse_file(
+                            Path::new(&fp_inner),
+                            4,
+                            anya_security_core::config::AnalysisDepth::Standard,
+                        )
                     })
                     .await;
 
@@ -827,6 +836,19 @@ pub mod commands {
         }
     }
 
+    /// Run YARA-only scan on a file (skip full analysis for fast rule testing).
+    #[tauri::command]
+    pub async fn yara_scan_only(path: String) -> Result<serde_json::Value, String> {
+        let path_clone = path.clone();
+        tokio::task::spawn_blocking(move || {
+            let result = anya_security_core::scan_yara_only(std::path::Path::new(&path_clone))
+                .map_err(|e| format!("{e}"))?;
+            serde_json::to_value(&result).map_err(|e| format!("{e}"))
+        })
+        .await
+        .map_err(|e| format!("{e}"))?
+    }
+
     /// Return DLL explanations data from the proprietary data crate.
     #[tauri::command]
     pub fn get_dll_explanations() -> String {
@@ -1063,6 +1085,7 @@ pub fn run() {
             commands::get_batch_graph_data,
             commands::get_ksd_neighborhood,
             commands::install_bundled_yara_rules,
+            commands::yara_scan_only,
             commands::get_dll_explanations,
             commands::get_function_explanations,
             commands::get_technique_explanations,

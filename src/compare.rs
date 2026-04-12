@@ -6,14 +6,14 @@
 
 use std::path::Path;
 
-use anya_security_core::{analyse_file, compute_verdict, confidence, to_json_output};
+use anya_security_core::{analyse_file, compute_verdict, confidence, config, to_json_output};
 use colored::*;
 
 /// Analyse two files and print a side-by-side comparison of their verdicts,
 /// risk scores, imports, sections, strings and security features.
 pub fn compare_files(path1: &Path, path2: &Path, min_string_length: usize) -> anyhow::Result<()> {
-    let result1 = analyse_file(path1, min_string_length)?;
-    let result2 = analyse_file(path2, min_string_length)?;
+    let result1 = analyse_file(path1, min_string_length, config::AnalysisDepth::Standard)?;
+    let result2 = analyse_file(path2, min_string_length, config::AnalysisDepth::Standard)?;
     let json1 = to_json_output(&result1);
     let json2 = to_json_output(&result2);
 

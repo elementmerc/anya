@@ -261,6 +261,15 @@ pub struct SignalSet {
     pub pe_language_mismatch: bool,
     pub pe_timestamp_year: u32,
     pub pe_timestamp_suspicious: bool,
+
+    pub secrets_count: usize,
+    pub secrets_has_private_key: bool,
+
+    pub pe_is_kernel_driver: bool,
+    pub pe_driver_imports_ntoskrnl: bool,
+    pub pe_driver_imports_hal: bool,
+    pub pe_driver_dangerous_api_count: usize,
+    pub pe_driver_is_signed: bool,
 }
 
 #[derive(Debug, Clone, Default)]

@@ -23,7 +23,11 @@ fn main() -> anyhow::Result<()> {
 
     // Analyze the file
     println!("Analyzing: {}", file_path.display());
-    let result = analyse_file(file_path, 4)?;
+    let result = analyse_file(
+        file_path,
+        4,
+        anya_security_core::config::AnalysisDepth::Standard,
+    )?;
 
     // Print results
     println!("\n=== Analysis Results ===");
