@@ -23,6 +23,107 @@ pub use anya_scoring::confidence::{
     BONUS_TLS_CALLBACKS, BONUS_WX_SECTION, WEIGHT_CRITICAL, WEIGHT_HIGH, WEIGHT_LOW, WEIGHT_MEDIUM,
 };
 
+/// Detect a legitimate-package ZIP layout from the lowercased entry
+/// names. Matches package manifests (JAR, Python wheel, Chrome
+/// extension, APK, NuGet, Office OOXML) first, then falls back to
+/// all-scripts source distributions, then to common build-tree
+/// markers (src/, /docs/, makefile, etc.). Mirrors the Cat A quick-win
+/// from `private/Calibration/rescore_v2.py`.
+fn detect_zip_legitimacy(names_lower: &[String]) -> bool {
+    if names_lower.is_empty() {
+        return false;
+    }
+
+    const PKG_MARKERS: &[&str] = &[
+        "meta-inf/",              // JAR
+        "manifest.mf",            // JAR
+        "manifest.json",          // Chrome ext / WebExtension / npm
+        "androidmanifest.xml",    // APK
+        "classes.dex",            // APK
+        ".dist-info/",            // Python wheel
+        ".dist-info\\",           // Python wheel (windows path)
+        "package.json",           // npm
+        "composer.json",          // PHP composer
+        "pom.xml",                // Maven
+        "build.gradle",           // Gradle
+        "gradle-wrapper.jar",     // Gradle wrapper
+        "pubspec.yaml",           // Dart
+        "cargo.toml",             // Rust
+        "install.rdf",            // Firefox extension (legacy)
+        "chrome.manifest",        // Firefox/Thunderbird extension
+        "content/",               // XPI addon structure
+        "modules/",               // XPI addon structure
+        "__init__.py",            // Python package
+        "site-packages/",         // Python
+        "nuspec",                 // NuGet
+        "[content_types].xml",    // Office OOXML
+        "ppt/presentation.xml",   // pptx
+        "word/document.xml",      // docx
+        "xl/workbook.xml",        // xlsx
+        "mimetype",               // ODT/EPUB (bottom of archive)
+    ];
+    if names_lower
+        .iter()
+        .any(|name| PKG_MARKERS.iter().any(|m| name.contains(m)))
+    {
+        return true;
+    }
+
+    // Fallback 1: every entry ends in a script/source extension.
+    const SCRIPT_EXTS: &[&str] = &[
+        ".py", ".pl", ".rb", ".js", ".sh", ".lua", ".php", ".ts", ".tcl", ".awk", ".sed", ".ml",
+        ".hs", ".coffee", ".cs", ".java", ".kt", ".scala", ".go", ".rs", ".c", ".cpp", ".h",
+        ".hpp", ".cc", ".cxx", ".m", ".mm", ".swift", ".r", ".jl",
+    ];
+    if !names_lower.is_empty()
+        && names_lower
+            .iter()
+            .all(|n| SCRIPT_EXTS.iter().any(|ext| n.ends_with(ext)))
+    {
+        return true;
+    }
+
+    // Fallback 2: common source-tree / build-system markers.
+    const DISTRO_MARKERS: &[&str] = &[
+        "/src/",
+        "src/main/",
+        "src/test/",
+        "/source/",
+        "/dist/",
+        "/lib/",
+        "/bin/",
+        "/build/",
+        "build.xml",
+        "build.sh",
+        "build.bat",
+        "buildall.sh",
+        "buildall.bat",
+        "configure.ac",
+        "configure.in",
+        "autogen.sh",
+        "makefile",
+        "cmakelists.txt",
+        "cmake/",
+        "/tests/",
+        "/examples/",
+        "/doc/",
+        "/docs/",
+        "readme.md",
+        "readme.txt",
+        "license.txt",
+        "license.md",
+        "changelog.md",
+        "changelog.txt",
+        "contributing.md",
+        "copying",
+        "/include/",
+        "/javadoc/",
+    ];
+    names_lower
+        .iter()
+        .any(|name| DISTRO_MARKERS.iter().any(|m| name.contains(m)))
+}
+
 /// Extract signals from an AnalysisResult into a SignalSet for scoring.
 pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
     let mut s = SignalSet {
@@ -580,6 +681,26 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
         s.zip_has_encrypted_entries = zip.has_encrypted_entries;
         s.zip_has_double_extensions = zip.has_double_extensions;
         s.zip_has_path_traversal = zip.has_path_traversal;
+
+        // Cat A quick-win (Layer 1.8): collect lowercased entry names
+        // from both the executable list and the suspicious-entries list,
+        // cap at 50 total, and check for known legitimate-package
+        // markers. Mirrors the Python rescore logic. The calibrator
+        // strips the original extension to ".sample", so we can't rely
+        // on file_extension for .whl/.xpi/.jar detection — entry
+        // inspection is the only way.
+        let mut names_lower: Vec<String> = zip
+            .executable_names
+            .iter()
+            .take(50)
+            .map(|n| n.to_lowercase())
+            .collect();
+        for entry in zip.suspicious_entries.iter().take(50) {
+            names_lower.push(entry.to_lowercase());
+        }
+        s.zip_executable_names = names_lower.clone();
+
+        s.zip_is_legit_package = detect_zip_legitimacy(&names_lower);
     }
 
     // ── Media, markup & misc signals ──────────────────────────────────
@@ -1453,5 +1574,143 @@ mod tests {
         assert!(findings.is_some());
         let findings = findings.unwrap();
         assert_eq!(findings.len(), 2);
+    }
+
+    #[test]
+    fn test_zip_legitimacy_jar_marker() {
+        let names: Vec<String> = vec![
+            "META-INF/MANIFEST.MF".to_lowercase(),
+            "com/example/Main.class".to_lowercase(),
+        ];
+        assert!(detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_python_wheel() {
+        let names: Vec<String> = vec![
+            "example-1.0.dist-info/METADATA".to_lowercase(),
+            "example/__init__.py".to_lowercase(),
+        ];
+        assert!(detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_apk_marker() {
+        let names: Vec<String> = vec![
+            "AndroidManifest.xml".to_lowercase(),
+            "classes.dex".to_lowercase(),
+        ];
+        assert!(detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_ooxml_docx() {
+        let names: Vec<String> = vec![
+            "[Content_Types].xml".to_lowercase(),
+            "word/document.xml".to_lowercase(),
+        ];
+        assert!(detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_all_scripts_fallback() {
+        let names: Vec<String> = vec![
+            "src/main.py".to_lowercase(),
+            "src/helper.py".to_lowercase(),
+            "tests/test_main.py".to_lowercase(),
+        ];
+        // src/ + /tests/ also matches distro markers, but the all-scripts
+        // fallback alone is enough.
+        assert!(detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_source_tree_markers() {
+        let names: Vec<String> = vec![
+            "project/src/main.c".to_lowercase(),
+            "project/build.sh".to_lowercase(),
+            "project/readme.md".to_lowercase(),
+        ];
+        assert!(detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_malicious_archive_not_flagged() {
+        let names: Vec<String> = vec![
+            "invoice.exe".to_lowercase(),
+            "readme.pdf.exe".to_lowercase(),
+        ];
+        assert!(!detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_empty_is_not_legit() {
+        let names: Vec<String> = vec![];
+        assert!(!detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_suppresses_scoring_detection() {
+        // Construct an AnalysisResult with a benign JAR-like ZIP.
+        let mut result = empty_result();
+        result.zip_analysis = Some(ZipAnalysis {
+            entry_count: 3,
+            has_executables: true,
+            executable_names: vec![
+                "META-INF/MANIFEST.MF".to_string(),
+                "com/example/Main.class".to_string(),
+                "lib/helper.jar".to_string(),
+            ],
+            has_encrypted_entries: false,
+            compression_ratio: 2.0,
+            has_double_extensions: false,
+            has_path_traversal: false,
+            suspicious_entries: vec![],
+        });
+        let signals = extract_signals(&result);
+        assert!(
+            signals.zip_is_legit_package,
+            "META-INF JAR marker should flag zip_is_legit_package"
+        );
+        assert!(signals.zip_has_executables);
+
+        // And the score_signals pass should NOT emit a ZIP-containing-exe
+        // detection when no corroborating signal is present.
+        let scoring = score_signals(&signals);
+        assert!(
+            !scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.starts_with("ZIP containing executable files")),
+            "legit JAR should not trigger ZIP-containing-exe detection"
+        );
+    }
+
+    #[test]
+    fn test_zip_legitimacy_encrypted_package_still_flags() {
+        // A legit-package layout that ALSO has encrypted entries should
+        // still fire: encryption is a corroborating signal that overrides
+        // the package suppression.
+        let mut result = empty_result();
+        result.zip_analysis = Some(ZipAnalysis {
+            entry_count: 1,
+            has_executables: true,
+            executable_names: vec!["META-INF/MANIFEST.MF".to_string()],
+            has_encrypted_entries: true,
+            compression_ratio: 2.0,
+            has_double_extensions: false,
+            has_path_traversal: false,
+            suspicious_entries: vec![],
+        });
+        let signals = extract_signals(&result);
+        assert!(signals.zip_is_legit_package);
+        let scoring = score_signals(&signals);
+        assert!(
+            scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.starts_with("ZIP containing executable files")),
+            "encrypted entries should override legit-package suppression"
+        );
     }
 }
