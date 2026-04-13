@@ -323,6 +323,17 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
 
     // ── ELF signals ─────────────────────────────────────────────────────
     if let Some(ref elf) = result.elf_analysis {
+        // Cat C quick-win: capture the raw ELF e_type string and
+        // derive elf_is_shared_lib. "Shared Object" is the parser's
+        // label for ET_DYN; "Relocatable" for ET_REL (.o object
+        // files). Both suppress the suspicious-api and hardening
+        // checks downstream because libraries routinely trip the
+        // same signals without being malicious.
+        s.elf_file_type = elf.file_type.clone();
+        let ft_lower = elf.file_type.to_lowercase();
+        s.elf_is_shared_lib = ft_lower.contains("shared")
+            || ft_lower.contains("dyn")
+            || ft_lower.contains("relocat");
         s.elf_is_pie = elf.is_pie;
         s.elf_has_nx = elf.has_nx_stack;
         s.elf_has_relro = elf.has_relro;
@@ -1782,6 +1793,127 @@ mod tests {
             "genuine unknowns (no rich header, no marker imports) should remain unknown"
         );
         assert_eq!(signals.pe_toolchain, "");
+    }
+
+    fn shared_lib_elf(missing_nx: bool, missing_pie: bool, missing_relro: bool) -> ELFAnalysis {
+        ELFAnalysis {
+            architecture: "x86_64".to_string(),
+            is_64bit: true,
+            file_type: "Shared Object".to_string(),
+            entry_point: "0x1000".to_string(),
+            interpreter: None,
+            sections: vec![],
+            imports: ElfImportAnalysis {
+                library_count: 0,
+                libraries: vec![],
+                dynamic_symbol_count: 0,
+                suspicious_functions: vec![],
+            },
+            is_pie: !missing_pie,
+            has_nx_stack: !missing_nx,
+            has_relro: !missing_relro,
+            is_stripped: false,
+            packer_indicators: vec![],
+            got_plt_suspicious: vec![],
+            rpath_anomalies: vec![],
+            has_dwarf_info: false,
+            interpreter_suspicious: false,
+            suspicious_section_names: vec![],
+            suspicious_libc_calls: vec![],
+        }
+    }
+
+    #[test]
+    fn test_elf_shared_lib_flag_extracted_from_file_type() {
+        let mut result = empty_result();
+        let mut elf = shared_lib_elf(false, false, false);
+        elf.file_type = "Shared Object".to_string();
+        result.elf_analysis = Some(elf);
+        result.file_format = "ELF 64-bit LSB shared object".to_string();
+
+        let signals = extract_signals(&result);
+        assert_eq!(signals.elf_file_type, "Shared Object");
+        assert!(
+            signals.elf_is_shared_lib,
+            "ELF with file_type=Shared Object should set elf_is_shared_lib"
+        );
+    }
+
+    #[test]
+    fn test_elf_relocatable_flags_as_shared_lib() {
+        // ET_REL object files get the same suppression class.
+        let mut result = empty_result();
+        let mut elf = shared_lib_elf(false, false, false);
+        elf.file_type = "Relocatable".to_string();
+        result.elf_analysis = Some(elf);
+        result.file_format = "ELF 64-bit LSB relocatable".to_string();
+
+        let signals = extract_signals(&result);
+        assert!(signals.elf_is_shared_lib);
+    }
+
+    #[test]
+    fn test_elf_executable_is_not_shared_lib() {
+        let mut result = empty_result();
+        let mut elf = shared_lib_elf(false, false, false);
+        elf.file_type = "Executable".to_string();
+        result.elf_analysis = Some(elf);
+        result.file_format = "ELF 64-bit LSB executable".to_string();
+
+        let signals = extract_signals(&result);
+        assert_eq!(signals.elf_file_type, "Executable");
+        assert!(
+            !signals.elf_is_shared_lib,
+            "regular executables should not set elf_is_shared_lib"
+        );
+    }
+
+    #[test]
+    fn test_elf_shared_lib_suppresses_missing_security_features() {
+        // A shared library missing PIE, NX, and RELRO should NOT trigger
+        // the "ELF missing all security features" detection because the
+        // Cat C quick-win suppresses hardening detections for shared libs.
+        let mut result = empty_result();
+        let mut elf = shared_lib_elf(true, true, true);
+        elf.file_type = "Shared Object".to_string();
+        result.elf_analysis = Some(elf);
+        result.file_format = "ELF 64-bit LSB shared object".to_string();
+
+        let signals = extract_signals(&result);
+        assert!(signals.elf_is_shared_lib);
+
+        let scoring = score_signals(&signals);
+        assert!(
+            !scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.starts_with("ELF missing")),
+            "shared libs should not trigger ELF hardening detections, found: {:?}",
+            scoring.detections.iter().map(|(d, _)| d).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_elf_executable_still_flags_missing_security() {
+        // Sanity: a regular executable with PIE/NX/RELRO missing SHOULD
+        // still trigger the detection.
+        let mut result = empty_result();
+        let mut elf = shared_lib_elf(true, true, true);
+        elf.file_type = "Executable".to_string();
+        result.elf_analysis = Some(elf);
+        result.file_format = "ELF 64-bit LSB executable".to_string();
+
+        let signals = extract_signals(&result);
+        assert!(!signals.elf_is_shared_lib);
+
+        let scoring = score_signals(&signals);
+        assert!(
+            scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.starts_with("ELF missing")),
+            "regular executable missing all 3 should still flag"
+        );
     }
 
     #[test]
