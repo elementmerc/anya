@@ -1511,6 +1511,33 @@ pub fn find_executable_files(dir_path: &Path, recursive: bool) -> Result<Vec<Pat
 ///
 /// Delegates to the scoring crate's `score_analysis()`.
 pub fn compute_verdict(result: &output::AnalysisResult) -> (String, String) {
+    // Known-sample short-circuit: if this SHA256 matches a curated
+    // known-samples entry (tools, test files, PUPs), return the
+    // matched verdict directly and skip the heuristic score.
+    //
+    // This is the fix for the floss FP: FLOSS (Mandiant FLARE string
+    // extractor) has 8.00 entropy + 5 suspicious function imports
+    // and is fundamentally indistinguishable from a packed loader on
+    // pure metadata. The known-samples DB already carries its
+    // SHA256, but without this short-circuit the heuristic scorer
+    // still produced SUSPICIOUS and analyse_file only patched the
+    // display string after the fact. The underlying verdict flag
+    // (load-bearing for exit codes, JSON output, calibration) was
+    // still non-CLEAN.
+    //
+    // "TOOL" and "TEST" verdicts both return verdict_word = "CLEAN"
+    // so downstream consumers (--exit-code-from-verdict, rescore
+    // benign checks, the calibration FP count) treat them as not-
+    // malicious. The verdict_summary carries the richer tag so the
+    // UI can still display "TOOL — FLOSS (...)".
+    if let Some(ref ks) = result.known_sample {
+        let verdict_word = match ks.verdict.as_str() {
+            "TOOL" | "TEST" | "CLEAN" => "CLEAN".to_string(),
+            other => other.to_string(),
+        };
+        let summary = format!("{} — {}", ks.verdict, ks.name);
+        return (verdict_word, summary);
+    }
     let scoring = confidence::score_analysis(result);
     (scoring.verdict, scoring.verdict_summary)
 }
@@ -1799,20 +1826,18 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
         }
     }
 
-    // Check known samples database (tools, PUPs, test files)
+    // Check known samples database (tools, PUPs, test files).
+    // Must happen BEFORE compute_verdict so the short-circuit in
+    // compute_verdict can see it.
     out.known_sample = lookup_known_sample(&out.hashes.sha256);
 
-    // Populate verdict and top findings so all consumers (CLI + GUI) get complete output
-    let (verdict_word, verdict_text) = compute_verdict(&out);
-    // Retrieve secret findings computed during signal extraction
+    // Populate verdict and top findings. compute_verdict already
+    // handles the known_sample short-circuit (returning CLEAN with
+    // a TOOL/TEST/PUP-tagged summary), so the old manual override
+    // block is gone.
+    let (_verdict_word, verdict_text) = compute_verdict(&out);
     out.secrets_detected = confidence::take_secret_findings();
-    // Known sample match overrides the heuristic verdict
-    if let Some(ref ks) = out.known_sample {
-        out.verdict_summary = Some(format!("{} — {}", ks.verdict, ks.name));
-    } else {
-        out.verdict_summary = Some(verdict_text);
-    }
-    let _ = verdict_word; // suppress unused warning
+    out.verdict_summary = Some(verdict_text);
 
     let top = confidence::top_detections(&out, 3);
     out.top_findings = top
@@ -2449,5 +2474,68 @@ mod tests {
         let json = to_json_output(&result);
         assert_eq!(json.file_info.size_bytes, 1024);
         assert_eq!(json.file_format, "PE");
+    }
+
+    #[test]
+    fn test_compute_verdict_known_sample_short_circuits_to_clean() {
+        // A sample that matches a known TOOL entry should short-
+        // circuit to CLEAN with a TOOL-tagged summary. This is the
+        // fix for the floss FP.
+        let mut result = output::AnalysisResult::default();
+        result.file_format = "Windows PE".to_string();
+        result.known_sample = Some(output::KnownSampleMatch {
+            verdict: "TOOL".to_string(),
+            category: "Dual-use/Security Tool".to_string(),
+            name: "FLOSS (FLARE Obfuscated String Solver)".to_string(),
+            description: "Mandiant string extraction tool".to_string(),
+        });
+
+        let (verdict_word, summary) = compute_verdict(&result);
+        assert_eq!(
+            verdict_word, "CLEAN",
+            "known TOOL sample should short-circuit to CLEAN verdict"
+        );
+        assert!(
+            summary.contains("TOOL") && summary.contains("FLOSS"),
+            "summary should carry the TOOL tag and tool name, got: {summary}"
+        );
+    }
+
+    #[test]
+    fn test_compute_verdict_known_sample_test_file_short_circuits() {
+        // EICAR and other TEST samples also short-circuit to CLEAN.
+        let mut result = output::AnalysisResult::default();
+        result.file_format = "Text".to_string();
+        result.known_sample = Some(output::KnownSampleMatch {
+            verdict: "TEST".to_string(),
+            category: "Test File".to_string(),
+            name: "EICAR Anti-Malware Test File".to_string(),
+            description: "Standard AV test file".to_string(),
+        });
+
+        let (verdict_word, summary) = compute_verdict(&result);
+        assert_eq!(verdict_word, "CLEAN", "TEST file should short-circuit to CLEAN");
+        assert!(summary.contains("TEST"));
+        assert!(summary.contains("EICAR"));
+    }
+
+    #[test]
+    fn test_compute_verdict_no_known_sample_runs_heuristics() {
+        // When known_sample is None, compute_verdict should fall
+        // through to the heuristic scorer (returning whatever the
+        // default empty-result scorer produces — typically CLEAN
+        // or UNKNOWN for an empty AnalysisResult).
+        let result = output::AnalysisResult::default();
+        let (verdict_word, _summary) = compute_verdict(&result);
+        // Empty AnalysisResult should produce some scorer verdict;
+        // we just care that it's NOT short-circuited through a
+        // None known_sample, which would crash.
+        assert!(
+            verdict_word == "CLEAN"
+                || verdict_word == "UNKNOWN"
+                || verdict_word == "SUSPICIOUS"
+                || verdict_word == "MALICIOUS",
+            "unexpected verdict: {verdict_word}"
+        );
     }
 }
