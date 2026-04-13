@@ -14,7 +14,41 @@ use sha2::Sha256;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use walkdir::WalkDir;
+
+// Process-wide KSD runtime controls. The CLI wires `--no-ksd` and
+// `--ksd-threshold` into these so the analysis path can read them without
+// adding a parameter to every call site (which would ripple into the Tauri
+// IPC and the GUI). Defaults: KSD enabled, distance threshold 150.
+//
+// The Tauri GUI leaves both at their defaults today; when a future settings
+// panel exposes them it can call `set_ksd_enabled` / `set_ksd_threshold`
+// directly.
+static KSD_ENABLED: AtomicBool = AtomicBool::new(true);
+static KSD_THRESHOLD: AtomicU32 = AtomicU32::new(150);
+
+/// Enable or disable KSD (Known Sample Database) matching for subsequent
+/// analyses in this process. The default is enabled.
+pub fn set_ksd_enabled(enabled: bool) {
+    KSD_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// Return whether KSD matching is currently enabled.
+pub fn is_ksd_enabled() -> bool {
+    KSD_ENABLED.load(Ordering::Relaxed)
+}
+
+/// Override the TLSH distance threshold used by KSD matching. The default
+/// is 150.
+pub fn set_ksd_threshold(distance: u32) {
+    KSD_THRESHOLD.store(distance, Ordering::Relaxed);
+}
+
+/// Return the current KSD TLSH distance threshold.
+pub fn ksd_threshold() -> u32 {
+    KSD_THRESHOLD.load(Ordering::Relaxed)
+}
 
 // Re-export proprietary data constants for IPC access
 pub mod proprietary_data {
@@ -1710,19 +1744,27 @@ pub fn to_json_output(result: &FileAnalysisResult) -> output::AnalysisResult {
     // Failures are non-fatal: analysis continues without KSD if anything goes wrong.
     // Uses catch_unwind as a last resort since the KSD crate may panic on
     // corrupt overlay files or malformed TLSH values.
-    if let Some(ref tlsh) = out.hashes.tlsh {
-        let ksd_result = std::panic::catch_unwind(|| {
-            let ksd_overlay_path =
-                dirs::config_dir().map(|d| d.join("anya").join("known_samples.json"));
-            let db = anya_scoring::ksd::KnownSampleDb::load(ksd_overlay_path.as_deref());
-            if !db.is_empty() {
-                db.find_nearest(tlsh, 150)
-            } else {
-                None
+    //
+    // Process-wide toggle via set_ksd_enabled (wired from the --no-ksd CLI
+    // flag in main.rs). Distance threshold via set_ksd_threshold (wired
+    // from --ksd-threshold). Both default to enabled / 150 respectively so
+    // the existing Tauri GUI path keeps working unchanged.
+    if is_ksd_enabled() {
+        if let Some(ref tlsh) = out.hashes.tlsh {
+            let max_distance = ksd_threshold();
+            let ksd_result = std::panic::catch_unwind(|| {
+                let ksd_overlay_path =
+                    dirs::config_dir().map(|d| d.join("anya").join("known_samples.json"));
+                let db = anya_scoring::ksd::KnownSampleDb::load(ksd_overlay_path.as_deref());
+                if !db.is_empty() {
+                    db.find_nearest(tlsh, max_distance)
+                } else {
+                    None
+                }
+            });
+            if let Ok(result) = ksd_result {
+                out.ksd_match = result;
             }
-        });
-        if let Ok(result) = ksd_result {
-            out.ksd_match = result;
         }
     }
 

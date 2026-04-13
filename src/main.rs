@@ -20,7 +20,7 @@
 use anya_security_core::{
     BatchSummary, OutputLevel, analyse_file, case, compute_verdict, config, elf_parser,
     find_executable_files, hash_check, is_executable_file, output, pe_parser, scan_yara_only,
-    to_json_output,
+    set_ksd_enabled, set_ksd_threshold, to_json_output,
 };
 use anyhow::{Context, Result}; // For better error handling
 use clap::{CommandFactory, Parser, Subcommand}; // For parsing command-line arguments
@@ -501,6 +501,16 @@ fn run() -> Result<()> {
 
     // Parse command-line arguments
     let args = Args::parse();
+
+    // Wire the KSD runtime flags into the engine before any analysis fires.
+    // These static setters replace what used to be dead CLI flags: --no-ksd
+    // disables KSD matching for the whole process, --ksd-threshold overrides
+    // the TLSH distance. Defaults (enabled, 150) match the previous
+    // hardcoded behaviour so the Tauri GUI path is unaffected.
+    if args.no_ksd {
+        set_ksd_enabled(false);
+    }
+    set_ksd_threshold(args.ksd_threshold);
 
     // Handle subcommands that don't need a file/directory argument
     match &args.command {
