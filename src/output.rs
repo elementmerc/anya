@@ -495,6 +495,18 @@ pub struct PEAnalysis {
     /// Driver (.sys) specific analysis
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub driver_analysis: Option<DriverAnalysis>,
+
+    /// Entry-point signature matches (M5.3 sub-signal 5). Names of
+    /// patterns that matched the first bytes at the PE entry point.
+    /// Empty vec when no match or when the entry point bytes could
+    /// not be resolved.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ep_signature_matches: Vec<String>,
+
+    /// Family of the first EP signature match (e.g. "upx", "themida").
+    /// Empty when no match.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ep_signature_family: String,
 }
 
 /// A structured credential or secret pattern detected in extracted strings
@@ -1708,6 +1720,8 @@ mod tests {
             string_density: 0.0,
             dotnet_metadata: None,
             driver_analysis: None,
+            ep_signature_matches: vec![],
+            ep_signature_family: String::new(),
         };
 
         let json = serde_json::to_string_pretty(&pe).unwrap();

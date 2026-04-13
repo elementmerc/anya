@@ -427,6 +427,41 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
     // ── Driver (.sys) detection ──────────────────────────────────────────────
     let driver_analysis = detect_driver_analysis(&pe, &authenticode);
 
+    // ── Entry-point signature matching (M5.3 sub-signal 5) ───────────────────
+    // Resolve the EP RVA to a file offset via the containing section, then
+    // read up to 32 bytes and run the proprietary EP-signature catalogue.
+    // Failures here are non-fatal — any IO/resolution issue just skips the
+    // match pass and leaves the fields empty.
+    let (ep_signature_matches, ep_signature_family) = {
+        let ep_rva = pe.entry as u64;
+        let mut ep_bytes: Option<Vec<u8>> = None;
+        for section in &pe.sections {
+            let va = section.virtual_address as u64;
+            let vsize = section.virtual_size.max(section.size_of_raw_data) as u64;
+            if ep_rva >= va && ep_rva < va + vsize {
+                let offset_in_section = (ep_rva - va) as usize;
+                let file_off = section.pointer_to_raw_data as usize + offset_in_section;
+                let end = (file_off + 32).min(data.len());
+                if file_off < end {
+                    ep_bytes = Some(data[file_off..end].to_vec());
+                }
+                break;
+            }
+        }
+        match ep_bytes {
+            Some(ref bytes) if !bytes.is_empty() => {
+                let matches = anya_scoring::ep_signatures::match_ep_bytes(bytes);
+                let names: Vec<String> = matches.iter().map(|m| m.name.clone()).collect();
+                let family = matches
+                    .first()
+                    .map(|m| m.family.clone())
+                    .unwrap_or_default();
+                (names, family)
+            }
+            _ => (Vec::new(), String::new()),
+        }
+    };
+
     Ok(output::PEAnalysis {
         architecture,
         is_64bit: pe.is_64,
@@ -467,6 +502,8 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
             None
         },
         driver_analysis,
+        ep_signature_matches,
+        ep_signature_family,
     })
 }
 

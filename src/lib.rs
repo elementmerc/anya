@@ -2074,6 +2074,8 @@ mod tests {
             string_density: 0.0,
             dotnet_metadata: None,
             driver_analysis: None,
+            ep_signature_matches: vec![],
+            ep_signature_family: String::new(),
         }
     }
 

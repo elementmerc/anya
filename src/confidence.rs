@@ -270,6 +270,11 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
             s.pe_has_crypto_imports = libs.iter().any(|l| l == "crypt32.dll" || l == "bcrypt.dll");
             s.pe_has_process_imports = libs.iter().any(|l| l == "psapi.dll");
         }
+        // M5.3 sub-5: EP signature matches flow through from the PE
+        // parser so the scoring layer can add a packer detection
+        // without re-scanning the file.
+        s.pe_ep_signature_matches = pe.ep_signature_matches.clone();
+        s.pe_ep_signature_family = pe.ep_signature_family.clone();
         s.pe_has_known_compiler = pe
             .compiler
             .as_ref()
@@ -1328,6 +1333,8 @@ mod tests {
             string_density: 0.0,
             dotnet_metadata: None,
             driver_analysis: None,
+            ep_signature_matches: vec![],
+            ep_signature_family: String::new(),
         }
     }
 
@@ -2068,6 +2075,95 @@ mod tests {
                 .any(|(desc, lvl)| desc.contains("LOLBins (certutil/bitsadmin")
                     && *lvl == anya_scoring::types::ConfidenceLevel::Medium),
             "LOLBin>=3 Medium detection should fire"
+        );
+    }
+
+    #[test]
+    fn test_ep_signature_fields_flow_through_extractor() {
+        // When PEAnalysis has ep_signature_matches populated (as if
+        // pe_parser had matched a UPX stub), the extractor should
+        // copy them to SignalSet so the scoring layer can consume.
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.ep_signature_matches = vec!["UPX 3.x (minimal)".to_string()];
+        pe.ep_signature_family = "upx".to_string();
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        assert_eq!(signals.pe_ep_signature_family, "upx");
+        assert_eq!(signals.pe_ep_signature_matches.len(), 1);
+        assert_eq!(signals.pe_ep_signature_matches[0], "UPX 3.x (minimal)");
+    }
+
+    #[test]
+    fn test_ep_signature_upx_alone_is_low() {
+        // UPX match with NO corroborating signals (packed_score == 0,
+        // no anti-analysis, no packer findings) should produce a Low
+        // detection, not Medium. This matches the policy "UPX alone =
+        // Low, UPX + corroboration = Medium".
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.ep_signature_matches = vec!["UPX 3.x (minimal)".to_string()];
+        pe.ep_signature_family = "upx".to_string();
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        let scoring = score_signals(&signals);
+        let ep_detections: Vec<_> = scoring
+            .detections
+            .iter()
+            .filter(|(desc, _)| desc.contains("entry-point signature"))
+            .collect();
+        assert_eq!(ep_detections.len(), 1, "expected exactly one EP detection");
+        assert_eq!(ep_detections[0].1, anya_scoring::types::ConfidenceLevel::Low);
+    }
+
+    #[test]
+    fn test_ep_signature_themida_goes_straight_to_medium() {
+        // Themida on its own should fire Medium without needing
+        // corroboration — protectors are stronger signals than UPX.
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.ep_signature_matches = vec!["Themida 2.x / 3.x".to_string()];
+        pe.ep_signature_family = "themida".to_string();
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        let scoring = score_signals(&signals);
+        let ep_detections: Vec<_> = scoring
+            .detections
+            .iter()
+            .filter(|(desc, _)| desc.contains("entry-point signature"))
+            .collect();
+        assert_eq!(ep_detections.len(), 1);
+        assert_eq!(
+            ep_detections[0].1,
+            anya_scoring::types::ConfidenceLevel::Medium
+        );
+    }
+
+    #[test]
+    fn test_ep_signature_nsis_is_suppressed() {
+        // NSIS is the benign-installer signature — it should not
+        // produce a user-facing detection at all.
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.ep_signature_matches = vec!["NSIS installer (benign when signed)".to_string()];
+        pe.ep_signature_family = "nsis".to_string();
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        let scoring = score_signals(&signals);
+        assert!(
+            !scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.contains("entry-point signature")),
+            "NSIS should not produce an EP detection"
         );
     }
 
