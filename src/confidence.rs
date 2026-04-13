@@ -275,6 +275,25 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
             .as_ref()
             .map(|c| !c.name.is_empty() && c.name != "Unknown")
             .unwrap_or(false);
+        // Cat B quick-win (Layer 1.8): Rich header → known-compiler
+        // promotion. If the raw PE JSON reports compiler="Unknown" but
+        // detect_toolchain can identify the toolchain via Rich header,
+        // imports, or section names, trust the stronger signal. This
+        // fixes FPs on legitimate unsigned binaries like lzfse.exe
+        // (Apple), wininst-*.exe (Python), and small MSVC utilities
+        // that ship without version info or Authenticode. Mirrors the
+        // rescore_v2.py promotion logic.
+        if !s.pe_has_known_compiler {
+            let detected = detect_toolchain(pe);
+            if !detected.is_empty() {
+                s.pe_has_known_compiler = true;
+                // Also populate pe_toolchain now so subsequent checks
+                // (entropy thresholds, known-product suppression) don't
+                // have to wait until the separate detect_toolchain call
+                // below. The later assignment is a no-op in that case.
+                s.pe_toolchain = detected;
+            }
+        }
         // Suspicious PDB path detection
         // "shell" removed — false-positives on PowerShell paths
         if let Some(ref debug) = pe.debug_artifacts {
@@ -1684,6 +1703,85 @@ mod tests {
                 .any(|(desc, _)| desc.starts_with("ZIP containing executable files")),
             "legit JAR should not trigger ZIP-containing-exe detection"
         );
+    }
+
+    #[test]
+    fn test_rich_header_promotes_unknown_compiler_to_msvc() {
+        // A PE with compiler.name = "Unknown" but a Rich header should
+        // promote to pe_has_known_compiler = true via the Cat B quick-win.
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.compiler = Some(CompilerInfo {
+            name: "Unknown".to_string(),
+            confidence: "Low".to_string(),
+        });
+        pe.rich_header = Some(RichHeaderInfo {
+            xor_key: 0xDEADBEEF,
+            entries: vec![],
+        });
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        assert!(
+            signals.pe_has_known_compiler,
+            "Rich header should promote Unknown compiler to known"
+        );
+        assert_eq!(
+            signals.pe_toolchain, "msvc",
+            "Rich header presence implies MSVC toolchain"
+        );
+    }
+
+    #[test]
+    fn test_mingw_imports_promote_unknown_compiler() {
+        // A PE importing libgcc_s_seh-1.dll with compiler="Unknown"
+        // should promote to mingw via the import-based detection.
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.compiler = Some(CompilerInfo {
+            name: "Unknown".to_string(),
+            confidence: "Low".to_string(),
+        });
+        pe.imports.libraries = vec![
+            "libgcc_s_seh-1.dll".to_string(),
+            "libstdc++-6.dll".to_string(),
+            "kernel32.dll".to_string(),
+        ];
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        assert!(
+            signals.pe_has_known_compiler,
+            "MinGW runtime libs should promote Unknown compiler"
+        );
+        assert_eq!(signals.pe_toolchain, "mingw");
+    }
+
+    #[test]
+    fn test_genuinely_unknown_compiler_stays_unknown() {
+        // A PE with no Rich header, no recognisable imports, no
+        // section markers, and compiler=Unknown should stay as
+        // pe_has_known_compiler = false. This is the "no evidence"
+        // case that the Low "No identified compiler" detection should
+        // still fire for.
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.compiler = Some(CompilerInfo {
+            name: "Unknown".to_string(),
+            confidence: "Low".to_string(),
+        });
+        pe.imports.libraries = vec!["kernel32.dll".to_string()];
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        assert!(
+            !signals.pe_has_known_compiler,
+            "genuine unknowns (no rich header, no marker imports) should remain unknown"
+        );
+        assert_eq!(signals.pe_toolchain, "");
     }
 
     #[test]
