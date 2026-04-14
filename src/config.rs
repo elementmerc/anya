@@ -26,6 +26,19 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+/// Controls how deeply Anya analyses a file.
+///
+/// - `Quick`: hash, entropy, YARA scanning, basic file type detection only
+/// - `Standard`: full analysis (default behaviour)
+/// - `Deep`: extended string extraction limits and additional pattern matching
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AnalysisDepth {
+    Quick,
+    #[default]
+    Standard,
+    Deep,
+}
+
 fn default_config_version() -> String {
     CONFIG_SCHEMA_VERSION.to_string()
 }

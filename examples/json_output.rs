@@ -21,7 +21,11 @@ fn main() -> anyhow::Result<()> {
     let file_path = Path::new(&args[1]);
 
     // Analyze file
-    let result = analyse_file(file_path, 4)?;
+    let result = analyse_file(
+        file_path,
+        4,
+        anya_security_core::config::AnalysisDepth::Standard,
+    )?;
 
     // Convert to JSON output format
     let json_result = to_json_output(&result);

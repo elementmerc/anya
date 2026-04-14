@@ -49,6 +49,13 @@ anya/
 │   ├── iso_parser.rs             # ISO 9660 disk image analysis
 │   ├── cab_parser.rs             # Windows Cabinet analysis
 │   ├── msi_parser.rs             # MSI installer analysis
+│   ├── vhd_parser.rs             # VHD/VHDX disk image analysis
+│   ├── onenote_parser.rs         # Microsoft OneNote document analysis
+│   ├── img_parser.rs             # Raw disk image (IMG) analysis
+│   ├── rar_parser.rs             # RAR archive analysis
+│   ├── gzip_parser.rs            # GZIP compressed file analysis
+│   ├── sevenz_parser.rs          # 7-Zip archive analysis
+│   ├── tar_parser.rs             # TAR archive analysis
 │   ├── yara.rs                   # YARA utilities + YARA-X scanning engine
 │   ├── cert_db.rs                # Certificate reputation database
 │   ├── ioc.rs                    # IOC regex detection
@@ -81,7 +88,7 @@ anya/
 │   │       ├── OverviewTab.tsx   # Risk ring, KSD, forensic fragment, KSD graph
 │   │       ├── EntropyTab.tsx    # Section entropy, byte histogram, flatness analysis
 │   │       ├── SecurityTab.tsx   # Mitigations, toolchain, cert reputation, YARA matches
-│   │       ├── FormatAnalysisTab.tsx  # Conditional: 17 format-specific cards
+│   │       ├── FormatAnalysisTab.tsx  # Conditional: 24 format-specific cards
 │   │       ├── StringsTab.tsx    # Virtual-scrolled strings with benign IOC marking
 │   │       └── [+ IdentityTab, ImportsTab, SectionsTab, MitreTab]
 │   ├── hooks/
@@ -110,7 +117,7 @@ pub trait FormatParser: Send + Sync {
 }
 ```
 
-17 built-in parsers registered via `default_registry()`. Adding a new parser = implement the trait + one line in the registry.
+24 built-in parsers registered via `default_registry()`. Adding a new parser = implement the trait + one line in the registry.
 
 ### Library-First API
 
@@ -209,7 +216,19 @@ invoke("get_function_explanations")       →  API function descriptions JSON
 invoke("get_technique_explanations")      →  MITRE technique explanations JSON
 invoke("get_mitre_attack_data")           →  MITRE ATT&CK catalogue JSON
 invoke("get_category_explanations")       →  API category descriptions JSON
+invoke("yara_scan_only", { path })        →  YaraOnlyResult (fast YARA scan without full analysis)
 ```
+
+### CLI Flags (v2.0.3+)
+
+```
+--jsonl                     Stream results as one JSON object per line (flushed)
+--yara-only                 Run YARA rules only (skip full analysis)
+--depth quick|standard|deep Analysis depth (quick: hash+entropy+YARA, standard: default, deep: extended strings)
+--exit-code-from-verdict    Set exit code based on verdict (0=clean, 1=malicious, 2=suspicious, 10=error)
+```
+
+Watch mode also supports `--json` and `--json-compact` for structured output.
 
 ---
 
@@ -235,7 +254,7 @@ File bytes
     ├── calculate_entropy_and_histogram() → entropy + 256-byte histogram
     ├── extract_strings_with_offsets() → strings + IOCs (single pass)
     ├── goblin::Object::parse() → PE / ELF / Mach-O deep analysis
-    ├── ParserRegistry.analyze_all() → 17 format-specific parsers
+    ├── ParserRegistry.analyze_all() → 24 format-specific parsers
     ├── yara::scanner::scan_bytes() → YARA signature matches
     │
     ▼
@@ -330,5 +349,5 @@ Integration tests cover: CLI flags, edge cases (unicode paths, malformed input, 
 
 ---
 
-**Last updated:** 2026-04-03 (v2.0.3)
+**Last updated:** 2026-04-11 (v2.0.3)
 **Maintainer:** Daniel Iwugo — daniel@themalwarefiles.com

@@ -133,6 +133,31 @@ pub fn packed_weight_entropy_uniform_moderate() -> u32 {
     1
 }
 
+// Secrets / Credential Detection Patterns
+pub const SECRET_PATTERN_AWS_ACCESS_KEY: &str = r"AKIA[0-9A-Z]{16}";
+pub const SECRET_PATTERN_AWS_SECRET_KEY: &str = r"(?i)aws_secret\s*=\s*\w{40,}";
+pub const SECRET_PATTERN_JWT: &str = r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+";
+pub const SECRET_PATTERN_CONNECTION_STRING: &str = r"(?i)Server=[^;]+;.*Password=";
+pub const SECRET_PATTERN_PRIVATE_KEY: &str = r"-----BEGIN[A-Z ]*PRIVATE KEY-----";
+pub const SECRET_PATTERN_API_KEY: &str = r"(?i)api[_\-]?key[=:]\w{20,}";
+pub const SECRET_PATTERN_GITHUB_TOKEN: &str = r"gh[ps]_[A-Za-z0-9_]{36,}";
+
+pub fn secret_patterns() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("AWS Access Key", SECRET_PATTERN_AWS_ACCESS_KEY),
+        ("JWT Token", SECRET_PATTERN_JWT),
+        ("Private Key", SECRET_PATTERN_PRIVATE_KEY),
+    ]
+}
+
+// Kernel Driver Detection Patterns
+pub static DANGEROUS_KERNEL_APIS: LazyLock<Vec<String>> =
+    LazyLock::new(|| vec!["IoCreateDevice".to_string()]);
+
+pub fn is_dangerous_kernel_api(name: &str) -> bool {
+    name == "IoCreateDevice"
+}
+
 // Script parser patterns
 pub static JS_SUSPICIOUS_PATTERNS: LazyLock<Vec<String>> =
     LazyLock::new(|| vec!["eval(".to_string()]);
@@ -159,3 +184,19 @@ pub static MSI_SUSPICIOUS_PATTERNS: LazyLock<Vec<String>> =
     LazyLock::new(|| vec!["CustomAction".to_string()]);
 pub static EXECUTABLE_EXTENSIONS: LazyLock<Vec<String>> =
     LazyLock::new(|| vec!["exe".to_string(), "dll".to_string()]);
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct BatchSignalCounts {
+    pub lolbin: usize,
+    pub download: usize,
+    pub persistence: usize,
+    pub defender_tamper: usize,
+    pub hidden_exec: usize,
+    pub privesc: usize,
+}
+
+/// Stub Batch signal scanner. Always returns zero counts. The real
+/// implementation lives in the private scoring crate.
+pub fn count_batch_signals(_blob: &str) -> BatchSignalCounts {
+    BatchSignalCounts::default()
+}

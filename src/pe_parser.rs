@@ -424,6 +424,44 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
         }
     };
 
+    // ── Driver (.sys) detection ──────────────────────────────────────────────
+    let driver_analysis = detect_driver_analysis(&pe, &authenticode);
+
+    // ── Entry-point signature matching (M5.3 sub-signal 5) ───────────────────
+    // Resolve the EP RVA to a file offset via the containing section, then
+    // read up to 32 bytes and run the proprietary EP-signature catalogue.
+    // Failures here are non-fatal — any IO/resolution issue just skips the
+    // match pass and leaves the fields empty.
+    let (ep_signature_matches, ep_signature_family) = {
+        let ep_rva = pe.entry as u64;
+        let mut ep_bytes: Option<Vec<u8>> = None;
+        for section in &pe.sections {
+            let va = section.virtual_address as u64;
+            let vsize = section.virtual_size.max(section.size_of_raw_data) as u64;
+            if ep_rva >= va && ep_rva < va + vsize {
+                let offset_in_section = (ep_rva - va) as usize;
+                let file_off = section.pointer_to_raw_data as usize + offset_in_section;
+                let end = (file_off + 32).min(data.len());
+                if file_off < end {
+                    ep_bytes = Some(data[file_off..end].to_vec());
+                }
+                break;
+            }
+        }
+        match ep_bytes {
+            Some(ref bytes) if !bytes.is_empty() => {
+                let matches = anya_scoring::ep_signatures::match_ep_bytes(bytes);
+                let names: Vec<String> = matches.iter().map(|m| m.name.clone()).collect();
+                let family = matches
+                    .first()
+                    .map(|m| m.family.clone())
+                    .unwrap_or_default();
+                (names, family)
+            }
+            _ => (Vec::new(), String::new()),
+        }
+    };
+
     Ok(output::PEAnalysis {
         architecture,
         is_64bit: pe.is_64,
@@ -463,6 +501,58 @@ pub fn analyse_pe_data(data: &[u8]) -> Result<output::PEAnalysis> {
         } else {
             None
         },
+        driver_analysis,
+        ep_signature_matches,
+        ep_signature_family,
+    })
+}
+
+/// Detect kernel driver characteristics from PE headers and imports.
+///
+/// A PE file is considered a driver if it has IMAGE_SUBSYSTEM_NATIVE (1)
+/// in its optional header. When detected, this function checks for
+/// ntoskrnl.exe/hal.dll imports and flags dangerous kernel APIs.
+fn detect_driver_analysis(
+    pe: &PE,
+    authenticode: &Option<output::AuthenticodeInfo>,
+) -> Option<output::DriverAnalysis> {
+    // Check for IMAGE_SUBSYSTEM_NATIVE (value 1) in optional header
+    let subsystem = pe
+        .header
+        .optional_header
+        .as_ref()
+        .map(|oh| oh.windows_fields.subsystem)
+        .unwrap_or(0);
+
+    let is_native_subsystem = subsystem == 1; // IMAGE_SUBSYSTEM_NATIVE
+
+    if !is_native_subsystem {
+        return None;
+    }
+
+    let libs_lower: Vec<String> = pe.libraries.iter().map(|s| s.to_lowercase()).collect();
+    let imports_ntoskrnl = libs_lower.iter().any(|l| l == "ntoskrnl.exe");
+    let imports_hal = libs_lower.iter().any(|l| l == "hal.dll");
+
+    // Collect dangerous kernel APIs from imports
+    let mut dangerous_kernel_apis = Vec::new();
+    for import in &pe.imports {
+        let name = import.name.as_ref();
+        if anya_scoring::detection_patterns::is_dangerous_kernel_api(name) {
+            dangerous_kernel_apis.push(name.to_string());
+        }
+    }
+    dangerous_kernel_apis.sort();
+    dangerous_kernel_apis.dedup();
+
+    let is_signed = authenticode.as_ref().map(|a| a.present).unwrap_or(false);
+
+    Some(output::DriverAnalysis {
+        is_kernel_driver: true,
+        imports_ntoskrnl,
+        imports_hal,
+        dangerous_kernel_apis,
+        is_signed,
     })
 }
 

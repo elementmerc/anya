@@ -19,7 +19,8 @@
 // Import necessary libraries
 use anya_security_core::{
     BatchSummary, OutputLevel, analyse_file, case, compute_verdict, config, elf_parser,
-    find_executable_files, hash_check, is_executable_file, output, pe_parser, to_json_output,
+    find_executable_files, hash_check, is_executable_file, output, pe_parser, scan_yara_only,
+    set_ksd_enabled, set_ksd_threshold, to_json_output,
 };
 use anyhow::{Context, Result}; // For better error handling
 use clap::{CommandFactory, Parser, Subcommand}; // For parsing command-line arguments
@@ -57,6 +58,7 @@ struct RunConfig<'a> {
     packed_entropy: f64,
     suspicious_entropy: f64,
     cases_dir_override: Option<&'a str>,
+    depth: config::AnalysisDepth,
 }
 
 /// CLI structure using Clap
@@ -113,6 +115,14 @@ struct Args {
     #[arg(long)]
     json_compact: bool,
 
+    /// Output one JSON object per line (JSON Lines format, for streaming)
+    #[arg(long)]
+    jsonl: bool,
+
+    /// Run YARA rules only (skip hashing, entropy, strings, format parsing, IOC, scoring)
+    #[arg(long)]
+    yara_only: bool,
+
     /// Save output to file instead of stdout
     #[arg(short, long, value_name = "FILE")]
     output: Option<PathBuf>,
@@ -164,6 +174,14 @@ struct Args {
     /// Disable Known Sample Database (TLSH similarity) matching
     #[arg(long)]
     no_ksd: bool,
+
+    /// Set exit code based on verdict (0=clean, 1=malicious, 2=suspicious, 10=error)
+    #[arg(long)]
+    exit_code_from_verdict: bool,
+
+    /// Analysis depth: quick (hash + entropy + YARA), standard (default), deep (extra string analysis)
+    #[arg(long, default_value = "standard")]
+    depth: String,
 
     /// Custom TLSH distance threshold for KSD matching (default: 150)
     #[arg(long, value_name = "DISTANCE", default_value = "150")]
@@ -221,6 +239,12 @@ enum Commands {
         /// Watch subdirectories too
         #[arg(short, long)]
         recursive: bool,
+        /// Output results as JSON instead of human readable text
+        #[arg(long)]
+        json: bool,
+        /// Output compact JSON (single line per result)
+        #[arg(long)]
+        json_compact: bool,
     },
 
     /// Compare two files side by side
@@ -444,6 +468,16 @@ fn write_output(content: &str, output_path: Option<&PathBuf>, append_mode: bool)
     }
 }
 
+/// Map a verdict string to a process exit code for `--exit-code-from-verdict`.
+fn verdict_to_exit_code(verdict: &str) -> i32 {
+    match verdict {
+        "CLEAN" | "TOOL" | "TEST" => 0,
+        "MALICIOUS" => 1,
+        "SUSPICIOUS" | "PUP" => 2,
+        _ => 10,
+    }
+}
+
 fn main() {
     if let Err(e) = run() {
         eprintln!("{}: {:#}", "Error".red().bold(), e);
@@ -467,6 +501,16 @@ fn run() -> Result<()> {
 
     // Parse command-line arguments
     let args = Args::parse();
+
+    // Wire the KSD runtime flags into the engine before any analysis fires.
+    // These static setters replace what used to be dead CLI flags: --no-ksd
+    // disables KSD matching for the whole process, --ksd-threshold overrides
+    // the TLSH distance. Defaults (enabled, 150) match the previous
+    // hardcoded behaviour so the Tauri GUI path is unaffected.
+    if args.no_ksd {
+        set_ksd_enabled(false);
+    }
+    set_ksd_threshold(args.ksd_threshold);
 
     // Handle subcommands that don't need a file/directory argument
     match &args.command {
@@ -506,6 +550,8 @@ fn run() -> Result<()> {
         Some(Commands::Watch {
             directory,
             recursive,
+            json: watch_json,
+            json_compact: watch_json_compact,
         }) => {
             let cfg = if let Some(config_path) = &args.config {
                 config::Config::load_from_file(config_path)?
@@ -515,7 +561,20 @@ fn run() -> Result<()> {
             let msl = args
                 .min_string_length
                 .unwrap_or(cfg.analysis.min_string_length);
-            watch::watch_directory(directory, *recursive, msl)?;
+            let watch_depth = match args.depth.to_lowercase().as_str() {
+                "quick" => config::AnalysisDepth::Quick,
+                "deep" => config::AnalysisDepth::Deep,
+                _ => config::AnalysisDepth::Standard,
+            };
+            let effective_watch_json = *watch_json || *watch_json_compact;
+            watch::watch_directory(
+                directory,
+                *recursive,
+                msl,
+                effective_watch_json,
+                *watch_json_compact,
+                watch_depth,
+            )?;
             return Ok(());
         }
         Some(Commands::Compare { file1, file2 }) => {
@@ -763,6 +822,19 @@ fn run() -> Result<()> {
     // Determine output level
     let output_level = OutputLevel::from_args(args.verbose, args.quiet);
 
+    // Parse analysis depth
+    let depth = match args.depth.to_lowercase().as_str() {
+        "quick" => config::AnalysisDepth::Quick,
+        "standard" => config::AnalysisDepth::Standard,
+        "deep" => config::AnalysisDepth::Deep,
+        other => {
+            anyhow::bail!(
+                "Unknown analysis depth '{}'. Valid options: quick, standard, deep.",
+                other
+            );
+        }
+    };
+
     // Choose mode: single file or batch
     let run_cfg = RunConfig {
         min_string_length,
@@ -774,16 +846,107 @@ fn run() -> Result<()> {
         packed_entropy: config.thresholds.packed_entropy,
         suspicious_entropy: config.thresholds.suspicious_entropy,
         cases_dir_override: config.cases_directory.as_deref(),
+        depth,
     };
+
+    // ── YARA-only fast path ──────────────────────────────────────────────────
+    if args.yara_only {
+        let use_json = effective_json || args.jsonl;
+        if let Some(file_path) = &args.file {
+            let result = scan_yara_only(file_path.as_path())?;
+            print_yara_only_result(&result, use_json, args.jsonl || args.json_compact)?;
+        } else if let Some(dir_path) = &args.directory {
+            let files = find_executable_files(dir_path, args.recursive)?;
+            for file_path in &files {
+                match scan_yara_only(file_path.as_path()) {
+                    Ok(result) => {
+                        print_yara_only_result(&result, use_json, args.jsonl || args.json_compact)?;
+                    }
+                    Err(e) => {
+                        eprintln!("Error scanning {}: {}", file_path.display(), e);
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
 
     if let Some(file_path) = &args.file {
         // Single file mode
-        analyse_single_file(file_path, &args, output_level, &run_cfg)?;
+        if args.jsonl {
+            // JSONL: emit one compact JSON line and exit
+            let analysis = analyse_file(file_path.as_path(), min_string_length, depth)?;
+            let json_result = to_json_output(&analysis);
+            let (verdict_word, _) = compute_verdict(&json_result);
+            let line = serde_json::to_string(&json_result)?;
+            println!("{}", line);
+            std::io::stdout().flush()?;
+            if args.exit_code_from_verdict {
+                std::process::exit(verdict_to_exit_code(&verdict_word));
+            }
+            return Ok(());
+        }
+        let verdict_word = analyse_single_file(file_path, &args, output_level, &run_cfg)?;
+        if args.exit_code_from_verdict {
+            std::process::exit(verdict_to_exit_code(&verdict_word));
+        }
     } else if let Some(dir_path) = &args.directory {
+        if args.jsonl {
+            // JSONL batch mode: one JSON line per file, no progress bar or summary
+            let files = find_executable_files(dir_path, args.recursive)?;
+            for file_path in &files {
+                match analyse_file(file_path.as_path(), min_string_length, depth) {
+                    Ok(analysis) => {
+                        let json_result = to_json_output(&analysis);
+                        let line = serde_json::to_string(&json_result)?;
+                        println!("{}", line);
+                        std::io::stdout().flush()?;
+                    }
+                    Err(e) => {
+                        eprintln!("Error analysing {}: {}", file_path.display(), e);
+                    }
+                }
+            }
+            return Ok(());
+        }
         // Batch mode
         analyse_directory(dir_path, &args, output_level, &run_cfg)?;
     }
 
+    Ok(())
+}
+
+/// Print a YARA-only scan result in the requested format.
+///
+/// When `json` is true the result is serialised as JSON. `compact` selects
+/// single-line JSON (also used for JSONL). Otherwise a human readable
+/// summary is printed.
+fn print_yara_only_result(
+    result: &output::YaraOnlyResult,
+    json: bool,
+    compact: bool,
+) -> Result<()> {
+    if json {
+        let serialised = if compact {
+            serde_json::to_string(result)?
+        } else {
+            serde_json::to_string_pretty(result)?
+        };
+        println!("{}", serialised);
+        std::io::stdout().flush()?;
+    } else {
+        let path = &result.path;
+        if result.yara_matches.is_empty() {
+            println!("{}: no YARA matches", path);
+        } else {
+            let names: Vec<&str> = result
+                .yara_matches
+                .iter()
+                .map(|m| m.rule_name.as_str())
+                .collect();
+            println!("{}: {}", path, names.join(", "));
+        }
+    }
     Ok(())
 }
 
@@ -799,7 +962,7 @@ fn analyse_single_file(
     args: &Args,
     output_level: OutputLevel,
     cfg: &RunConfig<'_>,
-) -> Result<()> {
+) -> Result<String> {
     let RunConfig {
         min_string_length,
         effective_json,
@@ -810,6 +973,7 @@ fn analyse_single_file(
         packed_entropy,
         suspicious_entropy,
         cases_dir_override,
+        depth,
     } = *cfg;
     // Check if file exists
     if !file_path.exists() {
@@ -841,7 +1005,7 @@ fn analyse_single_file(
     }
 
     // ── Run full structured analysis ─────────────────────────────────────────
-    let analysis = analyse_file(file_path.as_path(), min_string_length)?;
+    let analysis = analyse_file(file_path.as_path(), min_string_length, depth)?;
     let json_result = to_json_output(&analysis);
 
     // verdict_summary and top_findings are now populated by to_json_output()
@@ -868,7 +1032,7 @@ fn analyse_single_file(
                 eprintln!("✓ JSON written to: {:?}", path);
             }
         }
-        return Ok(());
+        return Ok(verdict_word);
     }
 
     // ── HTML report output ──────────────────────────────────────────────────
@@ -878,7 +1042,7 @@ fn analyse_single_file(
             PathBuf::from(format!("{}_report.html", stem))
         });
         report::generate_html_report(&json_result, &output_path)?;
-        return Ok(());
+        return Ok(verdict_word);
     }
 
     // ── PDF report output ──────────────────────────────────────────────────
@@ -888,7 +1052,7 @@ fn analyse_single_file(
             PathBuf::from(format!("{}_report.pdf", stem))
         });
         report::generate_pdf_report(&json_result, &output_path)?;
-        return Ok(());
+        return Ok(verdict_word);
     }
 
     // ── Markdown report output ─────────────────────────────────────────────
@@ -898,7 +1062,7 @@ fn analyse_single_file(
             PathBuf::from(format!("{}_report.md", stem))
         });
         report::generate_markdown_report(&json_result, &output_path)?;
-        return Ok(());
+        return Ok(verdict_word);
     }
 
     // ── Pretty terminal output ───────────────────────────────────────────────
@@ -1151,7 +1315,7 @@ fn analyse_single_file(
         )?;
     }
 
-    Ok(())
+    Ok(verdict_word)
 }
 
 /// Analyses all executable files in a directory
@@ -1173,6 +1337,7 @@ fn analyse_directory(
         packed_entropy,
         suspicious_entropy,
         cases_dir_override,
+        depth,
         ..
     } = *cfg;
     use std::time::Instant;
@@ -1292,7 +1457,7 @@ fn analyse_directory(
                 pb.set_message(format!("Analysing: {}", filename));
             }
 
-            match analyse_file(file_path.as_path(), min_string_length) {
+            match analyse_file(file_path.as_path(), min_string_length, depth) {
                 Ok(result) => {
                     summary.analysed += 1;
                     let json_result = to_json_output(&result);
@@ -1523,6 +1688,7 @@ fn analyse_directory(
             packed_entropy,
             suspicious_entropy,
             cases_dir_override,
+            depth,
         };
         match analyse_single_file(file_path, args, OutputLevel::Quiet, &batch_cfg) {
             Ok(_) => {
@@ -1968,7 +2134,7 @@ fn run_benchmark(
             let pb = pb.clone();
 
             s.spawn(move |_| {
-                match analyse_file(file_path, 4) {
+                match analyse_file(file_path, 4, config::AnalysisDepth::Standard) {
                     Ok(result) => {
                         analysed.fetch_add(1, Ordering::Relaxed);
                         let json_result = to_json_output(&result);

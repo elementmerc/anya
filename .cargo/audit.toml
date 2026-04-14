@@ -58,4 +58,39 @@ ignore = [
     # bincode – unmaintained (v1.3.3 considered complete by maintainers)
     # Pulled in: yara-x (transitive dep)
     "RUSTSEC-2025-0141",
+
+    # wasmtime 40.0.4 — pulled in by yara-x 1.14.0.
+    #
+    # Threat model: Anya uses yara-x to compile and match YARA rules.
+    # yara-x internally uses wasmtime to execute compiled YARA rules as
+    # WebAssembly. Crucially, Anya never runs WebAssembly supplied by the
+    # file under analysis — the WASM modules wasmtime executes are
+    # always compiled by yara-x from trusted YARA rule text that Anya
+    # either ships bundled or loads explicitly from a CLI/GUI path. The
+    # sandbox-escape and host-panic advisories below require an attacker
+    # to control the WASM module being executed, which is not a path
+    # reachable from a malware sample.
+    #
+    # Upgrade path: yara-x 1.15.0 bumps to a fixed wasmtime, but 1.15.0
+    # pulls wasm-bindgen >=0.2.117 while tauri 2.10.3 transitively locks
+    # wasm-bindgen to =0.2.115. Bump yara-x once tauri ships a release
+    # that accepts wasm-bindgen >=0.2.117, then remove these ignores.
+    "RUSTSEC-2026-0085",   # panic lifting flags component value
+    "RUSTSEC-2026-0086",   # host data leakage with 64-bit tables + Winch
+    "RUSTSEC-2026-0087",   # segfault / out-of-sandbox load on f64x2.splat
+    "RUSTSEC-2026-0088",   # data leakage between pooling allocator instances
+    "RUSTSEC-2026-0089",   # host panic when Winch executes table.fill
+    "RUSTSEC-2026-0091",   # out-of-bounds write transcoding component strings
+    "RUSTSEC-2026-0092",   # panic transcoding misaligned UTF-16 strings
+    "RUSTSEC-2026-0093",   # heap OOB read in UTF-16 transcoding
+    "RUSTSEC-2026-0094",   # improperly masked table.grow return value
+    "RUSTSEC-2026-0095",   # CRITICAL sandbox-escape memory access (Winch)
+    "RUSTSEC-2026-0096",   # CRITICAL miscompiled guest heap access aarch64
+
+    # rand 0.7.3 / 0.8.5 — unsoundness warning (not a vulnerability).
+    # Pulled in via tauri's html5ever/kuchikiki (0.7.3) and sqlx-mysql +
+    # yara-x's num-bigint-dig (0.8.5). Anya does not use any custom rand
+    # logger, so the unsound path is never exercised. Will resolve when
+    # tauri and sqlx ship updates that bump rand >= 0.8.6.
+    "RUSTSEC-2026-0097",
 ]

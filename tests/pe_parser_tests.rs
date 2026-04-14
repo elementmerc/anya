@@ -204,3 +204,46 @@ fn test_pe_no_anti_analysis_indicators() {
         "No anti-analysis indicators expected (no imports)"
     );
 }
+
+// ── Driver detection tests ──────────────────────────────────────────────────
+
+#[test]
+fn test_pe_driver_detected_for_native_subsystem() {
+    let data = helpers::build_minimal_driver();
+    let pe = analyse_pe_data(&data).unwrap();
+    assert!(
+        pe.driver_analysis.is_some(),
+        "Driver analysis should be present for IMAGE_SUBSYSTEM_NATIVE"
+    );
+    let driver = pe.driver_analysis.unwrap();
+    assert!(driver.is_kernel_driver);
+}
+
+#[test]
+fn test_pe_no_driver_for_console_subsystem() {
+    let pe = analyse_pe_data(&helpers::build_minimal_pe()).unwrap();
+    assert!(
+        pe.driver_analysis.is_none(),
+        "Normal console PE should not have driver analysis"
+    );
+}
+
+#[test]
+fn test_pe_driver_no_ntoskrnl_imports() {
+    let data = helpers::build_minimal_driver();
+    let pe = analyse_pe_data(&data).unwrap();
+    let driver = pe.driver_analysis.unwrap();
+    // Minimal PE has no imports, so ntoskrnl should not be detected
+    assert!(!driver.imports_ntoskrnl);
+    assert!(!driver.imports_hal);
+    assert!(driver.dangerous_kernel_apis.is_empty());
+}
+
+#[test]
+fn test_pe_driver_unsigned() {
+    let data = helpers::build_minimal_driver();
+    let pe = analyse_pe_data(&data).unwrap();
+    let driver = pe.driver_analysis.unwrap();
+    // Minimal PE has no authenticode, so driver should be unsigned
+    assert!(!driver.is_signed);
+}

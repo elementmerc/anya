@@ -36,8 +36,10 @@ jobs:
           submodules: true
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
 
-      - name: Configure Cargo for private dependencies
-        run: cp .cargo/config.toml.example .cargo/config.toml
+      - name: Setup proprietary crate
+        uses: ./.github/actions/setup-proprietary
+        with:
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
 
       - name: Setup Node 22
         uses: actions/setup-node@v4
@@ -132,8 +134,10 @@ jobs:
           submodules: true
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
 
-      - name: Configure Cargo for private dependencies
-        run: cp .cargo/config.toml.example .cargo/config.toml
+      - name: Setup proprietary crate
+        uses: ./.github/actions/setup-proprietary
+        with:
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -200,8 +204,10 @@ jobs:
           submodules: true
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
 
-      - name: Configure Cargo for private dependencies
-        run: cp .cargo/config.toml.example .cargo/config.toml
+      - name: Setup proprietary crate
+        uses: ./.github/actions/setup-proprietary
+        with:
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable

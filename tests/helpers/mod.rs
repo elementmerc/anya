@@ -88,3 +88,11 @@ pub fn build_minimal_dll() -> Vec<u8> {
     write_u16(&mut data, 0x56, 0x2002); // EXECUTABLE_IMAGE | DLL
     data
 }
+
+/// A minimal PE32+ with IMAGE_SUBSYSTEM_NATIVE (kernel driver, value 1).
+pub fn build_minimal_driver() -> Vec<u8> {
+    let mut data = build_minimal_pe();
+    // Set Subsystem = IMAGE_SUBSYSTEM_NATIVE (1) at offset 0x9C
+    write_u16(&mut data, 0x9C, 0x0001);
+    data
+}

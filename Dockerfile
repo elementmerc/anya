@@ -2,10 +2,12 @@
 # edition = "2024" requires rustc ≥ 1.85; the crate also uses let_chains
 # and is_multiple_of which need a recent stable toolchain.
 #
-# NOTE: This build requires the anya-proprietary submodule to be populated
-# and .cargo/config.toml to be present (path override for stubs → real crates).
-# Without these, the build will fail with a "missing private scoring engine" error.
-# See README.md § "Building from source" for details.
+# NOTE: This build requires the private proprietary scoring crate to be
+# present in the build context at ./proprietary (checked out in CI by the
+# setup-proprietary composite action) and .cargo/config.toml to be written
+# by the same action. Without these, the build will fail with a
+# "missing private scoring engine" error. See README.md § "Building from
+# source" for details.
 FROM rust:slim-bookworm AS builder
 
 ARG VERSION
@@ -21,10 +23,10 @@ WORKDIR /build
 
 # ── Copy dependency manifests and stub/private crates ──────────────────────
 # The workspace depends on anya-scoring and anya-data (path deps).
-# .cargo/config.toml redirects stubs → anya-proprietary (the real code).
+# .cargo/config.toml redirects stubs → proprietary (the real code).
 COPY Cargo.toml Cargo.lock ./
 COPY anya-stubs ./anya-stubs
-COPY anya-proprietary ./anya-proprietary
+COPY proprietary ./proprietary
 COPY .cargo ./.cargo
 
 # The workspace Cargo.toml lists src-tauri as a member, which isn't present

@@ -29,6 +29,13 @@ pub enum FormatAnalysis {
     Msi(output::MsiAnalysis),
     Pdf(output::PdfAnalysis),
     Office(output::OfficeAnalysis),
+    Vhd(output::VhdAnalysis),
+    OneNote(output::OneNoteAnalysis),
+    Img(output::ImgAnalysis),
+    Rar(output::RarAnalysis),
+    Gzip(output::GzipAnalysis),
+    SevenZip(output::SevenZipAnalysis),
+    Tar(output::TarAnalysis),
 }
 
 /// Context passed to each parser — everything it might need to decide
@@ -307,9 +314,102 @@ impl_format_parser!(
     }
 );
 
+impl_format_parser!(
+    VhdParser,
+    "VHD Disk Image",
+    |ctx: &ParseContext| {
+        ctx.extension == "vhd"
+            || ctx.extension == "vhdx"
+            || (ctx.data.len() >= 8
+                && (&ctx.data[0..8] == b"conectix" || &ctx.data[0..8] == b"vhdxfile"))
+    },
+    |ctx: &ParseContext| {
+        crate::vhd_parser::detect_vhd_analysis(ctx.data).map(FormatAnalysis::Vhd)
+    }
+);
+
+impl_format_parser!(
+    OneNoteParser,
+    "OneNote Document",
+    |ctx: &ParseContext| {
+        ctx.extension == "one"
+            || ctx.extension == "onenote"
+            || (ctx.data.len() >= 16
+                && ctx.data[0..16]
+                    == [
+                        0xE4, 0x52, 0x5C, 0x7B, 0x8C, 0xD8, 0xA7, 0x4D, 0xAE, 0xB1, 0x53, 0x78,
+                        0xD0, 0x29, 0x96, 0xD3,
+                    ])
+    },
+    |ctx: &ParseContext| {
+        crate::onenote_parser::detect_onenote_analysis(ctx.data).map(FormatAnalysis::OneNote)
+    }
+);
+
+impl_format_parser!(
+    ImgParser,
+    "Disk Image",
+    |ctx: &ParseContext| {
+        ctx.extension == "img" || ctx.extension == "dd" || ctx.extension == "raw"
+    },
+    |ctx: &ParseContext| {
+        crate::img_parser::detect_img_analysis(ctx.data).map(FormatAnalysis::Img)
+    }
+);
+
+impl_format_parser!(
+    RarParser,
+    "RAR Archive",
+    |ctx: &ParseContext| {
+        ctx.extension == "rar" || (ctx.data.len() >= 7 && &ctx.data[0..4] == b"Rar!")
+    },
+    |ctx: &ParseContext| {
+        crate::rar_parser::detect_rar_analysis(ctx.data).map(FormatAnalysis::Rar)
+    }
+);
+
+impl_format_parser!(
+    GzipParser,
+    "GZIP Archive",
+    |ctx: &ParseContext| {
+        ctx.extension == "gz"
+            || ctx.extension == "gzip"
+            || ctx.extension == "tgz"
+            || (ctx.data.len() >= 2 && ctx.data[0] == 0x1F && ctx.data[1] == 0x8B)
+    },
+    |ctx: &ParseContext| {
+        crate::gzip_parser::detect_gzip_analysis(ctx.data).map(FormatAnalysis::Gzip)
+    }
+);
+
+impl_format_parser!(
+    SevenZipParser,
+    "7-Zip Archive",
+    |ctx: &ParseContext| {
+        ctx.extension == "7z"
+            || (ctx.data.len() >= 6 && ctx.data[0..6] == [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])
+    },
+    |ctx: &ParseContext| {
+        crate::sevenz_parser::detect_sevenz_analysis(ctx.data).map(FormatAnalysis::SevenZip)
+    }
+);
+
+impl_format_parser!(
+    TarParser,
+    "TAR Archive",
+    |ctx: &ParseContext| {
+        ctx.extension == "tar"
+            || ctx.extension == "tgz"
+            || (ctx.data.len() >= 262 && &ctx.data[257..262] == b"ustar")
+    },
+    |ctx: &ParseContext| {
+        crate::tar_parser::detect_tar_analysis(ctx.data).map(FormatAnalysis::Tar)
+    }
+);
+
 // ── Default registry with all built-in parsers ──────────────────────────────
 
-/// Build the default registry with all 17 format parsers.
+/// Build the default registry with all 24 format parsers.
 /// Called once at startup (or lazily on first analysis).
 pub fn default_registry() -> ParserRegistry {
     let mut reg = ParserRegistry::new();
@@ -334,6 +434,16 @@ pub fn default_registry() -> ParserRegistry {
     // Content-detection parsers (always try, check magic internally)
     reg.register(PdfParser);
     reg.register(OfficeParser);
+    // Disk image parsers
+    reg.register(VhdParser);
+    reg.register(ImgParser);
+    // Archive parsers
+    reg.register(RarParser);
+    reg.register(GzipParser);
+    reg.register(SevenZipParser);
+    reg.register(TarParser);
+    // Document parsers
+    reg.register(OneNoteParser);
     reg
 }
 
@@ -365,6 +475,13 @@ pub fn apply_format_results(results: Vec<FormatAnalysis>, result: &mut crate::Fi
             FormatAnalysis::Msi(a) => result.msi_analysis = Some(a),
             FormatAnalysis::Pdf(a) => result.pdf_analysis = Some(a),
             FormatAnalysis::Office(a) => result.office_analysis = Some(a),
+            FormatAnalysis::Vhd(a) => result.vhd_analysis = Some(a),
+            FormatAnalysis::OneNote(a) => result.onenote_analysis = Some(a),
+            FormatAnalysis::Img(a) => result.img_analysis = Some(a),
+            FormatAnalysis::Rar(a) => result.rar_analysis = Some(a),
+            FormatAnalysis::Gzip(a) => result.gzip_analysis = Some(a),
+            FormatAnalysis::SevenZip(a) => result.sevenz_analysis = Some(a),
+            FormatAnalysis::Tar(a) => result.tar_analysis = Some(a),
         }
     }
 }
@@ -378,8 +495,8 @@ mod tests {
         let reg = default_registry();
         assert_eq!(
             reg.len(),
-            17,
-            "Expected 17 format parsers in default registry"
+            24,
+            "Expected 24 format parsers in default registry"
         );
     }
 

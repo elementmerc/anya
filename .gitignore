@@ -103,3 +103,4 @@ docs/ARCHITECTURE_INTERNAL.md
 /private/
 CLAUDE.md
 /tests/CLAUDE.md
+.claude/

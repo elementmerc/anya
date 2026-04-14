@@ -204,6 +204,31 @@ pub struct AnalysisResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub msi_analysis: Option<MsiAnalysis>,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vhd_analysis: Option<VhdAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub onenote_analysis: Option<OneNoteAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub img_analysis: Option<ImgAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rar_analysis: Option<RarAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gzip_analysis: Option<GzipAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sevenz_analysis: Option<SevenZipAnalysis>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tar_analysis: Option<TarAnalysis>,
+
+    /// Structured credential and secret patterns detected in strings
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secrets_detected: Option<Vec<SecretFinding>>,
+
     /// YARA rule match results (requires `yara` feature)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub yara_matches: Vec<YaraMatchResult>,
@@ -241,6 +266,14 @@ pub struct YaraStringMatch {
     pub length: u64,
     /// Matched data (truncated to 64 bytes, hex-encoded for binary safety)
     pub data_preview: String,
+}
+
+/// Lightweight result for YARA-only scanning (skips full analysis)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YaraOnlyResult {
+    pub path: String,
+    pub size_bytes: usize,
+    pub yara_matches: Vec<YaraMatchResult>,
 }
 
 /// A single top finding for JSON output
@@ -458,6 +491,47 @@ pub struct PEAnalysis {
     /// .NET metadata analysis (only for .NET assemblies)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dotnet_metadata: Option<crate::dotnet_parser::DotNetMetadata>,
+
+    /// Driver (.sys) specific analysis
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub driver_analysis: Option<DriverAnalysis>,
+
+    /// Entry-point signature matches (M5.3 sub-signal 5). Names of
+    /// patterns that matched the first bytes at the PE entry point.
+    /// Empty vec when no match or when the entry point bytes could
+    /// not be resolved.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ep_signature_matches: Vec<String>,
+
+    /// Family of the first EP signature match (e.g. "upx", "themida").
+    /// Empty when no match.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ep_signature_family: String,
+}
+
+/// A structured credential or secret pattern detected in extracted strings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecretFinding {
+    /// Type of secret (e.g. "AWS Access Key", "JWT Token", "Private Key")
+    pub secret_type: String,
+    /// Redacted preview showing first 8 characters only
+    pub value_preview: String,
+}
+
+/// Driver specific analysis for .sys files or PE binaries with IMAGE_SUBSYSTEM_NATIVE
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriverAnalysis {
+    /// True if the binary is identified as a kernel mode driver
+    pub is_kernel_driver: bool,
+    /// True if the binary imports from ntoskrnl.exe
+    pub imports_ntoskrnl: bool,
+    /// True if the binary imports from hal.dll
+    pub imports_hal: bool,
+    /// Dangerous kernel APIs found in imports
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dangerous_kernel_apis: Vec<String>,
+    /// True if the driver has an Authenticode signature
+    pub is_signed: bool,
 }
 
 /// A PE structural anomaly detected during analysis
@@ -1250,6 +1324,102 @@ pub struct MsiAnalysis {
     pub suspicious_properties: Vec<String>,
 }
 
+/// VHD/VHDX disk image analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VhdAnalysis {
+    /// Format version ("VHD" or "VHDX")
+    pub format_version: String,
+    /// Reported disk size in bytes
+    pub disk_size_bytes: u64,
+    /// Embedded executable magic bytes found in raw data
+    pub has_executables: bool,
+    /// Number of embedded executables detected
+    pub executable_count: usize,
+}
+
+/// Microsoft OneNote document analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OneNoteAnalysis {
+    /// Number of embedded file data objects
+    pub embedded_count: usize,
+    /// Whether any embedded attachment has an executable extension
+    pub has_executable_attachments: bool,
+    /// Names of embedded attachments found
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub attachment_names: Vec<String>,
+}
+
+/// Raw disk image (IMG) analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImgAnalysis {
+    /// Number of partitions in the partition table
+    pub partition_count: usize,
+    /// Embedded executable magic bytes found
+    pub has_executables: bool,
+    /// Number of embedded executables detected
+    pub executable_count: usize,
+    /// Whether the image uses GPT partitioning
+    pub is_gpt: bool,
+}
+
+/// RAR archive analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RarAnalysis {
+    /// Number of file entries in the archive
+    pub file_count: usize,
+    /// Archive contains files with executable extensions
+    pub has_executables: bool,
+    /// Archive contains encrypted entries
+    pub has_encrypted_entries: bool,
+    /// Archive contains files with double extensions (e.g. document.pdf.exe)
+    pub has_double_extensions: bool,
+    /// Names of executable entries
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub executable_names: Vec<String>,
+}
+
+/// GZIP compressed file analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GzipAnalysis {
+    /// Original filename stored in the GZIP header
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_filename: Option<String>,
+    /// Compressed file size in bytes
+    pub compressed_size: u64,
+    /// Whether the original filename or inner content indicates an executable
+    pub has_executable_content: bool,
+    /// Detected format of the inner content (e.g. "TAR Archive")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inner_format: Option<String>,
+}
+
+/// 7-Zip archive analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SevenZipAnalysis {
+    /// Format major version
+    pub version_major: u8,
+    /// Format minor version
+    pub version_minor: u8,
+    /// Size of the next header (compressed metadata)
+    pub header_size: u64,
+}
+
+/// TAR archive analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TarAnalysis {
+    /// Number of file entries
+    pub file_count: usize,
+    /// Archive contains files with executable extensions
+    pub has_executables: bool,
+    /// Archive contains script files
+    pub has_scripts: bool,
+    /// Names of executable entries
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub executable_names: Vec<String>,
+    /// Archive contains files with setuid/setgid bits
+    pub has_setuid: bool,
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A classified extracted string with category and offset
@@ -1344,6 +1514,14 @@ mod tests {
             iso_analysis: None,
             cab_analysis: None,
             msi_analysis: None,
+            vhd_analysis: None,
+            onenote_analysis: None,
+            img_analysis: None,
+            rar_analysis: None,
+            gzip_analysis: None,
+            sevenz_analysis: None,
+            tar_analysis: None,
+            secrets_detected: None,
             yara_matches: Vec::new(),
         };
 
@@ -1541,6 +1719,9 @@ mod tests {
             overlay_has_exe: false,
             string_density: 0.0,
             dotnet_metadata: None,
+            driver_analysis: None,
+            ep_signature_matches: vec![],
+            ep_signature_family: String::new(),
         };
 
         let json = serde_json::to_string_pretty(&pe).unwrap();
@@ -1622,6 +1803,14 @@ mod tests {
             iso_analysis: None,
             cab_analysis: None,
             msi_analysis: None,
+            vhd_analysis: None,
+            onenote_analysis: None,
+            img_analysis: None,
+            rar_analysis: None,
+            gzip_analysis: None,
+            sevenz_analysis: None,
+            tar_analysis: None,
+            secrets_detected: None,
             yara_matches: Vec::new(),
         };
 

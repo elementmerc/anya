@@ -3,6 +3,7 @@
 pub mod api_lists;
 pub mod confidence;
 pub mod detection_patterns;
+pub mod ep_signatures;
 pub mod ioc;
 pub mod ksd;
 pub mod thresholds;
