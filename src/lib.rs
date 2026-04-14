@@ -2511,7 +2511,10 @@ mod tests {
         });
 
         let (verdict_word, summary) = compute_verdict(&result);
-        assert_eq!(verdict_word, "CLEAN", "TEST file should short-circuit to CLEAN");
+        assert_eq!(
+            verdict_word, "CLEAN",
+            "TEST file should short-circuit to CLEAN"
+        );
         assert!(summary.contains("TEST"));
         assert!(summary.contains("EICAR"));
     }

@@ -34,32 +34,32 @@ fn detect_zip_legitimacy(names_lower: &[String]) -> bool {
     }
 
     const PKG_MARKERS: &[&str] = &[
-        "meta-inf/",              // JAR
-        "manifest.mf",            // JAR
-        "manifest.json",          // Chrome ext / WebExtension / npm
-        "androidmanifest.xml",    // APK
-        "classes.dex",            // APK
-        ".dist-info/",            // Python wheel
-        ".dist-info\\",           // Python wheel (windows path)
-        "package.json",           // npm
-        "composer.json",          // PHP composer
-        "pom.xml",                // Maven
-        "build.gradle",           // Gradle
-        "gradle-wrapper.jar",     // Gradle wrapper
-        "pubspec.yaml",           // Dart
-        "cargo.toml",             // Rust
-        "install.rdf",            // Firefox extension (legacy)
-        "chrome.manifest",        // Firefox/Thunderbird extension
-        "content/",               // XPI addon structure
-        "modules/",               // XPI addon structure
-        "__init__.py",            // Python package
-        "site-packages/",         // Python
-        "nuspec",                 // NuGet
-        "[content_types].xml",    // Office OOXML
-        "ppt/presentation.xml",   // pptx
-        "word/document.xml",      // docx
-        "xl/workbook.xml",        // xlsx
-        "mimetype",               // ODT/EPUB (bottom of archive)
+        "meta-inf/",            // JAR
+        "manifest.mf",          // JAR
+        "manifest.json",        // Chrome ext / WebExtension / npm
+        "androidmanifest.xml",  // APK
+        "classes.dex",          // APK
+        ".dist-info/",          // Python wheel
+        ".dist-info\\",         // Python wheel (windows path)
+        "package.json",         // npm
+        "composer.json",        // PHP composer
+        "pom.xml",              // Maven
+        "build.gradle",         // Gradle
+        "gradle-wrapper.jar",   // Gradle wrapper
+        "pubspec.yaml",         // Dart
+        "cargo.toml",           // Rust
+        "install.rdf",          // Firefox extension (legacy)
+        "chrome.manifest",      // Firefox/Thunderbird extension
+        "content/",             // XPI addon structure
+        "modules/",             // XPI addon structure
+        "__init__.py",          // Python package
+        "site-packages/",       // Python
+        "nuspec",               // NuGet
+        "[content_types].xml",  // Office OOXML
+        "ppt/presentation.xml", // pptx
+        "word/document.xml",    // docx
+        "xl/workbook.xml",      // xlsx
+        "mimetype",             // ODT/EPUB (bottom of archive)
     ];
     if names_lower
         .iter()
@@ -335,9 +335,8 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
         // same signals without being malicious.
         s.elf_file_type = elf.file_type.clone();
         let ft_lower = elf.file_type.to_lowercase();
-        s.elf_is_shared_lib = ft_lower.contains("shared")
-            || ft_lower.contains("dyn")
-            || ft_lower.contains("relocat");
+        s.elf_is_shared_lib =
+            ft_lower.contains("shared") || ft_lower.contains("dyn") || ft_lower.contains("relocat");
         s.elf_is_pie = elf.is_pie;
         s.elf_has_nx = elf.has_nx_stack;
         s.elf_has_relro = elf.has_relro;
@@ -652,7 +651,9 @@ pub fn extract_signals(result: &AnalysisResult) -> SignalSet {
             // Python rescore does, so downstream shell/batch scoring
             // has something to work with when the parser didn't
             // populate shell_analysis.
-            if counts.download > 0 && (counts.lolbin > 0 || counts.privesc > 0 || counts.hidden_exec > 0) {
+            if counts.download > 0
+                && (counts.lolbin > 0 || counts.privesc > 0 || counts.hidden_exec > 0)
+            {
                 s.shell_has_download_execute = true;
             }
             if counts.persistence > 0 {
@@ -1946,7 +1947,11 @@ mod tests {
                 .iter()
                 .any(|(desc, _)| desc.starts_with("ELF missing")),
             "shared libs should not trigger ELF hardening detections, found: {:?}",
-            scoring.detections.iter().map(|(d, _)| d).collect::<Vec<_>>()
+            scoring
+                .detections
+                .iter()
+                .map(|(d, _)| d)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1992,7 +1997,10 @@ mod tests {
             signals.bat_defender_tamper,
             "Set-MpPreference should set bat_defender_tamper"
         );
-        assert!(signals.bat_hidden_exec, "-WindowStyle Hidden should set bat_hidden_exec");
+        assert!(
+            signals.bat_hidden_exec,
+            "-WindowStyle Hidden should set bat_hidden_exec"
+        );
 
         let scoring = score_signals(&signals);
         assert!(
@@ -2116,7 +2124,10 @@ mod tests {
             .filter(|(desc, _)| desc.contains("entry-point signature"))
             .collect();
         assert_eq!(ep_detections.len(), 1, "expected exactly one EP detection");
-        assert_eq!(ep_detections[0].1, anya_scoring::types::ConfidenceLevel::Low);
+        assert_eq!(
+            ep_detections[0].1,
+            anya_scoring::types::ConfidenceLevel::Low
+        );
     }
 
     #[test]
