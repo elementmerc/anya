@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.0.4] - 2026-04-14
+
+### Detection
+- Fewer false positives on legitimate security tools and development utilities (FLOSS, tooling suites, dual use binaries)
+- Better handling of JARs, Python wheels, Chrome extensions, APKs, and Office OOXML documents, which no longer flag as suspicious simply for containing executable entries
+- More accurate compiler and toolchain identification for unsigned binaries, reducing noise on small MSVC utilities, Apple tooling, and MinGW compiled programs
+- Reduced noise on ELF shared libraries and relocatable object files, which no longer trigger hardening detections that only apply to executables
+- New detection signals for Batch and CMD scripts: LOLBin usage (certutil, bitsadmin, mshta, regsvr32, and similar), Windows Defender tampering patterns, hidden execution flags, and privilege escalation bypass patterns
+- New entry point signature matching for packed PE binaries, with coverage for UPX, ASPack, Themida, MPRESS, PECompact, FSG, Enigma, and VMProtect
+- Known sample lookups now short circuit to a clean verdict for curated tools and test files, so legitimate analysis utilities no longer surface as suspicious because of their metadata profile
+
+### CLI
+- `--no-ksd` and `--ksd-threshold` flags now work (previously accepted but ignored); use `--no-ksd` to see the pure heuristic verdict and `--ksd-threshold N` to tighten or loosen the similarity cutoff
+
+### Other
+- Bug fixes and improvements
+
 ## [2.0.3] - 2026-04-11
 
 ### Detection
