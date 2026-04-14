@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+#
+# pre-commit: IP-hygiene gate for the public engine repo.
+#
+# Runs a series of forbidden-pattern greps over ONLY the staged diff,
+# so clean files and historical blobs are never scanned. A match blocks
+# the commit with a loud error and a list of offending lines.
+#
+# Install once per clone:
+#     git config core.hooksPath .githooks
+#
+# Bypass only with an explicit reviewed reason:
+#     git commit --no-verify     (last resort)
+#
+# The forbidden patterns live in the arrays below and mirror the
+# IP-hygiene rules in the sovereign CLAUDE.md:
+#   - Private/proprietary path literals
+#   - Internal monorepo path literals
+#   - Dev machine hardcoded paths
+#   - Internal product/ecosystem names that must not ship publicly
+#   - Infrastructure identifiers (Hetzner bucket names, VM IDs)
+#   - Credential material (API key env vars, tokens)
+#
+# The hook intentionally does NOT try to detect leaked scoring
+# thresholds or detection patterns by regex, because those are
+# semantic rather than lexical. Reviewers + cargo clippy catch those.
+
+set -eu
+
+RED=$(tput setaf 1 2>/dev/null || true)
+YELLOW=$(tput setaf 3 2>/dev/null || true)
+BOLD=$(tput bold 2>/dev/null || true)
+RESET=$(tput sgr0 2>/dev/null || true)
+
+# Forbidden literal patterns. Any of these appearing in staged content
+# (ADDED lines only, not CONTEXT) will fail the commit.
+FORBIDDEN_PATTERNS=(
+    # Internal monorepo + private paths
+    'the-anya-protocol'
+    'proprietary/'
+    'private/'
+    '/home/mercury/'
+    '/mnt/c/Users/'
+
+    # Internal product/ecosystem names that must not leak
+    'Anya Red'
+    'anya-red'
+    'Anya Bench'
+    'Anya Verify'
+    'Anya Threat Index'
+
+    # Infrastructure identifiers
+    'hetzner'
+    'Hetzner'
+    'nbg1'
+    'anya-lab-samples'
+    '375735112'
+    'MALWAREBAZAAR_KEY'
+    'ANYA_API_KEY_'
+
+    # Private research keywords
+    'Anchored Narrative Coherence'
+    'Conditional Impossibility'
+)
+
+# Allowlist: paths that are permitted to contain the literal 'private/'
+# (macOS BSD path /private/var) or 'hetzner' in user-facing docs that
+# explicitly mention infrastructure the user provides. Extend with care.
+ALLOWLIST_PATHS=(
+    'src-tauri/src/lib.rs'          # contains /private/var macOS path literal
+    '.githooks/pre-commit'          # this file itself
+    '.github/'                      # CI workflow files may reference infra
+)
+
+# Collect the unified diff of staged changes restricted to added lines.
+STAGED_DIFF=$(git diff --cached --unified=0 --no-color --diff-filter=AM 2>/dev/null || true)
+
+if [[ -z "$STAGED_DIFF" ]]; then
+    exit 0
+fi
+
+# Track offenders for a single consolidated error.
+VIOLATIONS=()
+
+check_pattern() {
+    local pattern="$1"
+    # Only look at added lines (prefixed with "+") that are not the
+    # "+++ b/<file>" diff header.
+    local hits
+    hits=$(grep -n -F "$pattern" <<<"$STAGED_DIFF" || true)
+    if [[ -z "$hits" ]]; then
+        return 0
+    fi
+
+    # Filter out header lines and context lines
+    local filtered=""
+    while IFS= read -r line; do
+        # Skip diff metadata lines
+        case "$line" in
+            *'+++ '*) continue ;;
+            *'--- '*) continue ;;
+            *'+++'*) continue ;;
+        esac
+        # Only count lines that start with "+" (added) — exclude "-"
+        if [[ "$line" =~ ^[0-9]+:\+ ]] || [[ "$line" =~ \+[^+] ]]; then
+            filtered+="$line"$'\n'
+        fi
+    done <<<"$hits"
+
+    if [[ -n "$filtered" ]]; then
+        VIOLATIONS+=("${BOLD}Forbidden pattern:${RESET} ${RED}${pattern}${RESET}")
+        VIOLATIONS+=("$(echo "$filtered" | head -5 | sed 's/^/    /')")
+        VIOLATIONS+=("")
+    fi
+}
+
+# Simpler approach: re-read the staged diff line by line, scan added
+# lines against every pattern, remember the offenders.
+scan_staged_adds() {
+    local current_file=""
+    while IFS= read -r line; do
+        case "$line" in
+            '+++ b/'*)
+                current_file="${line#+++ b/}"
+                continue
+                ;;
+            '+++ '*|'--- '*|'diff --git '*|'index '*|'@@ '*)
+                continue
+                ;;
+        esac
+        # Only added lines (start with + but not +++)
+        if [[ "$line" =~ ^\+ ]] && [[ ! "$line" =~ ^\+\+\+ ]]; then
+            # Strip the leading +
+            local content="${line:1}"
+
+            # Check against allowlist paths first
+            local allowlisted=0
+            for allow in "${ALLOWLIST_PATHS[@]}"; do
+                if [[ "$current_file" == "$allow"* ]]; then
+                    allowlisted=1
+                    break
+                fi
+            done
+            if [[ $allowlisted -eq 1 ]]; then
+                continue
+            fi
+
+            # Test each forbidden pattern
+            for pattern in "${FORBIDDEN_PATTERNS[@]}"; do
+                if [[ "$content" == *"$pattern"* ]]; then
+                    VIOLATIONS+=("${RED}${current_file}${RESET}: ${BOLD}${pattern}${RESET}")
+                    VIOLATIONS+=("    ${content:0:120}")
+                fi
+            done
+        fi
+    done <<<"$STAGED_DIFF"
+}
+
+scan_staged_adds
+
+if [[ ${#VIOLATIONS[@]} -gt 0 ]]; then
+    echo
+    echo "${RED}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo "${RED}${BOLD}  IP HYGIENE GATE: commit blocked${RESET}"
+    echo "${RED}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo
+    echo "The staged changes contain literal strings that must never land"
+    echo "in the public engine repo. Remove them or rewrite the text."
+    echo
+    for v in "${VIOLATIONS[@]}"; do
+        echo "  $v"
+    done
+    echo
+    echo "${YELLOW}If you are certain this is a false positive, either:${RESET}"
+    echo "  * soften the wording to avoid the forbidden literal, or"
+    echo "  * add the specific file path to ALLOWLIST_PATHS in .githooks/pre-commit"
+    echo "    with a comment explaining why, or"
+    echo "  * (last resort, requires reviewer) git commit --no-verify"
+    echo
+    exit 1
+fi
+
+exit 0

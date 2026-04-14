@@ -27,8 +27,7 @@ pub use anya_scoring::confidence::{
 /// names. Matches package manifests (JAR, Python wheel, Chrome
 /// extension, APK, NuGet, Office OOXML) first, then falls back to
 /// all-scripts source distributions, then to common build-tree
-/// markers (src/, /docs/, makefile, etc.). Mirrors the Cat A quick-win
-/// from `private/Calibration/rescore_v2.py`.
+/// markers (src/, /docs/, makefile, etc.).
 fn detect_zip_legitimacy(names_lower: &[String]) -> bool {
     if names_lower.is_empty() {
         return false;

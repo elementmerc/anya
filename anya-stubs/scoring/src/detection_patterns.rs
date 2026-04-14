@@ -184,3 +184,19 @@ pub static MSI_SUSPICIOUS_PATTERNS: LazyLock<Vec<String>> =
     LazyLock::new(|| vec!["CustomAction".to_string()]);
 pub static EXECUTABLE_EXTENSIONS: LazyLock<Vec<String>> =
     LazyLock::new(|| vec!["exe".to_string(), "dll".to_string()]);
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct BatchSignalCounts {
+    pub lolbin: usize,
+    pub download: usize,
+    pub persistence: usize,
+    pub defender_tamper: usize,
+    pub hidden_exec: usize,
+    pub privesc: usize,
+}
+
+/// Stub Batch signal scanner. Always returns zero counts. The real
+/// implementation lives in the private scoring crate.
+pub fn count_batch_signals(_blob: &str) -> BatchSignalCounts {
+    BatchSignalCounts::default()
+}

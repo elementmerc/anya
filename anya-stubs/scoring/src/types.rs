@@ -270,6 +270,17 @@ pub struct SignalSet {
     pub pe_driver_imports_hal: bool,
     pub pe_driver_dangerous_api_count: usize,
     pub pe_driver_is_signed: bool,
+
+    pub zip_executable_names: Vec<String>,
+    pub zip_is_legit_package: bool,
+    pub elf_file_type: String,
+    pub elf_is_shared_lib: bool,
+    pub bat_lolbin_count: usize,
+    pub bat_defender_tamper: bool,
+    pub bat_hidden_exec: bool,
+    pub bat_privesc: bool,
+    pub pe_ep_signature_matches: Vec<String>,
+    pub pe_ep_signature_family: String,
 }
 
 #[derive(Debug, Clone, Default)]

@@ -1515,21 +1515,19 @@ pub fn compute_verdict(result: &output::AnalysisResult) -> (String, String) {
     // known-samples entry (tools, test files, PUPs), return the
     // matched verdict directly and skip the heuristic score.
     //
-    // This is the fix for the floss FP: FLOSS (Mandiant FLARE string
-    // extractor) has 8.00 entropy + 5 suspicious function imports
-    // and is fundamentally indistinguishable from a packed loader on
-    // pure metadata. The known-samples DB already carries its
-    // SHA256, but without this short-circuit the heuristic scorer
-    // still produced SUSPICIOUS and analyse_file only patched the
-    // display string after the fact. The underlying verdict flag
-    // (load-bearing for exit codes, JSON output, calibration) was
-    // still non-CLEAN.
+    // Some legitimate tools (e.g., reverse engineering utilities,
+    // static analysers) exhibit metadata profiles that are very
+    // close to packed loaders — high entropy, suspicious-looking
+    // imports — simply because that is what their job requires.
+    // Checking the known-samples catalogue first avoids asking the
+    // heuristic scorer to disambiguate something it cannot reliably
+    // disambiguate from file metadata alone.
     //
-    // "TOOL" and "TEST" verdicts both return verdict_word = "CLEAN"
-    // so downstream consumers (--exit-code-from-verdict, rescore
-    // benign checks, the calibration FP count) treat them as not-
-    // malicious. The verdict_summary carries the richer tag so the
-    // UI can still display "TOOL — FLOSS (...)".
+    // TOOL / TEST / PUP / CLEAN entries all return verdict_word
+    // "CLEAN" so downstream consumers (--exit-code-from-verdict,
+    // JSON output, batch scans) treat them as not-malicious. The
+    // verdict_summary carries the richer tag so the UI can still
+    // display "TOOL — <name>".
     if let Some(ref ks) = result.known_sample {
         let verdict_word = match ks.verdict.as_str() {
             "TOOL" | "TEST" | "CLEAN" => "CLEAN".to_string(),
@@ -2479,8 +2477,7 @@ mod tests {
     #[test]
     fn test_compute_verdict_known_sample_short_circuits_to_clean() {
         // A sample that matches a known TOOL entry should short-
-        // circuit to CLEAN with a TOOL-tagged summary. This is the
-        // fix for the floss FP.
+        // circuit to CLEAN with a TOOL-tagged summary.
         let mut result = output::AnalysisResult::default();
         result.file_format = "Windows PE".to_string();
         result.known_sample = Some(output::KnownSampleMatch {
