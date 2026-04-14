@@ -1,0 +1,34 @@
+name: Setup proprietary scoring crate
+description: >
+  Check out the private proprietary scoring and data crates alongside the
+  main engine checkout, then write a `.cargo/config.toml` that redirects
+  the stub crates at `anya-stubs/scoring` and `anya-stubs/data` to the
+  real implementations.
+  Requires a token with read access to elementmerc/anya-proprietary.
+
+inputs:
+  token:
+    description: GitHub token with read access to elementmerc/anya-proprietary
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check out proprietary crate
+      uses: actions/checkout@v4
+      with:
+        repository: elementmerc/anya-proprietary
+        token: ${{ inputs.token }}
+        path: proprietary
+
+    - name: Generate Cargo path overrides
+      shell: bash
+      run: |
+        mkdir -p .cargo
+        cat > .cargo/config.toml <<'EOF'
+        # Generated at CI time by .github/actions/setup-proprietary.
+        # Redirects the stub scoring + data crates at anya-stubs/
+        # to the real implementations checked out into ./proprietary/.
+        paths = ["proprietary/scoring", "proprietary/data"]
+        EOF
+        echo "::notice::Cargo path overrides written; proprietary crate resolved"
