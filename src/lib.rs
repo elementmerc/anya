@@ -93,6 +93,7 @@ pub mod python_parser;
 pub mod rar_parser;
 pub mod report;
 pub mod rtf_parser;
+pub mod sarif;
 pub mod script_parser;
 pub mod sevenz_parser;
 pub mod tar_parser;

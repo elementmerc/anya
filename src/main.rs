@@ -19,8 +19,8 @@
 // Import necessary libraries
 use anya_security_core::{
     BatchSummary, OutputLevel, analyse_file, case, compute_verdict, config, elf_parser,
-    find_executable_files, hash_check, is_executable_file, output, pe_parser, scan_yara_only,
-    set_ksd_enabled, set_ksd_threshold, to_json_output,
+    find_executable_files, hash_check, is_executable_file, output, pe_parser, sarif,
+    scan_yara_only, set_ksd_enabled, set_ksd_threshold, to_json_output,
 };
 use anyhow::{Context, Result}; // For better error handling
 use clap::{CommandFactory, Parser, Subcommand}; // For parsing command-line arguments
@@ -55,6 +55,7 @@ struct RunConfig<'a> {
     effective_html: bool,
     effective_pdf: bool,
     effective_markdown: bool,
+    effective_sarif: bool,
     packed_entropy: f64,
     suspicious_entropy: f64,
     cases_dir_override: Option<&'a str>,
@@ -199,6 +200,7 @@ enum OutputFormat {
     Html,
     Pdf,
     Markdown,
+    Sarif,
 }
 
 #[derive(Subcommand, Debug)]
@@ -778,9 +780,14 @@ fn run() -> Result<()> {
         config.output.use_colours
     };
 
-    // Merge --format with --json flag: --json is shorthand for --format json
-    let effective_json =
-        args.json || args.json_compact || matches!(args.format, OutputFormat::Json);
+    // Merge --format with --json flag: --json is shorthand for --format json.
+    // SARIF also routes through the JSON-clean-stdout path because its output is
+    // structured JSON on stdout; any progress/info bytes would corrupt the document.
+    let effective_sarif = matches!(args.format, OutputFormat::Sarif);
+    let effective_json = args.json
+        || args.json_compact
+        || matches!(args.format, OutputFormat::Json)
+        || effective_sarif;
     let effective_html = matches!(args.format, OutputFormat::Html);
     let effective_pdf = matches!(args.format, OutputFormat::Pdf);
     let effective_markdown = matches!(args.format, OutputFormat::Markdown);
@@ -843,6 +850,7 @@ fn run() -> Result<()> {
         effective_html,
         effective_pdf,
         effective_markdown,
+        effective_sarif,
         packed_entropy: config.thresholds.packed_entropy,
         suspicious_entropy: config.thresholds.suspicious_entropy,
         cases_dir_override: config.cases_directory.as_deref(),
@@ -970,6 +978,7 @@ fn analyse_single_file(
         effective_html,
         effective_pdf,
         effective_markdown,
+        effective_sarif,
         packed_entropy,
         suspicious_entropy,
         cases_dir_override,
@@ -1014,6 +1023,26 @@ fn analyse_single_file(
     // Known sample match overrides the heuristic verdict word
     if let Some(ref ks) = json_result.known_sample {
         verdict_word = ks.verdict.clone();
+    }
+
+    // ── SARIF output (skeleton; real verdict → result mapping Saturday) ─────
+    if effective_sarif {
+        let sarif_doc = sarif::render_stub(&json_result);
+        let sarif_json = if json_compact {
+            serde_json::to_string(&sarif_doc)?
+        } else {
+            serde_json::to_string_pretty(&sarif_doc)?
+        };
+        write_output(&sarif_json, args.output.as_ref(), args.append)?;
+
+        if let Some(path) = &args.output {
+            if args.append {
+                eprintln!("✓ SARIF appended to: {:?}", path);
+            } else {
+                eprintln!("✓ SARIF written to: {:?}", path);
+            }
+        }
+        return Ok(verdict_word);
     }
 
     // ── JSON output ──────────────────────────────────────────────────────────
@@ -1685,6 +1714,7 @@ fn analyse_directory(
             effective_html: false,
             effective_pdf: false,
             effective_markdown: false,
+            effective_sarif: false,
             packed_entropy,
             suspicious_entropy,
             cases_dir_override,
