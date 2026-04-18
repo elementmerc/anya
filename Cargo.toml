@@ -79,6 +79,9 @@ clap_complete = "4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+# For SARIF 2.1.0 output (typed schema via OASIS-schema-generated types)
+serde-sarif = "0.7"
+
 # For MIME type detection via magic bytes
 infer = "0.16"
 

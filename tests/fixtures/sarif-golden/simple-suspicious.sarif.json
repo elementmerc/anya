@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "results": [
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "tests/fixtures/simple.exe"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "SUSPICIOUS — 1 high indicator"
+          },
+          "properties": {
+            "tags": [
+              "verdict:suspicious",
+              "format:other"
+            ]
+          },
+          "ruleId": "ANYA-V001"
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "tests/fixtures/simple.exe"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Extra Window Memory Injection via SetWindowsHookExW (Defense Evasion)"
+          },
+          "properties": {
+            "tags": [
+              "signal:import-extra-window-memory-injection",
+              "mitre:T1055.011",
+              "confidence:medium",
+              "format:other"
+            ]
+          },
+          "ruleId": "ANYA-H007"
+        }
+      ],
+      "taxonomies": [
+        {
+          "informationUri": "https://attack.mitre.org/",
+          "isComprehensive": false,
+          "name": "MITRE ATT&CK",
+          "organization": "MITRE",
+          "taxa": [
+            {
+              "helpUri": "https://attack.mitre.org/techniques/T1055/011/",
+              "id": "T1055.011",
+              "name": "Extra Window Memory Injection",
+              "shortDescription": {
+                "text": "Extra Window Memory Injection (Defense Evasion)"
+              }
+            },
+            {
+              "helpUri": "https://attack.mitre.org/techniques/T1056/001/",
+              "id": "T1056.001",
+              "name": "Keylogging",
+              "shortDescription": {
+                "text": "Keylogging (Collection)"
+              }
+            }
+          ]
+        }
+      ],
+      "tool": {
+        "driver": {
+          "informationUri": "https://github.com/elementmerc/anya",
+          "name": "Anya",
+          "organization": "elementmerc",
+          "rules": [
+            {
+              "fullDescription": {
+                "text": "Every Anya scan emits this result. Its level reflects the top-level verdict: error for MALICIOUS, warning for SUSPICIOUS, note for CLEAN / TOOL / PUP / TEST / UNKNOWN. The associated properties.tags array carries the verdict and format namespaces."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-v001",
+              "id": "ANYA-V001",
+              "name": "Overall verdict",
+              "shortDescription": {
+                "text": "The file received an overall Anya verdict."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "Packers and protectors compress or encrypt the real payload, forcing static analysis tools to reason over a thin loader layer. The presence of a packer is not itself malicious, but it raises the prior probability of malicious intent, especially when combined with high entropy or suspicious imports."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-h001",
+              "id": "ANYA-H001",
+              "name": "Packer or protector detected",
+              "shortDescription": {
+                "text": "A known packer or protector signature was matched in the file."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "Shannon entropy above roughly 7.5 indicates compressed, encrypted, or packed content. Benign installers can reach this range, but it is also the default state of packed malware. Anya reports entropy alongside the context that explains it."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-h002",
+              "id": "ANYA-H002",
+              "name": "High or suspicious entropy",
+              "shortDescription": {
+                "text": "The file's Shannon entropy is at or above the suspicious threshold."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "Code that probes for the presence of a debugger typically does so to alter behaviour when under analysis, a pattern strongly associated with malicious intent. Legitimate software rarely needs this defence."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-h003",
+              "id": "ANYA-H003",
+              "name": "Anti-analysis: debugger detection",
+              "shortDescription": {
+                "text": "The file contains indicators consistent with detecting an attached debugger."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "VM detection routines read CPU features, registry keys, driver names, and device signatures characteristic of VirtualBox, VMware, QEMU, or Hyper-V. Malware uses them to stay dormant inside sandboxes."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-h004",
+              "id": "ANYA-H004",
+              "name": "Anti-analysis: virtual machine detection",
+              "shortDescription": {
+                "text": "The file contains indicators consistent with detecting a virtualised environment."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "Sleep loops, time delta checks, and delayed payload execution defeat automated sandboxes that give each sample a fixed budget. The presence of such routines alongside other indicators is a strong malicious signal."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-h005",
+              "id": "ANYA-H005",
+              "name": "Anti-analysis: timing evasion",
+              "shortDescription": {
+                "text": "The file contains indicators consistent with timing-based evasion of sandboxes."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "Checks for cursor movement, screen resolution, installed applications, recent documents, and uptime are used to distinguish a real user workstation from an analysis sandbox. Often paired with timing evasion."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-h006",
+              "id": "ANYA-H006",
+              "name": "Anti-analysis: sandbox detection",
+              "shortDescription": {
+                "text": "The file contains indicators consistent with detecting a sandbox environment."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "APIs such as OpenProcess, VirtualAllocEx, WriteProcessMemory, CreateRemoteThread, and NtMapViewOfSection are the building blocks of process injection and hollowing techniques. Their presence does not prove injection, but it narrows the intent considerably."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-h007",
+              "id": "ANYA-H007",
+              "name": "Suspicious imports: process injection",
+              "shortDescription": {
+                "text": "The file imports functions associated with injecting code into another process."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "Symmetric key setup, key derivation, and bulk encryption APIs appear in legitimate software, but also form the backbone of ransomware and payload obfuscation. Anya reports this signal for analyst review, not as a standalone verdict."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-h008",
+              "id": "ANYA-H008",
+              "name": "Suspicious imports: cryptographic API",
+              "shortDescription": {
+                "text": "The file imports cryptographic primitives consistent with payload obfuscation or ransomware behaviour."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "APIs that create or modify HKCU / HKLM Run keys, service entries, or scheduled tasks are the standard persistence mechanism for Windows malware. Legitimate installers also use them; context in the calling code matters."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-h009",
+              "id": "ANYA-H009",
+              "name": "Suspicious imports: registry persistence",
+              "shortDescription": {
+                "text": "The file imports registry APIs consistent with persistence through Run keys or services."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "WinInet, WinHTTP, and Winsock APIs power legitimate updaters and malicious command and control channels alike. The suspicious qualifier reflects the clustering of networking calls with other indicators, not networking by itself."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-h010",
+              "id": "ANYA-H010",
+              "name": "Suspicious imports: networking",
+              "shortDescription": {
+                "text": "The file imports networking APIs consistent with command and control or data exfiltration."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "A file that presents as a PDF but is a PE, or as an image but is a script, is a common social engineering vehicle. Anya flags the mismatch as a standalone rule so SIEM correlation can weight it explicitly."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-p001",
+              "id": "ANYA-P001",
+              "name": "File type mismatch",
+              "shortDescription": {
+                "text": "The detected magic bytes of the file do not match the claimed extension."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "Indicator presence is informational on its own. Paired with other signals it reinforces a verdict; in isolation it mostly provides pivots for SOC hunting."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-p002",
+              "id": "ANYA-P002",
+              "name": "IOC artifacts present",
+              "shortDescription": {
+                "text": "Indicators of compromise (URLs, IPs, hashes, or domains) were extracted from the file."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "Known-sample matches override the heuristic verdict so legitimate dual-use tools (reverse engineering utilities, forensic binaries, test files) are not misclassified as malicious. The subtype (tool / PUP / test) is emitted in the tags."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-d001",
+              "id": "ANYA-D001",
+              "name": "Known sample database match",
+              "shortDescription": {
+                "text": "The file matched an entry in Anya's curated known-samples database (tool, PUP, or test file)."
+              }
+            },
+            {
+              "fullDescription": {
+                "text": "TLSH provides locality-sensitive similarity so packed variants of a family retain a similar hash. A KSD match is strong evidence of family relationship; combined with independent signals it produces a high-confidence verdict."
+              },
+              "helpUri": "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#anya-d002",
+              "id": "ANYA-D002",
+              "name": "Known similar digest (KSD) match",
+              "shortDescription": {
+                "text": "The file's TLSH fuzzy hash is within the configured threshold of a known malware sample."
+              }
+            }
+          ],
+          "semanticVersion": "2.0.4",
+          "version": "2.0.4"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

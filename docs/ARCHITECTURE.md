@@ -230,6 +230,33 @@ invoke("yara_scan_only", { path })        →  YaraOnlyResult (fast YARA scan wi
 
 Watch mode also supports `--json` and `--json-compact` for structured output.
 
+### Output Formats (`--format`)
+
+Selected via `--format <name>`. Default is human-readable text.
+
+| Format | Module | Typical consumer |
+|---|---|---|
+| `text` | `output::format::text` | Terminal user, default |
+| `json` | `serde_json` direct on `AnalysisResult` | Programmatic consumer, pipelines, SIEM ingest |
+| `html` | `report::generate_html_report` | Analyst handover, case documentation |
+| `pdf` | `report::generate_pdf_report` | Archival, distribution |
+| `markdown` | `report::generate_markdown_report` | Documentation, post-incident write-ups |
+| `sarif` | `sarif::render` → `serde-sarif` crate | GitHub Code Scanning, Azure DevOps, GitLab Security, SIEM / SOAR |
+
+#### SARIF 2.1.0 output (v2.0.5+)
+
+`--format sarif` emits OASIS SARIF 2.1.0 documents compatible with enterprise CI pipelines. Shape:
+
+- Top-level `$schema` = `https://json.schemastore.org/sarif-2.1.0.json`, `version` = `"2.1.0"`
+- One `Run` per invocation with tool driver + the full 15-rule catalogue embedded in `driver.rules[]` (see `engine/docs/SARIF_RULES.md` for the canonical reference)
+- Always-emit verdict carrier (`ANYA-V001`) so every scan produces at least one `Result` even for clean files (scan-of-record pattern)
+- MITRE ATT&CK emitted as a structured SARIF `taxonomies[]` component with `taxa[]` entries populated from techniques the analyser attached to findings
+- Per-finding `properties.tags[]` uses a disciplined colon-prefixed namespace vocabulary: `verdict:`, `mitre:`, `family:`, `confidence:`, `signal:`, `format:`
+- Level mapping: MALICIOUS → `error`, SUSPICIOUS → `warning`, CLEAN / TOOL / PUP / TEST / UNKNOWN → `note`
+- Rule IDs follow a 3-letter class prefix convention: `ANYA-V*` (verdict carrier), `ANYA-H*` (heuristic signals), `ANYA-P*` (parser signals), `ANYA-D*` (detection database matches)
+
+The SARIF writer lives at `engine/src/sarif.rs`. Golden fixtures (shape examples for clean and suspicious scans) live at `engine/tests/fixtures/sarif-golden/`. Integration tests are in `engine/tests/sarif_output_tests.rs`.
+
 ---
 
 ## SQLite Schema (Migration System)

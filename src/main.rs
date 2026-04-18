@@ -1025,9 +1025,9 @@ fn analyse_single_file(
         verdict_word = ks.verdict.clone();
     }
 
-    // ── SARIF output (skeleton; real verdict → result mapping Saturday) ─────
+    // ── SARIF output (real verdict → result mapping) ────────────────────────
     if effective_sarif {
-        let sarif_doc = sarif::render_stub(&json_result);
+        let sarif_doc = sarif::render(&json_result, &verdict_word);
         let sarif_json = if json_compact {
             serde_json::to_string(&sarif_doc)?
         } else {

@@ -1,9 +1,13 @@
 //! Integration tests for `--format sarif` output.
 //!
-//! Skeleton-stage tests: confirm the CLI flag produces a valid-shape SARIF
-//! 2.1.0 document on stdout. Saturday's real-mapping work adds tests for the
-//! verdict → result pipeline (MITRE taxonomies, rule metadata, evidence
-//! chain mapping).
+//! These exercise the real SARIF 2.1.0 emitter end-to-end via the CLI:
+//! validate schema shape, rule catalogue, verdict carrier result, tag
+//! vocabulary, taxonomy presence on MITRE-bearing analyses, and the
+//! --output file routing.
+//!
+//! Byte-exact golden fixtures are deferred to a later release: the
+//! golden files encode help_uri paths that would need regenerating on
+//! each docs URL change.
 
 use std::fs;
 use std::process::Command;
@@ -12,15 +16,10 @@ use tempfile::TempDir;
 const SCHEMA_URI: &str = "https://json.schemastore.org/sarif-2.1.0.json";
 const SARIF_VERSION: &str = "2.1.0";
 
-#[test]
-fn sarif_output_via_format_flag_is_valid_shape() {
-    let temp_dir = TempDir::new().unwrap();
-    let test_file = temp_dir.path().join("hello.txt");
-    fs::write(&test_file, b"Hello World").unwrap();
-
+fn run_sarif(file_path: &std::path::Path) -> serde_json::Value {
     let output = Command::new(env!("CARGO_BIN_EXE_anya"))
         .arg("--file")
-        .arg(&test_file)
+        .arg(file_path)
         .arg("--format")
         .arg("sarif")
         .output()
@@ -33,14 +32,21 @@ fn sarif_output_via_format_flag_is_valid_shape() {
     );
 
     let body = String::from_utf8(output.stdout).expect("stdout is utf-8");
-    let v: serde_json::Value = serde_json::from_str(&body)
-        .unwrap_or_else(|e| panic!("stdout is not valid JSON ({}): {}", e, body));
+    serde_json::from_str(&body)
+        .unwrap_or_else(|e| panic!("stdout is not valid JSON ({}): {}", e, body))
+}
 
-    // Top-level required fields
+#[test]
+fn sarif_output_top_level_shape_is_valid() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("hello.txt");
+    fs::write(&test_file, b"Hello World").unwrap();
+
+    let v = run_sarif(&test_file);
+
     assert_eq!(v["version"], SARIF_VERSION, "unexpected version");
     assert_eq!(v["$schema"], SCHEMA_URI, "unexpected $schema uri");
 
-    // Exactly one run with Anya identified as the tool
     let runs = v["runs"].as_array().expect("runs is array");
     assert_eq!(runs.len(), 1, "expected exactly one run");
     assert_eq!(runs[0]["tool"]["driver"]["name"], "Anya");
@@ -48,12 +54,130 @@ fn sarif_output_via_format_flag_is_valid_shape() {
         runs[0]["tool"]["driver"]["informationUri"].is_string(),
         "informationUri should be present and a string (camelCase)"
     );
+}
 
-    // Skeleton contract: results is an empty array, not null, not absent
-    let results = runs[0]["results"]
+#[test]
+fn verdict_carrier_result_always_emitted() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("clean.txt");
+    fs::write(&test_file, b"plain text file").unwrap();
+
+    let v = run_sarif(&test_file);
+    let results = v["runs"][0]["results"]
         .as_array()
-        .expect("results is array (empty in skeleton)");
-    assert!(results.is_empty(), "skeleton should emit empty results[]");
+        .expect("results is array");
+
+    assert!(
+        !results.is_empty(),
+        "every SARIF scan must emit at least one result (the verdict carrier)"
+    );
+
+    let first = &results[0];
+    assert_eq!(
+        first["ruleId"], "ANYA-V001",
+        "first result should be the verdict carrier ANYA-V001"
+    );
+    assert!(
+        first["message"]["text"].is_string(),
+        "verdict message present"
+    );
+    assert!(first["level"].is_string(), "verdict result has a level");
+}
+
+#[test]
+fn rules_catalogue_is_populated_in_driver() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("small.bin");
+    fs::write(&test_file, b"abc").unwrap();
+
+    let v = run_sarif(&test_file);
+    let rules = v["runs"][0]["tool"]["driver"]["rules"]
+        .as_array()
+        .expect("driver.rules is array");
+
+    assert_eq!(
+        rules.len(),
+        15,
+        "expected 15 rules in the catalogue (1 verdict + 10 heuristic + 2 parser + 2 detection)"
+    );
+
+    let ids: Vec<&str> = rules
+        .iter()
+        .map(|r| r["id"].as_str().unwrap_or(""))
+        .collect();
+
+    assert!(ids.contains(&"ANYA-V001"));
+    assert!(ids.contains(&"ANYA-H001"));
+    assert!(ids.contains(&"ANYA-H010"));
+    assert!(ids.contains(&"ANYA-P001"));
+    assert!(ids.contains(&"ANYA-P002"));
+    assert!(ids.contains(&"ANYA-D001"));
+    assert!(ids.contains(&"ANYA-D002"));
+
+    // Each rule must have a name, short description, full description, help URI
+    for rule in rules {
+        let id = rule["id"].as_str().unwrap_or("?");
+        assert!(rule["name"].is_string(), "rule {} missing name", id);
+        assert!(
+            rule["shortDescription"]["text"].is_string(),
+            "rule {} missing shortDescription.text",
+            id
+        );
+        assert!(
+            rule["fullDescription"]["text"].is_string(),
+            "rule {} missing fullDescription.text",
+            id
+        );
+        assert!(
+            rule["helpUri"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("https://"),
+            "rule {} missing or invalid helpUri",
+            id
+        );
+    }
+}
+
+#[test]
+fn verdict_result_has_tag_vocabulary() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("tagged.txt");
+    fs::write(&test_file, b"tag vocabulary test").unwrap();
+
+    let v = run_sarif(&test_file);
+    let results = v["runs"][0]["results"]
+        .as_array()
+        .expect("runs[0].results is a JSON array");
+    let first = &results[0];
+
+    let tags = first["properties"]["tags"]
+        .as_array()
+        .expect("verdict result has properties.tags array");
+
+    let tag_strs: Vec<&str> = tags.iter().map(|t| t.as_str().unwrap_or("")).collect();
+
+    // Vocabulary check: verdict: and format: namespaces are always present
+    assert!(
+        tag_strs.iter().any(|t| t.starts_with("verdict:")),
+        "missing verdict: tag in {:?}",
+        tag_strs
+    );
+    assert!(
+        tag_strs.iter().any(|t| t.starts_with("format:")),
+        "missing format: tag in {:?}",
+        tag_strs
+    );
+
+    // All tags follow namespace:value form (no bare strings)
+    for t in &tag_strs {
+        assert!(
+            t.contains(':'),
+            "tag {:?} does not follow namespace:value format",
+            t
+        );
+        assert_eq!(*t, t.to_lowercase(), "tag {:?} is not lowercase", t);
+    }
 }
 
 #[test]
@@ -80,4 +204,27 @@ fn sarif_output_to_file_round_trips() {
     let v: serde_json::Value = serde_json::from_str(&body).expect("file contents parse as JSON");
     assert_eq!(v["version"], SARIF_VERSION);
     assert_eq!(v["$schema"], SCHEMA_URI);
+
+    // File-based output must include the verdict carrier result
+    let results = v["runs"][0]["results"]
+        .as_array()
+        .expect("runs[0].results is a JSON array in file output");
+    assert!(!results.is_empty(), "file output missing verdict carrier");
+}
+
+#[test]
+fn tool_driver_reports_version_and_semantic_version() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("ver.bin");
+    fs::write(&test_file, b"version probe").unwrap();
+
+    let v = run_sarif(&test_file);
+    let driver = &v["runs"][0]["tool"]["driver"];
+
+    assert!(driver["version"].is_string(), "driver missing version");
+    assert!(
+        driver["semanticVersion"].is_string(),
+        "driver missing semanticVersion"
+    );
+    assert_eq!(driver["organization"], "elementmerc");
 }
