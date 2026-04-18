@@ -34,8 +34,8 @@ fn stdin_input_round_trip_emits_json_on_arbitrary_bytes() {
 
     assert!(out.status.success(), "anya --file - should succeed");
     // json branch emits a single JSON object
-    let v: serde_json::Value =
-        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("stdout not JSON: {}: {}", e, stdout));
+    let v: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("stdout not JSON: {}: {}", e, stdout));
     // Top-level file_format key must be present on every analysis result
     assert!(
         v.get("file_format").is_some(),
@@ -61,8 +61,7 @@ fn stdin_empty_rejected_at_boundary() {
 #[test]
 fn stdin_sarif_composition_produces_valid_document() {
     let payload = b"stdin + sarif composition probe";
-    let (out, stdout, _stderr) =
-        spawn_with_stdin(&["--file", "-", "--format", "sarif"], payload);
+    let (out, stdout, _stderr) = spawn_with_stdin(&["--file", "-", "--format", "sarif"], payload);
 
     assert!(out.status.success(), "sarif over stdin should succeed");
     let v: serde_json::Value = serde_json::from_str(&stdout)

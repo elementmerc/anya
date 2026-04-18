@@ -36,8 +36,7 @@ pub const SARIF_VERSION: &str = "2.1.0";
 /// a lowercase anchor (e.g. `#anya-h001`). A dedicated docs domain will
 /// land when the product crosses the first-paying-customer milestone
 /// (DWL-86); until then, in-repo markdown is the honest source.
-const RULE_HELP_BASE: &str =
-    "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#";
+const RULE_HELP_BASE: &str = "https://github.com/elementmerc/anya/blob/main/docs/SARIF_RULES.md#";
 
 /// Tool driver metadata.
 const TOOL_NAME: &str = "Anya";
@@ -474,13 +473,15 @@ fn build_taxonomies(analysis: &AnalysisResult) -> Vec<ToolComponent> {
         })
         .collect();
 
-    vec![ToolComponent::builder()
-        .name(MITRE_NAME.to_string())
-        .organization(MITRE_ORG.to_string())
-        .information_uri(MITRE_URI.to_string())
-        .is_comprehensive(false)
-        .taxa(taxa)
-        .build()]
+    vec![
+        ToolComponent::builder()
+            .name(MITRE_NAME.to_string())
+            .organization(MITRE_ORG.to_string())
+            .information_uri(MITRE_URI.to_string())
+            .is_comprehensive(false)
+            .taxa(taxa)
+            .build(),
+    ]
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -742,11 +743,13 @@ mod tests {
     fn taxonomies_empty_when_no_mitre_techniques() {
         let a = minimal_analysis();
         let s = render(&a, "CLEAN");
-        assert!(s.runs[0]
-            .taxonomies
-            .as_ref()
-            .map(|t| t.is_empty())
-            .unwrap_or(true));
+        assert!(
+            s.runs[0]
+                .taxonomies
+                .as_ref()
+                .map(|t| t.is_empty())
+                .unwrap_or(true)
+        );
     }
 
     #[test]

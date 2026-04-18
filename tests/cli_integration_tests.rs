@@ -80,18 +80,12 @@ fn assert_contains(haystack: &str, needle: &str, context: &str) {
 
 fn json_of_stdout(out: &Output) -> serde_json::Value {
     let s = stdout_of(out);
-    serde_json::from_str(&s)
-        .unwrap_or_else(|e| panic!("stdout not valid JSON ({}): {}", e, s))
+    serde_json::from_str(&s).unwrap_or_else(|e| panic!("stdout not valid JSON ({}): {}", e, s))
 }
 
 /// Convenience: run anya and parse stdout as JSON. Panics if either fails.
 fn analyse_json(path: &std::path::Path) -> serde_json::Value {
-    let out = run_anya(&[
-        "--file",
-        path.to_str().unwrap(),
-        "--json",
-        "--no-color",
-    ]);
+    let out = run_anya(&["--file", path.to_str().unwrap(), "--json", "--no-color"]);
     assert!(
         out.status.success(),
         "--json analysis failed: {}",
@@ -166,12 +160,20 @@ fn no_args_exits_nonzero() {
 
 #[test]
 fn file_nonexistent_exits_nonzero() {
-    assert!(!run_anya(&["--file", "/nonexistent/path/abs/nope"]).status.success());
+    assert!(
+        !run_anya(&["--file", "/nonexistent/path/abs/nope"])
+            .status
+            .success()
+    );
 }
 
 #[test]
 fn directory_nonexistent_exits_nonzero() {
-    assert!(!run_anya(&["--directory", "/nonexistent/dir/nope"]).status.success());
+    assert!(
+        !run_anya(&["--directory", "/nonexistent/dir/nope"])
+            .status
+            .success()
+    );
 }
 
 #[test]
@@ -364,8 +366,13 @@ fn json_pe_analysis_security_present() {
 #[test]
 fn json_pe_analysis_sections_has_entries() {
     let v = analyse_json(&fixture_pe());
-    let sections = v["pe_analysis"]["sections"].as_array().expect("sections array");
-    assert!(!sections.is_empty(), "PE fixture should have at least one section");
+    let sections = v["pe_analysis"]["sections"]
+        .as_array()
+        .expect("sections array");
+    assert!(
+        !sections.is_empty(),
+        "PE fixture should have at least one section"
+    );
 }
 
 #[test]
@@ -374,7 +381,8 @@ fn json_sha256_is_64_char_lowercase_hex() {
     let h = v["hashes"]["sha256"].as_str().unwrap();
     assert_eq!(h.len(), 64, "SHA-256 length: {}", h);
     assert!(
-        h.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()),
+        h.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()),
         "SHA-256 must be lowercase hex: {}",
         h
     );
@@ -391,7 +399,10 @@ fn json_md5_is_32_char_lowercase_hex() {
     let v = analyse_json(&fixture_pe());
     let h = v["hashes"]["md5"].as_str().unwrap();
     assert_eq!(h.len(), 32);
-    assert!(h.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+    assert!(
+        h.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
+    );
 }
 
 #[test]
@@ -399,7 +410,10 @@ fn json_sha1_is_40_char_lowercase_hex() {
     let v = analyse_json(&fixture_pe());
     let h = v["hashes"]["sha1"].as_str().unwrap();
     assert_eq!(h.len(), 40);
-    assert!(h.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+    assert!(
+        h.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
+    );
 }
 
 #[test]
@@ -619,8 +633,8 @@ fn verbose_json_still_valid_json() {
         "--no-color",
     ]);
     assert!(out.status.success());
-    let _: serde_json::Value = serde_json::from_str(&stdout_of(&out))
-        .expect("--verbose --json must still parse cleanly");
+    let _: serde_json::Value =
+        serde_json::from_str(&stdout_of(&out)).expect("--verbose --json must still parse cleanly");
 }
 
 #[test]
@@ -653,7 +667,11 @@ fn five_rapid_analyses_produce_identical_sha256() {
     }
     let first = &hashes[0];
     for (i, h) in hashes.iter().enumerate() {
-        assert_eq!(h, first, "rapid analysis {} diverged: {} vs {}", i, h, first);
+        assert_eq!(
+            h, first,
+            "rapid analysis {} diverged: {} vs {}",
+            i, h, first
+        );
     }
 }
 
@@ -674,7 +692,10 @@ fn min_string_length_respected_in_json_output() {
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_str(&stdout_of(&out)).unwrap();
     let n = v["strings"]["min_length"].as_u64().unwrap_or(0);
-    assert_eq!(n, 10, "--min-string-length not reflected in .strings.min_length");
+    assert_eq!(
+        n, 10,
+        "--min-string-length not reflected in .strings.min_length"
+    );
 }
 
 #[test]
@@ -841,12 +862,7 @@ fn format_text_exits_zero() {
 
 #[test]
 fn format_json_exits_zero_and_produces_valid_json() {
-    let out = run_anya(&[
-        "--file",
-        fixture_pe().to_str().unwrap(),
-        "--format",
-        "json",
-    ]);
+    let out = run_anya(&["--file", fixture_pe().to_str().unwrap(), "--format", "json"]);
     assert!(out.status.success());
     let _: serde_json::Value = serde_json::from_str(&stdout_of(&out)).unwrap();
 }
@@ -902,11 +918,7 @@ fn compare_with_empty_file_fails() {
     let empty = tmp.path().join("empty.bin");
     fs::write(&empty, b"").unwrap();
     let pe = fixture_pe();
-    let out = run_anya(&[
-        "compare",
-        pe.to_str().unwrap(),
-        empty.to_str().unwrap(),
-    ]);
+    let out = run_anya(&["compare", pe.to_str().unwrap(), empty.to_str().unwrap()]);
     assert!(!out.status.success());
 }
 
@@ -1017,7 +1029,9 @@ fn two_hundred_char_filename_works() {
 fn deeply_nested_path_works() {
     let tmp = TempDir::new().unwrap();
     let mut deep = tmp.path().to_path_buf();
-    for c in ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o'] {
+    for c in [
+        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
+    ] {
         deep = deep.join(c.to_string());
     }
     fs::create_dir_all(&deep).unwrap();
@@ -1309,21 +1323,30 @@ fn case_with_empty_name_fails() {
 fn json_md5_is_lowercase_only() {
     let v = analyse_json(&fixture_pe());
     let h = v["hashes"]["md5"].as_str().unwrap();
-    assert!(h.chars().all(|c| c.is_ascii_digit() || matches!(c, 'a'..='f')));
+    assert!(
+        h.chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, 'a'..='f'))
+    );
 }
 
 #[test]
 fn json_sha1_is_lowercase_only() {
     let v = analyse_json(&fixture_pe());
     let h = v["hashes"]["sha1"].as_str().unwrap();
-    assert!(h.chars().all(|c| c.is_ascii_digit() || matches!(c, 'a'..='f')));
+    assert!(
+        h.chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, 'a'..='f'))
+    );
 }
 
 #[test]
 fn json_sha256_is_lowercase_only() {
     let v = analyse_json(&fixture_pe());
     let h = v["hashes"]["sha256"].as_str().unwrap();
-    assert!(h.chars().all(|c| c.is_ascii_digit() || matches!(c, 'a'..='f')));
+    assert!(
+        h.chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, 'a'..='f'))
+    );
 }
 
 #[test]
@@ -1481,7 +1504,11 @@ fn pdf_report_for_text_file_succeeds_and_starts_with_pdf_magic() {
     ]);
     assert!(out.status.success());
     assert!(report.exists());
-    let first5 = fs::read(&report).unwrap().into_iter().take(5).collect::<Vec<_>>();
+    let first5 = fs::read(&report)
+        .unwrap()
+        .into_iter()
+        .take(5)
+        .collect::<Vec<_>>();
     assert_eq!(&first5, b"%PDF-", "PDF missing %PDF- magic");
 }
 
@@ -1618,7 +1645,11 @@ fn jsonl_exits_zero_and_emits_one_line_json_per_file() {
     assert!(out.status.success());
     let s = stdout_of(&out);
     let lines: Vec<&str> = s.lines().filter(|l| !l.is_empty()).collect();
-    assert_eq!(lines.len(), 1, "--jsonl single file should emit exactly one line");
+    assert_eq!(
+        lines.len(),
+        1,
+        "--jsonl single file should emit exactly one line"
+    );
     let _: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
 }
 

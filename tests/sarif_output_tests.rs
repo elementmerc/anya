@@ -315,16 +315,15 @@ fn mitre_taxonomies_populated_on_pe_with_techniques() {
     let mitre = &taxonomies[0];
     assert_eq!(mitre["name"], "MITRE ATT&CK");
     assert_eq!(mitre["organization"], "MITRE");
-    assert!(mitre["informationUri"]
-        .as_str()
-        .unwrap_or("")
-        .starts_with("https://attack.mitre.org"));
+    assert!(
+        mitre["informationUri"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("https://attack.mitre.org")
+    );
 
     let taxa = mitre["taxa"].as_array().expect("taxa is array");
-    assert!(
-        !taxa.is_empty(),
-        "taxa populated from analysis techniques"
-    );
+    assert!(!taxa.is_empty(), "taxa populated from analysis techniques");
 
     for t in taxa {
         let id = t["id"].as_str().unwrap_or("");

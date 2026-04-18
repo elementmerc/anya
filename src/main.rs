@@ -70,14 +70,14 @@ fn spool_stdin_to_tempfile(max_bytes: u64) -> Result<tempfile::NamedTempFile> {
         );
     }
 
-    let mut tmp = tempfile::NamedTempFile::new()
-        .context("Could not create tempfile for stdin spool")?;
+    let mut tmp =
+        tempfile::NamedTempFile::new().context("Could not create tempfile for stdin spool")?;
 
     // Reading max_bytes + 1 lets us detect overflow without buffering
     // the whole stream in memory. The underlying copy streams through.
     let mut handle = stdin.lock().take(max_bytes + 1);
-    let written = std::io::copy(&mut handle, tmp.as_file_mut())
-        .context("Failed to read bytes from stdin")?;
+    let written =
+        std::io::copy(&mut handle, tmp.as_file_mut()).context("Failed to read bytes from stdin")?;
 
     if written == 0 {
         anyhow::bail!(
@@ -863,17 +863,14 @@ fn run() -> Result<()> {
     // with a size cap, then rewrite args.file to point at the tempfile
     // path. The `_stdin_spool` binding keeps the NamedTempFile alive for
     // the rest of main so the bytes aren't deleted before analysis runs.
-    let _stdin_spool: Option<tempfile::NamedTempFile> = if args
-        .file
-        .as_ref()
-        .is_some_and(|p| p.as_os_str() == "-")
-    {
-        let spooled = spool_stdin_to_tempfile(MAX_STDIN_BYTES)?;
-        args.file = Some(spooled.path().to_path_buf());
-        Some(spooled)
-    } else {
-        None
-    };
+    let _stdin_spool: Option<tempfile::NamedTempFile> =
+        if args.file.as_ref().is_some_and(|p| p.as_os_str() == "-") {
+            let spooled = spool_stdin_to_tempfile(MAX_STDIN_BYTES)?;
+            args.file = Some(spooled.path().to_path_buf());
+            Some(spooled)
+        } else {
+            None
+        };
 
     // When --format text (default) is used with --output, produce Markdown instead
     let effective_markdown =
