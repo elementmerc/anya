@@ -274,3 +274,169 @@ fn tool_driver_reports_version_and_semantic_version() {
     );
     assert_eq!(driver["organization"], "elementmerc");
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Fixture-backed integration tests using tests/fixtures/simple.exe.
+// simple.exe is a real PE32+ that exercises the suspicious-import path
+// and produces MITRE technique attachments, so it covers the taxa +
+// multi-namespace tag path that trivial byte fixtures cannot reach.
+// ─────────────────────────────────────────────────────────────────────
+
+const PE_FIXTURE: &str = "tests/fixtures/simple.exe";
+
+fn run_sarif_args(extra_args: &[&str]) -> (std::process::Output, String) {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_anya"));
+    cmd.arg("--file")
+        .arg(PE_FIXTURE)
+        .arg("--format")
+        .arg("sarif");
+    for a in extra_args {
+        cmd.arg(a);
+    }
+    let out = cmd.output().unwrap();
+    let body = String::from_utf8(out.stdout.clone()).expect("stdout is utf-8");
+    (out, body)
+}
+
+#[test]
+fn mitre_taxonomies_populated_on_pe_with_techniques() {
+    let (out, body) = run_sarif_args(&[]);
+    assert!(out.status.success(), "anya failed on PE fixture");
+    let v: serde_json::Value = serde_json::from_str(&body).expect("stdout is valid JSON");
+
+    let taxonomies = v["runs"][0]["taxonomies"]
+        .as_array()
+        .expect("taxonomies present when techniques attached");
+    assert!(
+        !taxonomies.is_empty(),
+        "taxonomies array populated when mitre_techniques present"
+    );
+
+    let mitre = &taxonomies[0];
+    assert_eq!(mitre["name"], "MITRE ATT&CK");
+    assert_eq!(mitre["organization"], "MITRE");
+    assert!(mitre["informationUri"]
+        .as_str()
+        .unwrap_or("")
+        .starts_with("https://attack.mitre.org"));
+
+    let taxa = mitre["taxa"].as_array().expect("taxa is array");
+    assert!(
+        !taxa.is_empty(),
+        "taxa populated from analysis techniques"
+    );
+
+    for t in taxa {
+        let id = t["id"].as_str().unwrap_or("");
+        assert!(
+            id.starts_with('T') && id.len() >= 5,
+            "taxa id looks like a MITRE technique id: {}",
+            id
+        );
+        assert!(
+            t["helpUri"]
+                .as_str()
+                .unwrap_or("")
+                .contains("attack.mitre.org/techniques/"),
+            "taxa helpUri links to attack.mitre.org: {:?}",
+            t["helpUri"]
+        );
+    }
+}
+
+#[test]
+fn suspicious_pe_verdict_carrier_gets_warning_level() {
+    let (out, body) = run_sarif_args(&[]);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+    let first_result = &v["runs"][0]["results"][0];
+    assert_eq!(first_result["ruleId"], "ANYA-V001");
+    // simple.exe reaches SUSPICIOUS through the imports path, so the
+    // verdict carrier level is "warning" and the tag set contains
+    // verdict:suspicious per the namespace vocabulary.
+    assert_eq!(first_result["level"], "warning");
+
+    let tags: Vec<&str> = first_result["properties"]["tags"]
+        .as_array()
+        .expect("verdict carrier has tags array")
+        .iter()
+        .map(|t| t.as_str().unwrap_or(""))
+        .collect();
+    assert!(
+        tags.contains(&"verdict:suspicious"),
+        "verdict carrier tags contain verdict:suspicious: {:?}",
+        tags
+    );
+}
+
+#[test]
+fn signal_mitre_confidence_tag_namespaces_present_on_real_finding() {
+    let (out, body) = run_sarif_args(&[]);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+    let results = v["runs"][0]["results"]
+        .as_array()
+        .expect("results present on non-trivial analysis");
+
+    // Flatten all tags across all results
+    let mut all_tags: Vec<String> = Vec::new();
+    for r in results {
+        if let Some(tags) = r["properties"]["tags"].as_array() {
+            for t in tags {
+                if let Some(s) = t.as_str() {
+                    all_tags.push(s.to_string());
+                }
+            }
+        }
+    }
+
+    assert!(
+        all_tags.iter().any(|t| t.starts_with("signal:")),
+        "at least one signal: tag on non-trivial analysis: {:?}",
+        all_tags
+    );
+    assert!(
+        all_tags.iter().any(|t| t.starts_with("mitre:T")),
+        "at least one mitre:T* tag when MITRE technique attached: {:?}",
+        all_tags
+    );
+    assert!(
+        all_tags.iter().any(|t| t.starts_with("confidence:")),
+        "at least one confidence: tag on non-trivial finding: {:?}",
+        all_tags
+    );
+}
+
+#[test]
+fn json_compact_flag_strips_pretty_whitespace() {
+    // Pretty (default)
+    let (_, pretty_body) = run_sarif_args(&[]);
+    // Compact
+    let (_, compact_body) = run_sarif_args(&["--json-compact"]);
+
+    // Both must parse identically after normalisation
+    let pretty_v: serde_json::Value = serde_json::from_str(&pretty_body).unwrap();
+    let compact_v: serde_json::Value = serde_json::from_str(&compact_body).unwrap();
+    assert_eq!(
+        pretty_v, compact_v,
+        "compact and pretty SARIF documents encode identical JSON values"
+    );
+
+    // Compact should be a single line (allowing a single trailing newline).
+    let compact_trimmed = compact_body.trim_end_matches('\n');
+    assert!(
+        !compact_trimmed.contains('\n'),
+        "compact output should not contain internal newlines"
+    );
+
+    // Pretty output must be strictly larger; a real sanity check on the
+    // indentation difference, not just equality.
+    assert!(
+        pretty_body.len() > compact_body.len(),
+        "pretty body ({}) should be larger than compact body ({})",
+        pretty_body.len(),
+        compact_body.len()
+    );
+}
