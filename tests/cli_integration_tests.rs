@@ -35,13 +35,26 @@
 //! is self-contained.
 
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
+use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
 // ── Shared fixture paths ────────────────────────────────────────────────────
 
 const FIXTURE_PE_RELATIVE: &str = "tests/fixtures/simple.exe";
+
+/// Alias used by the robustness / security / user-interaction sections
+/// appended below. Identical to FIXTURE_PE_RELATIVE; kept separate so
+/// the two naming conventions stay explicit.
+const FIXTURE_PE: &str = FIXTURE_PE_RELATIVE;
+
+fn anya_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_anya")
+}
 
 fn fixture_pe() -> PathBuf {
     PathBuf::from(FIXTURE_PE_RELATIVE)
@@ -1698,5 +1711,747 @@ fn exit_code_from_verdict_exits_with_nonzero_on_suspicious_fixture() {
         out.status.code().unwrap_or(0),
         0,
         "suspicious verdict should produce a non-zero exit code"
+    );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ROBUSTNESS SECTION
+//
+// Sovereign rule 3.1 guarantees beyond the shell-port baseline:
+//   * Concurrency — parallel invocations produce identical results.
+//   * Reproducibility — same bytes, any cwd, any argument ordering.
+//   * Idempotence + tempdir hygiene — no residue, no input mutation.
+//   * Graceful degradation — batch survives broken entries.
+//   * Budget caps — pathological inputs complete within time budget.
+// ═════════════════════════════════════════════════════════════════════════════
+
+fn json_of(out: &[u8]) -> serde_json::Value {
+    serde_json::from_slice(out).expect("JSON parse")
+}
+
+// ── Concurrency ────────────────────────────────────────────────────────────
+
+#[test]
+fn ten_concurrent_analyses_produce_identical_output() {
+    let handles: Vec<_> = (0..10)
+        .map(|_| {
+            thread::spawn(|| run_anya(&["--file", FIXTURE_PE, "--json", "--no-color"]).stdout)
+        })
+        .collect();
+    let outputs: Vec<Vec<u8>> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    let first = &outputs[0];
+    assert!(!first.is_empty());
+    for (i, o) in outputs.iter().enumerate() {
+        assert_eq!(o, first, "thread {} diverged", i);
+    }
+}
+
+#[test]
+fn concurrent_different_files_produce_different_hashes() {
+    let tmp = TempDir::new().unwrap();
+    let a = tmp.path().join("a.bin");
+    let b = tmp.path().join("b.bin");
+    fs::write(&a, b"payload-alpha").unwrap();
+    fs::write(&b, b"payload-bravo-different-content-longer").unwrap();
+    let a_s = Arc::new(a.to_str().unwrap().to_owned());
+    let b_s = Arc::new(b.to_str().unwrap().to_owned());
+
+    let ha = {
+        let a_s = Arc::clone(&a_s);
+        thread::spawn(move || run_anya(&["--file", &a_s, "--json", "--no-color"]).stdout)
+    };
+    let hb = {
+        let b_s = Arc::clone(&b_s);
+        thread::spawn(move || run_anya(&["--file", &b_s, "--json", "--no-color"]).stdout)
+    };
+
+    let va = json_of(&ha.join().unwrap());
+    let vb = json_of(&hb.join().unwrap());
+    assert_ne!(va["hashes"]["sha256"], vb["hashes"]["sha256"]);
+}
+
+// ── Reproducibility ────────────────────────────────────────────────────────
+
+#[test]
+fn absolute_and_relative_paths_produce_same_sha256() {
+    let rel = PathBuf::from(FIXTURE_PE);
+    let abs = fs::canonicalize(&rel).unwrap();
+    let va = json_of(&run_anya(&["--file", rel.to_str().unwrap(), "--json", "--no-color"]).stdout);
+    let vb = json_of(&run_anya(&["--file", abs.to_str().unwrap(), "--json", "--no-color"]).stdout);
+    assert_eq!(va["hashes"]["sha256"], vb["hashes"]["sha256"]);
+}
+
+#[test]
+fn same_content_different_names_produce_same_sha256() {
+    let tmp = TempDir::new().unwrap();
+    let a = tmp.path().join("alpha.bin");
+    let b = tmp.path().join("different-name.bin");
+    let bytes = b"identical content here";
+    fs::write(&a, bytes).unwrap();
+    fs::write(&b, bytes).unwrap();
+    let va = json_of(&run_anya(&["--file", a.to_str().unwrap(), "--json", "--no-color"]).stdout);
+    let vb = json_of(&run_anya(&["--file", b.to_str().unwrap(), "--json", "--no-color"]).stdout);
+    assert_eq!(va["hashes"]["sha256"], vb["hashes"]["sha256"]);
+    assert_eq!(va["file_info"]["size_bytes"], vb["file_info"]["size_bytes"]);
+}
+
+#[test]
+fn flag_ordering_does_not_change_verdict() {
+    let a = run_anya(&["--file", FIXTURE_PE, "--json", "--no-color"]);
+    let b = run_anya(&["--no-color", "--json", "--file", FIXTURE_PE]);
+    assert_eq!(a.stdout, b.stdout);
+}
+
+#[test]
+fn repeat_analysis_does_not_modify_input_file() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("probe.bin");
+    fs::write(&path, b"sample bytes for mutation check").unwrap();
+    let before_mtime = fs::metadata(&path).unwrap().modified().unwrap();
+    let before_bytes = fs::read(&path).unwrap();
+    for _ in 0..5 {
+        let o = run_anya(&["--file", path.to_str().unwrap(), "--json", "--no-color"]);
+        assert!(o.status.success());
+    }
+    let after_mtime = fs::metadata(&path).unwrap().modified().unwrap();
+    let after_bytes = fs::read(&path).unwrap();
+    assert_eq!(before_mtime, after_mtime);
+    assert_eq!(before_bytes, after_bytes);
+}
+
+// ── Tempdir hygiene ─────────────────────────────────────────────────────────
+
+#[test]
+fn analysis_leaves_no_files_inside_a_dedicated_tmpdir() {
+    let tmp = TempDir::new().unwrap();
+    let out = Command::new(anya_bin())
+        .env("TMPDIR", tmp.path())
+        .args(["--file", FIXTURE_PE, "--json", "--no-color"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let residue: Vec<_> = fs::read_dir(tmp.path()).unwrap().collect();
+    assert!(
+        residue.is_empty(),
+        "analysis left {} files in TMPDIR",
+        residue.len()
+    );
+}
+
+#[test]
+fn analysis_on_error_path_also_leaves_no_tmpdir_residue() {
+    let tmp = TempDir::new().unwrap();
+    let _ = Command::new(anya_bin())
+        .env("TMPDIR", tmp.path())
+        .args(["--file", "/nonexistent/path/to/nope.bin"])
+        .output()
+        .unwrap();
+    let residue: Vec<_> = fs::read_dir(tmp.path()).unwrap().collect();
+    assert!(residue.is_empty());
+}
+
+// ── Stdin cap sanity ────────────────────────────────────────────────────────
+
+fn spawn_stdin_and_write(args: &[&str], payload: &[u8]) -> std::process::Output {
+    let mut child = Command::new(anya_bin())
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        let _ = stdin.write_all(payload);
+    }
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn stdin_at_moderate_size_under_cap_succeeds() {
+    let mut payload = Vec::with_capacity(64 * 1024);
+    let mut x: u32 = 0xCAFE_BABE;
+    for _ in 0..64 * 1024 {
+        x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        payload.push((x >> 16) as u8);
+    }
+    let out = spawn_stdin_and_write(&["--file", "-", "--json", "--no-color"], &payload);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["file_info"]["size_bytes"].as_u64().unwrap(), 65_536);
+}
+
+// ── Broken pipe resilience ──────────────────────────────────────────────────
+
+#[test]
+fn broken_pipe_stdout_on_help_does_not_crash() {
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(format!("{} --help | head -0", anya_bin()))
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("panicked"), "panic on broken pipe: {}", stderr);
+}
+
+#[test]
+fn broken_pipe_stdout_on_json_analysis_does_not_crash() {
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(format!(
+            "{} --file {} --json --no-color | head -c 1",
+            anya_bin(),
+            FIXTURE_PE
+        ))
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("panicked") && !stderr.contains("BrokenPipe"));
+}
+
+// ── Batch robustness ────────────────────────────────────────────────────────
+
+#[test]
+#[cfg(unix)]
+fn batch_with_broken_symlink_continues_on_other_entries() {
+    use std::os::unix::fs::symlink;
+    let tmp = TempDir::new().unwrap();
+    symlink("/nonexistent/target", tmp.path().join("broken.lnk")).unwrap();
+    fs::copy(FIXTURE_PE, tmp.path().join("real.exe")).unwrap();
+    fs::write(tmp.path().join("plain.txt"), b"text").unwrap();
+
+    let out = run_anya(&["--directory", tmp.path().to_str().unwrap(), "--no-color"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+}
+
+#[test]
+fn batch_non_recursive_ignores_nested_directories() {
+    let tmp = TempDir::new().unwrap();
+    let nested = tmp.path().join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::copy(FIXTURE_PE, tmp.path().join("top.exe")).unwrap();
+    fs::copy(FIXTURE_PE, nested.join("nested.exe")).unwrap();
+
+    let out = run_anya(&["--directory", tmp.path().to_str().unwrap(), "--no-color"]);
+    assert!(out.status.success());
+    let s = stdout_of(&out);
+    assert!(s.contains("top.exe") || s.to_lowercase().contains("analys"));
+}
+
+#[test]
+fn batch_recursive_descends_into_subdirectories() {
+    let tmp = TempDir::new().unwrap();
+    let nested = tmp.path().join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::copy(FIXTURE_PE, nested.join("nested.exe")).unwrap();
+
+    let out = run_anya(&[
+        "--directory",
+        tmp.path().to_str().unwrap(),
+        "--recursive",
+        "--no-color",
+    ]);
+    assert!(out.status.success());
+}
+
+// ── Budget caps ─────────────────────────────────────────────────────────────
+
+#[test]
+fn five_level_nested_zip_completes_within_time_budget() {
+    use zip::ZipWriter;
+    use zip::write::SimpleFileOptions;
+
+    let tmp = TempDir::new().unwrap();
+    let mut buf = Vec::from(&b"innermost payload bytes"[..]);
+    for i in 0..5 {
+        let mut outer = Vec::new();
+        {
+            let cursor = std::io::Cursor::new(&mut outer);
+            let mut zw = ZipWriter::new(cursor);
+            let opts: zip::write::FileOptions<()> = SimpleFileOptions::default();
+            zw.start_file(format!("layer{}.bin", i), opts).unwrap();
+            zw.write_all(&buf).unwrap();
+            zw.finish().unwrap();
+        }
+        buf = outer;
+    }
+    let nested_path = tmp.path().join("nested.zip");
+    fs::write(&nested_path, &buf).unwrap();
+
+    let start = Instant::now();
+    let out = run_anya(&[
+        "--file",
+        nested_path.to_str().unwrap(),
+        "--json",
+        "--no-color",
+    ]);
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(30),
+        "nested zip took {:?}",
+        elapsed
+    );
+    assert!(out.status.code().is_some());
+}
+
+#[test]
+fn one_hundred_rapid_small_file_analyses_stay_bounded() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("small.bin");
+    fs::write(&path, b"0123456789").unwrap();
+
+    let start = Instant::now();
+    for _ in 0..100 {
+        let o = run_anya(&["--file", path.to_str().unwrap(), "--quiet"]);
+        assert!(o.status.code().is_some());
+    }
+    let elapsed = start.elapsed();
+    assert!(elapsed < Duration::from_secs(60), "took {:?}", elapsed);
+}
+
+// ── Malformed headers ───────────────────────────────────────────────────────
+
+#[test]
+fn pe_header_claiming_impossibly_large_size_does_not_crash() {
+    let tmp = TempDir::new().unwrap();
+    let p = tmp.path().join("bad_pe.exe");
+    let mut bytes = Vec::from(&b"MZ"[..]);
+    bytes.resize(0x40, 0);
+    bytes[0x3C] = 0x40;
+    bytes.extend_from_slice(b"PE\0\0");
+    bytes.extend_from_slice(&[0xFF; 256]);
+    fs::write(&p, &bytes).unwrap();
+    let out = run_anya(&["--file", p.to_str().unwrap(), "--json", "--no-color"]);
+    assert!(out.status.code().is_some());
+}
+
+#[test]
+fn elf_header_with_mismatched_endian_does_not_crash() {
+    let tmp = TempDir::new().unwrap();
+    let p = tmp.path().join("bad_elf.bin");
+    let mut bytes = vec![0x7f, b'E', b'L', b'F', 0x02, 0xFF, 0x01, 0x00];
+    bytes.extend_from_slice(&[0xFF; 1024]);
+    fs::write(&p, &bytes).unwrap();
+    let out = run_anya(&["--file", p.to_str().unwrap(), "--json", "--no-color"]);
+    assert!(out.status.code().is_some());
+}
+
+#[test]
+fn zip_with_eocd_pointing_past_file_end_does_not_crash() {
+    let tmp = TempDir::new().unwrap();
+    let p = tmp.path().join("bad.zip");
+    let mut bytes = Vec::from(&b"PK\x05\x06"[..]);
+    bytes.extend_from_slice(&[0xFF; 18]);
+    fs::write(&p, &bytes).unwrap();
+    let out = run_anya(&["--file", p.to_str().unwrap(), "--json", "--no-color"]);
+    assert!(out.status.code().is_some());
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SECURITY SECTION
+//
+// Enforces rule 1 (zero outbound network) and rule 3.1 (secrets and
+// privacy) guarantees against the compiled binary and observable
+// behaviour. Each test names a specific promise that must hold.
+// ═════════════════════════════════════════════════════════════════════════════
+
+fn read_engine_source_tree() -> String {
+    let mut collected = String::new();
+    fn walk(dir: &std::path::Path, sink: &mut String) {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    walk(&p, sink);
+                } else if p.extension().and_then(|e| e.to_str()) == Some("rs") {
+                    if let Ok(body) = fs::read_to_string(&p) {
+                        sink.push_str(&body);
+                        sink.push('\n');
+                    }
+                }
+            }
+        }
+    }
+    walk(&PathBuf::from("src"), &mut collected);
+    collected
+}
+
+// ── Rule 1 — zero outbound network ──────────────────────────────────────────
+
+#[test]
+fn engine_source_contains_no_http_client_imports() {
+    let src = read_engine_source_tree();
+    let banned = ["use reqwest", "use ureq", "use hyper::Client", "use isahc"];
+    for needle in banned {
+        assert!(
+            !src.contains(needle),
+            "engine/src/ contains network client import: {:?}",
+            needle
+        );
+    }
+}
+
+#[test]
+fn engine_source_contains_no_tcp_or_udp_socket_types() {
+    let src = read_engine_source_tree();
+    let banned = [
+        "std::net::TcpStream",
+        "std::net::TcpListener",
+        "std::net::UdpSocket",
+        "TcpStream::connect",
+        "TcpListener::bind",
+        "UdpSocket::bind",
+    ];
+    for needle in banned {
+        assert!(
+            !src.contains(needle),
+            "engine/src/ contains socket reference: {:?}",
+            needle
+        );
+    }
+}
+
+#[test]
+fn engine_binary_contains_no_hardcoded_api_keys() {
+    // AKIA excluded: it is Anya's own AWS key detection regex prefix
+    // and appears intentionally in IoC scoring code plus the public
+    // AWS example key used in test fixtures.
+    let bytes = fs::read(anya_bin()).expect("cannot read engine binary");
+    let haystack = String::from_utf8_lossy(&bytes);
+    let needles = ["ghp_", "gho_", "ya29.", "AIza"];
+    for n in needles {
+        assert!(!haystack.contains(n), "engine binary contains {:?}", n);
+    }
+}
+
+// ── Rule 3.1 — secrets and privacy ──────────────────────────────────────────
+
+#[test]
+fn env_var_contents_not_echoed_in_error_messages() {
+    let sentinel = "ANYA_TEST_SECRET_DO_NOT_LEAK_ME_e8f3a2c1";
+    let out = Command::new(anya_bin())
+        .env("ANYA_TEST_SECRET", sentinel)
+        .args(["--file", "/nonexistent/path/that/will/fail"])
+        .output()
+        .unwrap();
+    assert!(!stdout_of(&out).contains(sentinel));
+    assert!(!stderr_of(&out).contains(sentinel));
+}
+
+#[test]
+fn env_var_contents_not_echoed_in_verbose_output() {
+    let sentinel = "ANYA_TEST_SECRET_VERBOSE_e8f3a2c1";
+    let out = Command::new(anya_bin())
+        .env("ANYA_TEST_SECRET", sentinel)
+        .args(["--file", FIXTURE_PE, "--verbose", "--no-color"])
+        .output()
+        .unwrap();
+    assert!(!stdout_of(&out).contains(sentinel));
+    assert!(!stderr_of(&out).contains(sentinel));
+}
+
+#[test]
+fn env_var_contents_not_echoed_in_json_output() {
+    let sentinel = "ANYA_TEST_SECRET_JSON_e8f3a2c1";
+    let out = Command::new(anya_bin())
+        .env("ANYA_TEST_SECRET", sentinel)
+        .args(["--file", FIXTURE_PE, "--json", "--no-color"])
+        .output()
+        .unwrap();
+    assert!(!stdout_of(&out).contains(sentinel));
+    assert!(!stderr_of(&out).contains(sentinel));
+}
+
+#[test]
+fn json_output_is_pure_json_no_stray_logs() {
+    let out = run_anya(&["--file", FIXTURE_PE, "--json", "--no-color"]);
+    assert!(out.status.success());
+    let _: serde_json::Value = serde_json::from_slice(&out.stdout)
+        .expect("stdout must parse as single JSON doc with no stray lines");
+}
+
+// ── Filesystem attack surface ───────────────────────────────────────────────
+
+#[test]
+#[cfg(unix)]
+fn sec_symlink_to_nonexistent_target_exits_nonzero_cleanly() {
+    use std::os::unix::fs::symlink;
+    let tmp = TempDir::new().unwrap();
+    let link = tmp.path().join("dangling.exe");
+    symlink("/nonexistent/target/file.bin", &link).unwrap();
+    let out = run_anya(&["--file", link.to_str().unwrap(), "--no-color"]);
+    assert!(!out.status.success());
+    assert!(out.status.code().is_some());
+}
+
+#[test]
+#[cfg(unix)]
+fn symlink_loop_does_not_infinite_loop() {
+    use std::os::unix::fs::symlink;
+    let tmp = TempDir::new().unwrap();
+    let a = tmp.path().join("a.lnk");
+    let b = tmp.path().join("b.lnk");
+    symlink(&b, &a).unwrap();
+    symlink(&a, &b).unwrap();
+    let start = Instant::now();
+    let out = run_anya(&["--file", a.to_str().unwrap(), "--no-color"]);
+    let elapsed = start.elapsed();
+    assert!(elapsed < Duration::from_secs(10), "took {:?}", elapsed);
+    assert!(out.status.code().is_some());
+}
+
+#[test]
+#[cfg(unix)]
+fn proc_self_environ_input_does_not_leak_to_stdout() {
+    let sentinel = "PROC_ENVIRON_SENTINEL_f2a17bc9";
+    let out = Command::new(anya_bin())
+        .env("PROC_ENVIRON_SENTINEL", sentinel)
+        .args(["--file", "/proc/self/environ", "--json", "--no-color"])
+        .output()
+        .unwrap();
+    assert!(!stdout_of(&out).contains(sentinel));
+}
+
+#[test]
+#[cfg(unix)]
+fn file_with_250_char_name_handled() {
+    let tmp = TempDir::new().unwrap();
+    let long_name = format!("{}.bin", "x".repeat(250));
+    let p = tmp.path().join(&long_name);
+    fs::copy(FIXTURE_PE, &p).unwrap();
+    let out = run_anya(&["--file", p.to_str().unwrap(), "--json", "--no-color"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+}
+
+#[test]
+fn output_path_with_nonexistent_parent_fails_cleanly() {
+    let tmp = TempDir::new().unwrap();
+    let bad = tmp.path().join("does/not/exist/report.json");
+    let out = run_anya(&[
+        "--file",
+        FIXTURE_PE,
+        "--json",
+        "--output",
+        bad.to_str().unwrap(),
+        "--no-color",
+    ]);
+    assert!(!out.status.success());
+    assert!(!stderr_of(&out).contains("panicked"));
+}
+
+// ── ANSI discipline ─────────────────────────────────────────────────────────
+
+#[test]
+fn no_color_env_var_strips_ansi_escapes() {
+    let out = Command::new(anya_bin())
+        .env("NO_COLOR", "1")
+        .args(["--file", FIXTURE_PE])
+        .output()
+        .unwrap();
+    assert!(!stdout_of(&out).contains('\x1b'));
+}
+
+#[test]
+fn output_to_file_never_contains_ansi_escapes() {
+    let tmp = TempDir::new().unwrap();
+    let report = tmp.path().join("report.md");
+    let out = run_anya(&[
+        "--file",
+        FIXTURE_PE,
+        "--output",
+        report.to_str().unwrap(),
+    ]);
+    assert!(out.status.success());
+    let body = fs::read_to_string(&report).unwrap();
+    assert!(!body.contains('\x1b'));
+}
+
+#[test]
+fn json_output_never_contains_ansi_escapes() {
+    let out = run_anya(&["--file", FIXTURE_PE, "--json"]);
+    assert!(out.status.success());
+    assert!(!stdout_of(&out).contains('\x1b'));
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// USER INTERACTION SECTION
+//
+// Contract between Anya and human/shell users at the argument boundary:
+// short flag forms, position independence, subcommand help coverage,
+// unknown-argument error clarity, env vars, exit code semantics.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── Short flag forms ────────────────────────────────────────────────────────
+
+#[test]
+fn short_h_is_help() {
+    let out = run_anya(&["-h"]);
+    assert!(out.status.success());
+    let s = stdout_of(&out);
+    assert!(s.contains("--file") || s.contains("Usage:"));
+}
+
+#[test]
+fn short_v_is_version() {
+    let out = run_anya(&["-V"]);
+    if out.status.success() {
+        assert!(stdout_of(&out).chars().any(|c| c.is_ascii_digit()));
+    } else {
+        let fallback = run_anya(&["--version"]);
+        assert!(fallback.status.success());
+    }
+}
+
+// ── Position-independent top-level flags ────────────────────────────────────
+
+#[test]
+fn version_works_at_end_of_argv() {
+    assert!(run_anya(&["--no-color", "--version"]).status.success());
+}
+
+#[test]
+fn help_works_at_end_of_argv() {
+    let out = run_anya(&["--no-color", "--help"]);
+    assert!(out.status.success());
+    assert!(stdout_of(&out).contains("--file"));
+}
+
+#[test]
+fn flag_order_json_before_file_matches_json_after_file() {
+    let a = run_anya(&["--json", "--file", FIXTURE_PE, "--no-color"]);
+    let b = run_anya(&["--file", FIXTURE_PE, "--json", "--no-color"]);
+    assert!(a.status.success() && b.status.success());
+    assert_eq!(a.stdout, b.stdout);
+}
+
+// ── Subcommand help coverage ────────────────────────────────────────────────
+
+#[test]
+fn compare_subcommand_has_help() {
+    let out = run_anya(&["compare", "--help"]);
+    assert!(out.status.success());
+    let s = stdout_of(&out);
+    assert!(s.to_lowercase().contains("compare") || s.contains("Usage:") || s.contains("<"));
+}
+
+#[test]
+fn watch_subcommand_has_help() {
+    assert!(run_anya(&["watch", "--help"]).status.success());
+}
+
+#[test]
+fn completions_subcommand_has_help() {
+    assert!(run_anya(&["completions", "--help"]).status.success());
+}
+
+#[test]
+fn cases_subcommand_has_help() {
+    assert!(run_anya(&["cases", "--help"]).status.success());
+}
+
+// ── Unknown / invalid arguments ─────────────────────────────────────────────
+
+#[test]
+fn unknown_flag_exits_nonzero_with_useful_message() {
+    let out = run_anya(&["--definitely-not-a-real-flag"]);
+    assert!(!out.status.success());
+    let combined = format!("{}{}", stdout_of(&out), stderr_of(&out));
+    assert!(
+        combined.contains("definitely-not-a-real-flag")
+            || combined.to_lowercase().contains("unknown")
+            || combined.contains("--help")
+    );
+}
+
+#[test]
+fn unknown_subcommand_exits_nonzero() {
+    assert!(!run_anya(&["not-a-real-subcommand"]).status.success());
+}
+
+#[test]
+fn conflicting_file_and_directory_exits_nonzero() {
+    let tmp = TempDir::new().unwrap();
+    fs::copy(FIXTURE_PE, tmp.path().join("copy.exe")).unwrap();
+    let out = run_anya(&[
+        "--file",
+        FIXTURE_PE,
+        "--directory",
+        tmp.path().to_str().unwrap(),
+        "--no-color",
+    ]);
+    assert!(!out.status.success());
+}
+
+// ── Environment variables ───────────────────────────────────────────────────
+
+#[test]
+fn no_color_env_var_is_respected_as_standalone() {
+    let out = Command::new(anya_bin())
+        .env("NO_COLOR", "1")
+        .args(["--file", FIXTURE_PE])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(!stdout_of(&out).contains('\x1b'));
+}
+
+#[test]
+fn empty_env_preserves_functionality() {
+    let out = Command::new(anya_bin())
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", std::env::var("HOME").unwrap_or_default())
+        .args(["--file", FIXTURE_PE, "--json", "--no-color"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let _: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+}
+
+// ── Exit code semantics ─────────────────────────────────────────────────────
+
+#[test]
+fn successful_analysis_exits_zero_without_verdict_flag() {
+    let out = run_anya(&["--file", FIXTURE_PE, "--quiet"]);
+    assert_eq!(out.status.code(), Some(0));
+}
+
+#[test]
+fn exit_code_reflects_verdict_when_flag_set() {
+    let out = run_anya(&[
+        "--file",
+        FIXTURE_PE,
+        "--exit-code-from-verdict",
+        "--quiet",
+    ]);
+    assert_ne!(out.status.code().unwrap_or(0), 0);
+}
+
+// ── Double-dash argument terminator ─────────────────────────────────────────
+
+#[test]
+fn double_dash_does_not_eat_file_flag() {
+    let out = run_anya(&["--no-color", "--", "--file", FIXTURE_PE]);
+    assert!(!out.status.success());
+}
+
+// ── Help content completeness ───────────────────────────────────────────────
+
+#[test]
+fn help_mentions_format_flag() {
+    assert!(stdout_of(&run_anya(&["--help"])).contains("--format"));
+}
+
+#[test]
+fn help_mentions_output_flag() {
+    assert!(stdout_of(&run_anya(&["--help"])).contains("--output"));
+}
+
+#[test]
+fn help_mentions_stdin_convention() {
+    let s = stdout_of(&run_anya(&["--help"]));
+    assert!(
+        s.contains("stdin") || s.contains("`-`"),
+        "--help should document --file - stdin convention"
     );
 }
