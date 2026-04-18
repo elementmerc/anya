@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.0.5] - unreleased
+
+### Enterprise integration
+- New `--format sarif` output produces OASIS SARIF 2.1.0 documents compatible with GitHub Code Scanning, Azure DevOps, GitLab Security, and mainstream SIEM and SOAR pipelines
+- Anya's 15 rule catalogue (ANYA-V001 verdict carrier plus 14 signal rules) is embedded in every SARIF run, so consumers see human readable descriptions alongside each finding
+- MITRE ATT&CK taxonomy emitted as `taxonomies[]` when the analysis attaches any techniques, with each taxon linked to the official MITRE page
+- Per finding `properties.tags[]` use a colon prefixed namespace vocabulary (verdict, mitre, family, confidence, signal, format) for SIEM filtering
+- `--output report.sarif` writes the SARIF document to a file instead of stdout
+- Docker images now published to GitHub Container Registry at `ghcr.io/elementmerc/anya` in addition to Docker Hub
+- Reference `docker-compose.yml` gains an `anya-watch` service demonstrating the sidecar inbox pattern (continuous directory watch with JSON verdict emission)
+- Releases now publish a consolidated `SHA256SUMS.txt` file covering every binary asset; verify with `sha256sum -c SHA256SUMS.txt` (per-asset `.sha256` sidecars still ship for backward compatibility)
+
+### Other
+- Bug fixes and improvements
+
 ## [2.0.4] - 2026-04-14
 
 ### Detection
