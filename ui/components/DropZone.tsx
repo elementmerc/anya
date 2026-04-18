@@ -85,38 +85,99 @@ export default function DropZone({ isLoading, error, onPickFile }: Props) {
               Analysing…
             </p>
           </>
-        ) : error ? (
-          <>
-            <AlertCircle size={32} style={{ color: "var(--risk-critical)" }} />
-            <p
-              style={{
-                fontSize: "var(--font-size-base)",
-                color: "var(--risk-critical)",
-                margin: 0,
-                textAlign: "center",
-                maxWidth: 320,
-              }}
-            >
-              {error}
-            </p>
-            <button
-              onClick={(e) => { e.stopPropagation(); void handleBrowse(); }}
-              style={{
-                marginTop: 4,
-                padding: "6px 16px",
-                fontSize: "var(--font-size-sm)",
-                borderRadius: "var(--radius)",
-                border: "1px solid var(--border)",
-                background: "var(--bg-elevated)",
-                color: "var(--text-secondary)",
-                cursor: "pointer",
-                transition: "all 150ms ease-out",
-              }}
-            >
-              Try another file
-            </button>
-          </>
-        ) : (
+        ) : error ? (() => {
+          // Detect the "file not readable" class of error produced by
+          // analyse_file's fs::File::open failure. For recent history
+          // entries whose backing file has since been cleaned up (e.g.
+          // a WhatsApp attachment tmp path that disappeared after the
+          // chat window closed), the generic "Couldn't read" message is
+          // technically correct but unhelpful. Split it into a friendly
+          // primary line and a muted secondary line that still shows
+          // the original path (wrapped) for diagnostic reference.
+          const readMatch = error.match(
+            /Couldn't read '([^']+)'\.\s*Check that the file exists and you have read permission\./,
+          );
+          const missingPath = readMatch ? readMatch[1] : null;
+          return (
+            <>
+              <AlertCircle size={32} style={{ color: "var(--risk-critical)" }} />
+              {missingPath ? (
+                <>
+                  <p
+                    style={{
+                      fontSize: "var(--font-size-base)",
+                      color: "var(--risk-critical)",
+                      margin: 0,
+                      textAlign: "center",
+                      maxWidth: 360,
+                    }}
+                  >
+                    This file is no longer available at its original location.
+                  </p>
+                  <p
+                    style={{
+                      fontSize: "var(--font-size-xs)",
+                      color: "var(--text-muted)",
+                      margin: 0,
+                      textAlign: "center",
+                      maxWidth: 360,
+                      wordBreak: "break-all",
+                      overflowWrap: "anywhere",
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    It may have been deleted or moved.
+                  </p>
+                  <p
+                    style={{
+                      fontSize: "var(--font-size-xs)",
+                      color: "var(--text-muted)",
+                      fontFamily: "var(--font-mono)",
+                      margin: 0,
+                      textAlign: "center",
+                      maxWidth: 360,
+                      wordBreak: "break-all",
+                      overflowWrap: "anywhere",
+                      opacity: 0.7,
+                    }}
+                  >
+                    {missingPath}
+                  </p>
+                </>
+              ) : (
+                <p
+                  style={{
+                    fontSize: "var(--font-size-base)",
+                    color: "var(--risk-critical)",
+                    margin: 0,
+                    textAlign: "center",
+                    maxWidth: 360,
+                    wordBreak: "break-word",
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {error}
+                </p>
+              )}
+              <button
+                onClick={(e) => { e.stopPropagation(); void handleBrowse(); }}
+                style={{
+                  marginTop: 4,
+                  padding: "6px 16px",
+                  fontSize: "var(--font-size-sm)",
+                  borderRadius: "var(--radius)",
+                  border: "1px solid var(--border)",
+                  background: "var(--bg-elevated)",
+                  color: "var(--text-secondary)",
+                  cursor: "pointer",
+                  transition: "all 150ms ease-out",
+                }}
+              >
+                Try another file
+              </button>
+            </>
+          );
+        })() : (
           <>
             <Upload size={32} style={{ color: "var(--text-muted)" }} />
             <p style={{ fontSize: "var(--font-size-lg)", color: "var(--text-secondary)", margin: 0 }}>
