@@ -410,6 +410,62 @@ fn signal_mitre_confidence_tag_namespaces_present_on_real_finding() {
 }
 
 #[test]
+fn empty_file_rejected_at_boundary_without_partial_sarif() {
+    // Empty (0-byte) files are rejected at input validation per the
+    // sovereign robustness rule 3.1 "validate inputs at boundaries".
+    // This guards that invariant: no partial SARIF document leaks to
+    // stdout, and the process exits non-zero so CI pipelines fail fast.
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("empty.bin");
+    fs::write(&test_file, b"").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_anya"))
+        .arg("--file")
+        .arg(&test_file)
+        .arg("--format")
+        .arg("sarif")
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "empty file input should exit non-zero"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("\"$schema\"") && !stdout.contains("\"version\""),
+        "no partial SARIF on stdout when input rejected; got: {}",
+        stdout
+    );
+}
+
+#[test]
+fn nonexistent_input_exits_nonzero_without_partial_sarif() {
+    let output = Command::new(env!("CARGO_BIN_EXE_anya"))
+        .arg("--file")
+        .arg("/nonexistent/path/does/not/exist.bin")
+        .arg("--format")
+        .arg("sarif")
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "anya should exit non-zero when input file does not exist"
+    );
+
+    // stdout should not contain a partial SARIF document; any valid
+    // SARIF would have "$schema" or "version" at the top.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("\"$schema\"") && !stdout.contains("\"version\""),
+        "no partial SARIF document on error path; stdout was: {}",
+        stdout
+    );
+}
+
+#[test]
 fn json_compact_flag_strips_pretty_whitespace() {
     // Pretty (default)
     let (_, pretty_body) = run_sarif_args(&[]);
