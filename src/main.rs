@@ -47,6 +47,56 @@ use goblin::Object;
 
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), env!("ANYA_VERSION_SUFFIX"),);
 
+/// Hard cap for `--file -` stdin spooling. Protects against a producer
+/// that would try to pipe an unbounded stream. 1 GiB is well above any
+/// real sample size while keeping the tempfile footprint bounded.
+const MAX_STDIN_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// Spool bytes from stdin into a NamedTempFile with a strict size cap.
+///
+/// Refuses a TTY stdin (no pipe attached), rejects empty input at the
+/// boundary per rule 3.1, and errors cleanly if the cap is exceeded.
+/// The returned NamedTempFile is deleted when dropped, so callers must
+/// keep the binding alive for the duration of the analysis.
+fn spool_stdin_to_tempfile(max_bytes: u64) -> Result<tempfile::NamedTempFile> {
+    use std::io::{IsTerminal, Read};
+
+    let stdin = std::io::stdin();
+    if stdin.is_terminal() {
+        anyhow::bail!(
+            "Stdin is a terminal, not a pipe. Pipe a file into anya, for example:\n\n\
+             \x20   cat sample.exe | anya --file -\n\n\
+             Or use --file PATH to read from disk."
+        );
+    }
+
+    let mut tmp = tempfile::NamedTempFile::new()
+        .context("Could not create tempfile for stdin spool")?;
+
+    // Reading max_bytes + 1 lets us detect overflow without buffering
+    // the whole stream in memory. The underlying copy streams through.
+    let mut handle = stdin.lock().take(max_bytes + 1);
+    let written = std::io::copy(&mut handle, tmp.as_file_mut())
+        .context("Failed to read bytes from stdin")?;
+
+    if written == 0 {
+        anyhow::bail!(
+            "Stdin produced zero bytes. Pipe a file into anya, \
+             or use --file PATH to read from disk."
+        );
+    }
+    if written > max_bytes {
+        anyhow::bail!(
+            "Stdin input exceeds the {} byte cap. \
+             Save the file to disk first and use --file PATH instead.",
+            max_bytes
+        );
+    }
+
+    tmp.as_file().sync_all().ok();
+    Ok(tmp)
+}
+
 /// Bundled config values passed to analysis functions
 struct RunConfig<'a> {
     min_string_length: usize,
@@ -89,10 +139,14 @@ struct RunConfig<'a> {
     anya --file sample.exe > output.txt
         Save text analysis to file (shell redirection)
 
+    cat sample.exe | anya --file - --format sarif
+        Read bytes from stdin (1 GiB cap) and emit SARIF
+
 For more information, visit: https://github.com/elementmerc/anya
 ")]
 struct Args {
-    /// Path to the file to analyse (use --directory for batch mode)
+    /// Path to the file to analyse. Pass `-` to read bytes from stdin
+    /// (size cap 1 GiB). Use --directory for batch mode.
     #[arg(short, long, value_name = "FILE", conflicts_with = "directory")]
     file: Option<PathBuf>,
 
@@ -502,7 +556,7 @@ fn run() -> Result<()> {
         .init();
 
     // Parse command-line arguments
-    let args = Args::parse();
+    let mut args = Args::parse();
 
     // Wire the KSD runtime flags into the engine before any analysis fires.
     // These static setters replace what used to be dead CLI flags: --no-ksd
@@ -800,9 +854,26 @@ fn run() -> Result<()> {
              Examples:\n\
              anya --file malware.exe\n\
              anya --directory ./samples\n\
-             anya --directory ./samples --recursive"
+             anya --directory ./samples --recursive\n\
+             cat sample.exe | anya --file -"
         );
     }
+
+    // Stdin input: if `--file -` was given, spool stdin into a tempfile
+    // with a size cap, then rewrite args.file to point at the tempfile
+    // path. The `_stdin_spool` binding keeps the NamedTempFile alive for
+    // the rest of main so the bytes aren't deleted before analysis runs.
+    let _stdin_spool: Option<tempfile::NamedTempFile> = if args
+        .file
+        .as_ref()
+        .is_some_and(|p| p.as_os_str() == "-")
+    {
+        let spooled = spool_stdin_to_tempfile(MAX_STDIN_BYTES)?;
+        args.file = Some(spooled.path().to_path_buf());
+        Some(spooled)
+    } else {
+        None
+    };
 
     // When --format text (default) is used with --output, produce Markdown instead
     let effective_markdown =

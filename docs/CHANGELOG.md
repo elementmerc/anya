@@ -11,6 +11,7 @@
 - Docker images now published to GitHub Container Registry at `ghcr.io/elementmerc/anya` in addition to Docker Hub
 - Reference `docker-compose.yml` gains an `anya-watch` service demonstrating the sidecar inbox pattern (continuous directory watch with JSON verdict emission)
 - Releases now publish a consolidated `SHA256SUMS.txt` file covering every binary asset; verify with `sha256sum -c SHA256SUMS.txt` (per-asset `.sha256` sidecars still ship for backward compatibility)
+- `anya --file -` reads bytes from stdin (size cap 1 GiB), enabling pipeline composition such as `cat sample.exe | anya --file - --format sarif`
 
 ### Other
 - Bug fixes and improvements

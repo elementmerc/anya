@@ -125,6 +125,9 @@ cms = "0.2.3"
 x509-cert = "0.2.5"
 const-oid = "0.10.2"
 
+# Stdin input mode spooling (used by CLI `--file -` path)
+tempfile = "3.10"
+
 [features]
 default = ["cli", "extended-parsers", "yara"]
 # CLI binary — disable for library-only builds
@@ -136,9 +139,6 @@ extended-parsers = []
 yara = ["dep:yara-x"]
 
 [dev-dependencies]
-# For integration testing
-tempfile = "3.10"
-
 # For benchmarking
 criterion = "0.5"
 
