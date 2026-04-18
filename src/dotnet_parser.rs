@@ -365,8 +365,8 @@ mod tests {
         assert_eq!(calculate_entropy(&[0u8; 256]), 0.0);
         // Uniform distribution = ~8.0
         let mut data = vec![0u8; 256];
-        for i in 0..256 {
-            data[i] = i as u8;
+        for (i, slot) in data.iter_mut().enumerate().take(256) {
+            *slot = i as u8;
         }
         let ent = calculate_entropy(&data);
         assert!(ent > 7.9 && ent <= 8.0);

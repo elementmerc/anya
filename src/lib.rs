@@ -2479,14 +2479,16 @@ mod tests {
     fn test_compute_verdict_known_sample_short_circuits_to_clean() {
         // A sample that matches a known TOOL entry should short-
         // circuit to CLEAN with a TOOL-tagged summary.
-        let mut result = output::AnalysisResult::default();
-        result.file_format = "Windows PE".to_string();
-        result.known_sample = Some(output::KnownSampleMatch {
-            verdict: "TOOL".to_string(),
-            category: "Dual-use/Security Tool".to_string(),
-            name: "FLOSS (FLARE Obfuscated String Solver)".to_string(),
-            description: "Mandiant string extraction tool".to_string(),
-        });
+        let result = output::AnalysisResult {
+            file_format: "Windows PE".to_string(),
+            known_sample: Some(output::KnownSampleMatch {
+                verdict: "TOOL".to_string(),
+                category: "Dual-use/Security Tool".to_string(),
+                name: "FLOSS (FLARE Obfuscated String Solver)".to_string(),
+                description: "Mandiant string extraction tool".to_string(),
+            }),
+            ..output::AnalysisResult::default()
+        };
 
         let (verdict_word, summary) = compute_verdict(&result);
         assert_eq!(
@@ -2502,14 +2504,16 @@ mod tests {
     #[test]
     fn test_compute_verdict_known_sample_test_file_short_circuits() {
         // EICAR and other TEST samples also short-circuit to CLEAN.
-        let mut result = output::AnalysisResult::default();
-        result.file_format = "Text".to_string();
-        result.known_sample = Some(output::KnownSampleMatch {
-            verdict: "TEST".to_string(),
-            category: "Test File".to_string(),
-            name: "EICAR Anti-Malware Test File".to_string(),
-            description: "Standard AV test file".to_string(),
-        });
+        let result = output::AnalysisResult {
+            file_format: "Text".to_string(),
+            known_sample: Some(output::KnownSampleMatch {
+                verdict: "TEST".to_string(),
+                category: "Test File".to_string(),
+                name: "EICAR Anti-Malware Test File".to_string(),
+                description: "Standard AV test file".to_string(),
+            }),
+            ..output::AnalysisResult::default()
+        };
 
         let (verdict_word, summary) = compute_verdict(&result);
         assert_eq!(
