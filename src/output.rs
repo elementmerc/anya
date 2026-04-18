@@ -18,7 +18,7 @@
 
 /// JSON output structures for machine-readable analysis results
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 fn default_schema_version() -> String {
     ANALYSIS_SCHEMA_VERSION.to_string()
@@ -100,9 +100,10 @@ pub struct AnalysisResult {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mitre_techniques: Vec<MitreTechnique>,
 
-    /// Per-indicator confidence levels
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub confidence_scores: HashMap<String, ConfidenceLevel>,
+    /// Per-indicator confidence levels. Backed by BTreeMap so JSON
+    /// serialisation has deterministic key order per rule 3.1.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub confidence_scores: BTreeMap<String, ConfidenceLevel>,
 
     /// Analyst-facing plain-English findings
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1485,7 +1486,7 @@ mod tests {
             compiler_detection: None,
             anti_analysis_indicators: vec![],
             mitre_techniques: vec![],
-            confidence_scores: HashMap::new(),
+            confidence_scores: BTreeMap::new(),
             plain_english_findings: vec![],
             byte_histogram: None,
             file_type_mismatch: None,
@@ -1774,7 +1775,7 @@ mod tests {
             compiler_detection: None,
             anti_analysis_indicators: vec![],
             mitre_techniques: vec![],
-            confidence_scores: HashMap::new(),
+            confidence_scores: BTreeMap::new(),
             plain_english_findings: vec![],
             byte_histogram: None,
             file_type_mismatch: None,

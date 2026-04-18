@@ -6,7 +6,7 @@
 use crate::output::{AnalysisResult, ConfidenceLevel, MitreTechnique, SecretFinding, SectionInfo};
 use anya_scoring::types::{AntiAnalysisSignal, IocSignal, PackerSignal, ScoringResult, SignalSet};
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 // Re-export scoring functions and types.
@@ -853,7 +853,9 @@ pub fn score_analysis(result: &AnalysisResult) -> ScoringResult {
 }
 
 /// Assign a ConfidenceLevel to MITRE techniques and return technique_id → confidence.
-pub fn calculate_confidence(techniques: &[MitreTechnique]) -> HashMap<String, ConfidenceLevel> {
+/// Returns a BTreeMap so downstream JSON serialisation has deterministic key
+/// order per sovereign rule 3.1 reproducibility.
+pub fn calculate_confidence(techniques: &[MitreTechnique]) -> BTreeMap<String, ConfidenceLevel> {
     let tuples: Vec<(String, Option<String>, ConfidenceLevel)> = techniques
         .iter()
         .map(|t| {
@@ -1380,7 +1382,7 @@ mod tests {
             compiler_detection: None,
             anti_analysis_indicators: vec![],
             mitre_techniques: vec![],
-            confidence_scores: HashMap::new(),
+            confidence_scores: BTreeMap::new(),
             plain_english_findings: vec![],
             byte_histogram: None,
             file_type_mismatch: None,

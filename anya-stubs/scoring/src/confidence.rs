@@ -1,7 +1,7 @@
 // Scoring engine — confidence assignment and signal-based scoring.
 
 use crate::types::{ConfidenceLevel, IocType, MismatchSeverity};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 pub const WEIGHT_CRITICAL: u32 = 3;
 pub const WEIGHT_HIGH: u32 = 2;
@@ -24,8 +24,8 @@ pub const BONUS_ELF_PACKER: u32 = 3;
 
 pub fn calculate_confidence(
     techniques: &[(String, Option<String>, ConfidenceLevel)],
-) -> HashMap<String, ConfidenceLevel> {
-    let mut map = HashMap::new();
+) -> BTreeMap<String, ConfidenceLevel> {
+    let mut map = BTreeMap::new();
     for (id, sub, conf) in techniques {
         let key = match sub {
             Some(s) => format!("{}.{}", id, s),

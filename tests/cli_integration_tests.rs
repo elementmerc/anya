@@ -586,13 +586,27 @@ fn deterministic_sha256_on_repeat_analysis() {
 
 #[test]
 fn deterministic_entire_json_on_repeat_analysis() {
-    // Same file analysed twice should produce semantically identical
-    // JSON. Byte equality is the long-term invariant per rule 3.1 but
-    // confidence_scores (and possibly other maps) currently serialise
-    // via HashMap, so key order varies between processes. See DWL-87.
-    let v1 = analyse_json(&fixture_pe());
-    let v2 = analyse_json(&fixture_pe());
-    assert_eq!(v1, v2, "JSON output not semantically deterministic");
+    // Same file analysed twice must produce byte-identical JSON per
+    // sovereign rule 3.1 (HashMap iteration order must not leak into
+    // results). confidence_scores is backed by BTreeMap; this test is
+    // the regression guard for that guarantee.
+    let out1 = run_anya(&[
+        "--file",
+        fixture_pe().to_str().unwrap(),
+        "--json",
+        "--no-color",
+    ]);
+    let out2 = run_anya(&[
+        "--file",
+        fixture_pe().to_str().unwrap(),
+        "--json",
+        "--no-color",
+    ]);
+    assert!(out1.status.success() && out2.status.success());
+    assert_eq!(
+        out1.stdout, out2.stdout,
+        "JSON output not byte-deterministic across runs"
+    );
 }
 
 #[test]
