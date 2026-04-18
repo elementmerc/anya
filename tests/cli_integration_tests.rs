@@ -1734,9 +1734,7 @@ fn json_of(out: &[u8]) -> serde_json::Value {
 #[test]
 fn ten_concurrent_analyses_produce_identical_output() {
     let handles: Vec<_> = (0..10)
-        .map(|_| {
-            thread::spawn(|| run_anya(&["--file", FIXTURE_PE, "--json", "--no-color"]).stdout)
-        })
+        .map(|_| thread::spawn(|| run_anya(&["--file", FIXTURE_PE, "--json", "--no-color"]).stdout))
         .collect();
     let outputs: Vec<Vec<u8>> = handles.into_iter().map(|h| h.join().unwrap()).collect();
     let first = &outputs[0];
@@ -1891,7 +1889,11 @@ fn broken_pipe_stdout_on_help_does_not_crash() {
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(!stderr.contains("panicked"), "panic on broken pipe: {}", stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "panic on broken pipe: {}",
+        stderr
+    );
 }
 
 #[test]
@@ -2255,12 +2257,7 @@ fn no_color_env_var_strips_ansi_escapes() {
 fn output_to_file_never_contains_ansi_escapes() {
     let tmp = TempDir::new().unwrap();
     let report = tmp.path().join("report.md");
-    let out = run_anya(&[
-        "--file",
-        FIXTURE_PE,
-        "--output",
-        report.to_str().unwrap(),
-    ]);
+    let out = run_anya(&["--file", FIXTURE_PE, "--output", report.to_str().unwrap()]);
     assert!(out.status.success());
     let body = fs::read_to_string(&report).unwrap();
     assert!(!body.contains('\x1b'));
@@ -2418,12 +2415,7 @@ fn successful_analysis_exits_zero_without_verdict_flag() {
 
 #[test]
 fn exit_code_reflects_verdict_when_flag_set() {
-    let out = run_anya(&[
-        "--file",
-        FIXTURE_PE,
-        "--exit-code-from-verdict",
-        "--quiet",
-    ]);
+    let out = run_anya(&["--file", FIXTURE_PE, "--exit-code-from-verdict", "--quiet"]);
     assert_ne!(out.status.code().unwrap_or(0), 0);
 }
 
