@@ -73,6 +73,67 @@ Full flag reference: `anya --help`
 
 ---
 
+## Deployment
+
+Anya ships as a multi-arch Docker image (amd64 and arm64) for deploying into CI pipelines, batch analysis workloads, and SaaS file upload paths.
+
+### Images
+
+| Registry | Path |
+|---|---|
+| GitHub Container Registry (canonical) | `ghcr.io/elementmerc/anya` |
+| Docker Hub (mirror) | `docker.io/elementmerc/anya` |
+
+Each release publishes three tags to both registries: `:latest`, `:<version>` (e.g. `:2.0.5`), and `:stable`.
+
+### One-off scan
+
+```bash
+docker run --rm \
+  -v "$(pwd)/samples:/samples:ro" \
+  ghcr.io/elementmerc/anya:latest \
+  --file /samples/suspicious.exe --format sarif
+```
+
+### Compose reference
+
+The repository includes a `docker-compose.yml` with three pre-configured services that demonstrate the common deployment patterns:
+
+```bash
+# Single file analysis
+docker compose run --rm anya-single
+
+# Batch directory scan with appended JSONL output
+docker compose run --rm anya-batch
+
+# Continuous inbox watch (sidecar pattern for upload pipelines)
+mkdir -p inbox watch-output
+docker compose up anya-watch
+cp suspicious.exe inbox/       # verdict appears in `docker compose logs anya-watch`
+```
+
+anya-single, anya-batch, and anya-watch each mount distinct output directories so the three services can be run concurrently without collision. anya-single writes to `./output`, anya-batch appends to `./output/batch.jsonl`, and anya-watch writes to `./watch-output`.
+
+All three services run with `read_only: true`, `cap_drop: ALL`, `no-new-privileges`, a custom seccomp profile, and a size-capped noexec tmpfs. The container filesystem is immutable by default.
+
+### SARIF output for CI
+
+For CI ingestion (GitHub Code Scanning, Azure DevOps, GitLab Security), use `--format sarif`:
+
+```bash
+docker run --rm \
+  -v "$(pwd):/work:ro" \
+  -v "$(pwd)/report:/report:rw" \
+  ghcr.io/elementmerc/anya:latest \
+  --file /work/app.exe --format sarif --output /report/anya.sarif
+```
+
+### Environment
+
+Anya does not read any environment variables at runtime. Configuration is expressed through flags. The image runs as a non-root user and has no default network access configured; no inbound ports, no outbound calls.
+
+---
+
 ## GUI
 
 Drag a file or folder onto the window, or use the **+** button.

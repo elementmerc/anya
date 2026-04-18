@@ -60,3 +60,38 @@ services:
       - ALL
     tmpfs:
       - /tmp:size=64m,noexec
+
+  # ── Watch inbox for new files ──────────────────────────────────────────────
+  # Sidecar pattern: drop a file into ./inbox and Anya emits a one-line
+  # verdict to stdout (captured by `docker compose logs anya-watch`) plus a
+  # detailed JSON record to ./watch-output. Intended for integrating Anya
+  # into a SaaS upload pipeline where a container continuously scans files
+  # as they land.
+  #
+  # anya-watch uses its own ./watch-output directory, separate from
+  # anya-single and anya-batch's ./output, so the three services can run
+  # concurrently without output collisions.
+  #   mkdir -p inbox watch-output
+  #   docker compose up anya-watch            # foreground, Ctrl+C to stop
+  #   cp suspicious.exe inbox/                # verdict appears in logs
+  anya-watch:
+    image: anya:latest
+    build:
+      context: .
+      args:
+        VERSION: "${VERSION:-dev}"
+    volumes:
+      - ./inbox:/inbox:ro
+      - ./watch-output:/output:rw
+    command:
+      - "watch"
+      - "/inbox"
+      - "--json"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:./docker/seccomp.json
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=64m,noexec
