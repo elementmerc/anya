@@ -41,6 +41,9 @@ Anya analyses files without executing them. Drop a PE, ELF, Mach-O, PDF, Office 
 | **macOS** | `.dmg` (Intel + Apple Silicon) | Universal binary (`.tar.gz`) |
 | **Linux** | `.AppImage` / `.deb` / `.rpm` | Static musl binary (`.tar.gz`) |
 
+> [!NOTE]
+> **macOS users:** right-click the app and select **Open** to bypass the "unidentified developer" warning the first time you launch.
+
 Also available on **[SourceForge](https://sourceforge.net/projects/anya/)**.
 
 ```bash
