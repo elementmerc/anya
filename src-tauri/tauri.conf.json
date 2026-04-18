@@ -1,6 +1,6 @@
 {
   "productName": "Anya",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "identifier": "com.anya.app",
   "build": {
     "frontendDist": "../dist",

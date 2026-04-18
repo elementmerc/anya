@@ -1,6 +1,6 @@
 # Changelog
 
-## [2.0.5] - unreleased
+## [2.0.5] - 2026-04-25
 
 ### Enterprise integration
 - New `--format sarif` output produces OASIS SARIF 2.1.0 documents compatible with GitHub Code Scanning, Azure DevOps, GitLab Security, and mainstream SIEM and SOAR pipelines
