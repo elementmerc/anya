@@ -61,6 +61,16 @@ FORBIDDEN_PATTERNS=(
     # Private research keywords
     'Anchored Narrative Coherence'
     'Conditional Impossibility'
+
+    # Aspirational URLs and domains that have been invented for future
+    # plans but do not resolve today. Added 2026-04-18 after the
+    # `anya-docs.elementmerc.dev` regression where an invented SARIF
+    # helpUri shipped into two golden test fixtures before Daniel caught
+    # it. Retire an entry from this list only when the resource actually
+    # exists and has been verified reachable.
+    'anya-docs.elementmerc.dev'
+    'docs.elementmerc.dev'
+    'anya.dev'
 )
 
 # Allowlist: paths that are permitted to contain the literal 'private/'
