@@ -354,10 +354,14 @@ jobs:
           files: SHA256SUMS.txt
 
   # ── Publish to Chocolatey ────────────────────────────────────────────────────
+  # Chocolatey's human review queue has been slow/unresponsive as of 2026-04;
+  # failures here don't block the rest of the release. continue-on-error keeps
+  # the overall workflow green even when this job fails or times out.
   chocolatey:
     name: Chocolatey — publish
     runs-on: windows-latest
     needs: [tauri-build, build-cli]
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 

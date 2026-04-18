@@ -13,7 +13,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ── Rust: audit + lint + test + smoke ─────────────────────────────────────
@@ -36,13 +35,15 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-audit (prebuilt binary)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
 
       - name: Security audit
         run: cargo audit
-
-      - uses: Swatinem/rust-cache@v2
 
       - name: Format check
         run: cargo fmt --all -- --check
@@ -214,8 +215,11 @@ jobs:
 
   # ── Docker: validate the Dockerfile builds correctly ─────────────────────
   # Build-only (no push). Catches Dockerfile issues before they hit release.
+  # Gated to PRs to main only — dev pushes don't need this, release.yml
+  # rebuilds the image anyway.
   docker-validate:
     name: Docker — build validation
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -309,8 +313,11 @@ jobs:
 
   # ── Chocolatey package validation ────────────────────────────────────
   # Validates the .nuspec and install scripts parse correctly (no push).
+  # Gated to PRs to main only — dev pushes don't need Windows-runner minutes
+  # for a pure nuspec syntax check.
   choco-validate:
     name: Chocolatey — dry run
+    if: github.event_name == 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

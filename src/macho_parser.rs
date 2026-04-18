@@ -84,10 +84,8 @@ fn analyse_single(data: &[u8], macho: &MachO) -> MachoAnalysis {
             LC_MAIN => {
                 entry_point = format!("0x{:x}", lc.offset);
             }
-            LC_UNIXTHREAD => {
-                if entry_point == "unknown" {
-                    entry_point = format!("0x{:x} (thread)", lc.offset);
-                }
+            LC_UNIXTHREAD if entry_point == "unknown" => {
+                entry_point = format!("0x{:x} (thread)", lc.offset);
             }
             cmd if cmd == LC_LOAD_DYLIB
                 || cmd == LC_LOAD_WEAK_DYLIB
