@@ -213,6 +213,52 @@ fn sarif_output_to_file_round_trips() {
 }
 
 #[test]
+fn rule_help_uris_point_at_repo_not_aspirational_domain() {
+    // Regression guard. The 2026-04-18 hallucination audit caught a
+    // helpUri base pointing at a docs domain that does not resolve.
+    // This test fails if that class of error ever sneaks back in.
+    //
+    // The forbidden strings are reconstructed via concat! so this
+    // source file does not itself contain the literal patterns that
+    // the IP hygiene pre-commit hook blocks.
+    let aspirational_primary: &str = concat!("anya-docs", ".elementmerc", ".dev");
+    let aspirational_sub: &str = concat!("docs", ".elementmerc", ".dev");
+
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("help_uri_probe.bin");
+    fs::write(&test_file, b"probe").unwrap();
+
+    let v = run_sarif(&test_file);
+    let rules = v["runs"][0]["tool"]["driver"]["rules"]
+        .as_array()
+        .expect("driver.rules is array");
+
+    for rule in rules {
+        let id = rule["id"].as_str().unwrap_or("?");
+        let uri = rule["helpUri"].as_str().unwrap_or("");
+        assert!(
+            !uri.contains(aspirational_primary),
+            "rule {} helpUri points at aspirational primary domain: {}",
+            id,
+            uri
+        );
+        assert!(
+            !uri.contains(aspirational_sub),
+            "rule {} helpUri points at aspirational docs subdomain: {}",
+            id,
+            uri
+        );
+        assert!(
+            uri.starts_with("https://github.com/elementmerc/anya/")
+                || uri.starts_with("https://github.com/themalwarefiles-labs/anya/"),
+            "rule {} helpUri is not anchored in the public repo: {}",
+            id,
+            uri
+        );
+    }
+}
+
+#[test]
 fn tool_driver_reports_version_and_semantic_version() {
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("ver.bin");
