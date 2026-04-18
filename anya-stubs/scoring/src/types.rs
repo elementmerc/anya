@@ -1,7 +1,7 @@
 // Shared types for the scoring engine.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ConfidenceLevel {
@@ -85,8 +85,8 @@ pub struct ExtractedString {
 pub struct IocSummary {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ioc_strings: Vec<ExtractedString>,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub ioc_counts: HashMap<String, usize>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub ioc_counts: BTreeMap<String, usize>,
 }
 
 // ── Signal extraction types ─────────────────────────────────────────────────
