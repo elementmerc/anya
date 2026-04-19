@@ -215,11 +215,10 @@ jobs:
 
   # ── Docker: validate the Dockerfile builds correctly ─────────────────────
   # Build-only (no push). Catches Dockerfile issues before they hit release.
-  # Gated to PRs to main only — dev pushes don't need this, release.yml
-  # rebuilds the image anyway.
+  # Runs on every dev push so dev simulates a full public release and catches
+  # Docker breakage before a real tag.
   docker-validate:
     name: Docker — build validation
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -313,11 +312,10 @@ jobs:
 
   # ── Chocolatey package validation ────────────────────────────────────
   # Validates the .nuspec and install scripts parse correctly (no push).
-  # Gated to PRs to main only — dev pushes don't need Windows-runner minutes
-  # for a pure nuspec syntax check.
+  # Runs on every dev push so dev simulates a full public release and catches
+  # nuspec breakage before a real tag.
   choco-validate:
     name: Chocolatey — dry run
-    if: github.event_name == 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
