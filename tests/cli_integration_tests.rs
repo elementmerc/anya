@@ -2447,3 +2447,62 @@ fn help_mentions_stdin_convention() {
         "--help should document --file - stdin convention"
     );
 }
+
+// ── UI ↔ Engine contract: "Couldn't read" error wording ─────────────────────
+//
+// Self-evolving gate (sovereign CLAUDE.md §3.3, master plan §15).
+// The Tauri UI's DropZone component matches this exact engine wording with a
+// regex to render a friendly primary line when a file from recent history has
+// become unreadable. If the engine wording drifts (refactor, localisation,
+// typo fix), the UI silently falls back to the raw technical error and users
+// see filesystem jargon. These tests pin the contract so either side drifting
+// fails in the release gate before ship.
+//
+// Source-level check (not CLI-invocation) because the error path requires a
+// file that exists but is unopenable, which is flaky to construct portably
+// across Linux, macOS, Windows, and CI tmpfs. The source string is the
+// load-bearing contract; both engine sites must keep emitting it in exactly
+// this shape or the paired UI test breaks too.
+//
+// Paired: src/__tests__/dropzone-friendly-error.test.tsx (UI side)
+// Paired engine sites: src/lib.rs analyse_file + analyse_file_with_depth
+
+const UI_EXPECTED_PREFIX: &str = "Couldn't read '";
+const UI_EXPECTED_TAIL: &str = "Check that the file exists and you have read permission.";
+
+#[test]
+fn engine_couldnt_read_wording_matches_ui_contract_in_source() {
+    let lib_rs = std::fs::read_to_string("src/lib.rs")
+        .expect("src/lib.rs must be readable from the engine crate root");
+
+    // Expected literal: Couldn't read '{}'. Check that the file exists and you have read permission.
+    let full_phrase = format!("{}{{}}'. {}", UI_EXPECTED_PREFIX, UI_EXPECTED_TAIL);
+    let occurrences = lib_rs.matches(&full_phrase).count();
+    assert!(
+        occurrences >= 2,
+        "engine src/lib.rs must contain the UI-contract phrase in at least 2 sites \
+         (analyse_file + analyse_file_with_depth). Found {} occurrence(s) of:\n  {}\n\
+         If the engine wording was refactored, update the UI regex in \
+         engine/ui/components/DropZone.tsx and its Vitest test in the same commit.",
+        occurrences,
+        full_phrase
+    );
+}
+
+#[test]
+fn engine_couldnt_read_wording_still_contains_ui_regex_anchors() {
+    // Stronger invariant: prefix and tail anchors each appear in the engine
+    // source. Catches partial refactors that keep one half and change the
+    // other.
+    let lib_rs = std::fs::read_to_string("src/lib.rs").expect("src/lib.rs must be readable");
+
+    assert!(
+        lib_rs.contains(UI_EXPECTED_PREFIX),
+        "engine lost the \"Couldn't read '\" prefix the UI regex depends on"
+    );
+    assert!(
+        lib_rs.contains(UI_EXPECTED_TAIL),
+        "engine lost the \"{}\" tail the UI regex depends on",
+        UI_EXPECTED_TAIL
+    );
+}
