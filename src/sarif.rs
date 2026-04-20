@@ -762,3 +762,149 @@ mod tests {
         assert_eq!(format_tag_from("Totally unknown"), "format:other");
     }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Property-based (fuzz-class) tests — closes the 2026-04-19 gate's deferred
+// "SARIF fuzz not run this release" finding. Self-evolving gate: each new
+// SARIF invariant discovered by a gate review adds another proptest here.
+//
+// Pure functions are safer to proptest than the full `render()` pipeline
+// because they don't require constructing valid `AnalysisResult` values.
+// `render()` itself is exercised by the 13 integration tests and 3 golden
+// fixtures — the proptests here pin the load-bearing transforms those
+// fixtures depend on, so a silent regression in slug normalisation or
+// verdict-to-level mapping surfaces immediately.
+// ────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod proptest_tests {
+    use super::*;
+    use proptest::prelude::*;
+    use serde_sarif::sarif::ResultLevel;
+
+    // ── verdict_to_level total mapping ──────────────────────────────────────
+    proptest! {
+        #[test]
+        fn verdict_to_level_never_panics_and_returns_one_of_three_levels(
+            verdict in "\\PC{0,40}"
+        ) {
+            let level = verdict_to_level(&verdict);
+            prop_assert!(
+                matches!(level, ResultLevel::Error | ResultLevel::Warning | ResultLevel::Note),
+                "verdict_to_level returned an unexpected variant for input {:?}",
+                verdict
+            );
+        }
+
+        #[test]
+        fn verdict_to_level_only_returns_error_for_exact_malicious(
+            verdict in "\\PC{0,40}"
+        ) {
+            if matches!(verdict_to_level(&verdict), ResultLevel::Error) {
+                prop_assert_eq!(verdict.as_str(), "MALICIOUS");
+            }
+        }
+
+        #[test]
+        fn verdict_to_level_only_returns_warning_for_exact_suspicious(
+            verdict in "\\PC{0,40}"
+        ) {
+            if matches!(verdict_to_level(&verdict), ResultLevel::Warning) {
+                prop_assert_eq!(verdict.as_str(), "SUSPICIOUS");
+            }
+        }
+    }
+
+    // ── slug canonicalisation invariants ────────────────────────────────────
+    proptest! {
+        #[test]
+        fn slug_output_contains_only_lowercase_alnum_and_hyphens(
+            input in "\\PC{0,60}"
+        ) {
+            let out = slug(&input);
+            for ch in out.chars() {
+                prop_assert!(
+                    (ch.is_ascii_alphanumeric() && !ch.is_ascii_uppercase()) || ch == '-',
+                    "slug emitted disallowed char {:?} for input {:?} → {:?}",
+                    ch, input, out
+                );
+            }
+        }
+
+        #[test]
+        fn slug_never_starts_or_ends_with_hyphen(input in "\\PC{0,60}") {
+            let out = slug(&input);
+            if !out.is_empty() {
+                prop_assert!(!out.starts_with('-'), "leading hyphen in {:?}", out);
+                prop_assert!(!out.ends_with('-'), "trailing hyphen in {:?}", out);
+            }
+        }
+
+        #[test]
+        fn slug_never_contains_consecutive_hyphens(input in "\\PC{0,60}") {
+            let out = slug(&input);
+            prop_assert!(
+                !out.contains("--"),
+                "consecutive hyphens in slug output {:?} for input {:?}",
+                out, input
+            );
+        }
+
+        #[test]
+        fn slug_is_idempotent(input in "\\PC{0,60}") {
+            let once = slug(&input);
+            let twice = slug(&once);
+            prop_assert_eq!(once, twice);
+        }
+    }
+
+    // ── format_tag canonicalisation ─────────────────────────────────────────
+    proptest! {
+        #[test]
+        fn format_tag_always_has_format_prefix_and_canonical_value(
+            fmt in "\\PC{0,40}"
+        ) {
+            let tag = format_tag_from(&fmt);
+            prop_assert!(tag.starts_with("format:"), "missing prefix: {:?}", tag);
+            let value = tag.strip_prefix("format:").unwrap();
+            prop_assert!(
+                matches!(value, "pe" | "elf" | "macho" | "pdf" | "office" | "script" | "other"),
+                "format_tag returned non-canonical value {:?} for input {:?}",
+                value, fmt
+            );
+        }
+    }
+
+    // ── file_uri_for never empty ────────────────────────────────────────────
+    proptest! {
+        #[test]
+        fn file_uri_for_is_never_empty(path in "\\PC{0,100}") {
+            let uri = file_uri_for(&path);
+            prop_assert!(!uri.is_empty(), "file_uri_for emitted empty for input {:?}", path);
+        }
+    }
+
+    // ── confidence mapping totality ─────────────────────────────────────────
+    // ConfidenceLevel is a 4-variant enum; proptest over pick.
+    proptest! {
+        #[test]
+        fn confidence_mapping_is_total(idx in 0usize..4) {
+            let c = match idx {
+                0 => ConfidenceLevel::Critical,
+                1 => ConfidenceLevel::High,
+                2 => ConfidenceLevel::Medium,
+                _ => ConfidenceLevel::Low,
+            };
+            let level = confidence_to_level(&c);
+            let tag = confidence_tag(&c);
+            prop_assert!(
+                matches!(level, ResultLevel::Error | ResultLevel::Warning | ResultLevel::Note),
+                "confidence_to_level returned unexpected variant"
+            );
+            prop_assert!(
+                matches!(tag, "critical" | "high" | "medium" | "low"),
+                "confidence_tag returned non-canonical {:?}", tag
+            );
+        }
+    }
+}

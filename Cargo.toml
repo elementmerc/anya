@@ -141,6 +141,9 @@ yara = ["dep:yara-x"]
 [dev-dependencies]
 # For benchmarking
 criterion = "0.5"
+# For property-based (fuzz-class) tests on SARIF pure functions. Closes the
+# self-evolving gate "SARIF fuzz" item from the 2026-04-19 release gate.
+proptest = "1"
 
 [lib]
 name = "anya_security_core"
