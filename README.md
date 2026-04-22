@@ -216,4 +216,4 @@ xychart-beta
 
 AGPL-3.0-or-later. See [LICENSE.TXT](LICENSE.TXT).
 
-Commercial licensing: daniel@themalwarefiles.com
+Commercial licensing: ops@themalwarefiles.com

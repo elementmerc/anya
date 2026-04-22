@@ -1,7 +1,7 @@
 Source: anya
 Section: utils
 Priority: optional
-Maintainer: Daniel Iwugo <daniel@themalwarefiles.com>
+Maintainer: Daniel Iwugo <ops@themalwarefiles.com>
 Build-Depends: debhelper-compat (= 13)
 Standards-Version: 4.6.2
 Homepage: https://github.com/elementmerc/anya

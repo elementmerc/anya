@@ -171,5 +171,5 @@ will also be noted in the CHANGELOG.
 
 Questions about this privacy policy or Anya's data practices:
 
-- **Email:** daniel@themalwarefiles.com
+- **Email:** ops@themalwarefiles.com
 - **GitHub:** <https://github.com/elementmerc/anya/discussions>

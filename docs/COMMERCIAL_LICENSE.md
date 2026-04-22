@@ -77,7 +77,7 @@ formalised in a future version (v2) of this document.
 If you believe you need a commercial licence, or if you are unsure whether your use case
 falls within the AGPL, please reach out:
 
-- **Email:** daniel@themalwarefiles.com
+- **Email:** ops@themalwarefiles.com
 - **GitHub Discussions:** <https://github.com/elementmerc/anya/discussions>
 
 Provide a brief description of your intended use case. We respond to all enquiries.

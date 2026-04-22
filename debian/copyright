@@ -1,10 +1,10 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: anya
-Upstream-Contact: Daniel Iwugo <daniel@themalwarefiles.com>
+Upstream-Contact: Daniel Iwugo <ops@themalwarefiles.com>
 Source: https://github.com/elementmerc/anya
 
 Files: *
-Copyright: 2026 Daniel Iwugo <daniel@themalwarefiles.com>
+Copyright: 2026 Daniel Iwugo <ops@themalwarefiles.com>
 License: AGPL-3.0+
 
 License: AGPL-3.0+

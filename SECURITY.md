@@ -51,7 +51,7 @@ The following are **not** security issues in Anya:
 
 **Alternative — Email:**
 
-Email daniel@themalwarefiles.com with subject line `[SECURITY] Anya — <brief description>`.
+Email ops@themalwarefiles.com with subject line `[SECURITY] Anya — <brief description>`.
 
 Reports can be sent via email. Encryption is not currently required.
 

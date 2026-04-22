@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 //
-// For commercial licensing, contact: daniel@themalwarefiles.com
+// For commercial licensing, contact: ops@themalwarefiles.com
 
 //! `anya hash-check` subcommand — check whether a file's hash appears in a
 //! user-supplied plaintext hash list.

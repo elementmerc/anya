@@ -377,4 +377,4 @@ Integration tests cover: CLI flags, edge cases (unicode paths, malformed input, 
 ---
 
 **Last updated:** 2026-04-11 (v2.0.3)
-**Maintainer:** Daniel Iwugo — daniel@themalwarefiles.com
+**Maintainer:** Daniel Iwugo — ops@themalwarefiles.com

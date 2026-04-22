@@ -76,5 +76,5 @@ Until then, the AGPL-3.0 applies, and common sense applies to acceptable use.
 
 ## Questions
 
-Reach out at daniel@themalwarefiles.com or via
+Reach out at ops@themalwarefiles.com or via
 [GitHub Discussions](https://github.com/elementmerc/anya/discussions).

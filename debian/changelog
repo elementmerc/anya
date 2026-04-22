@@ -10,7 +10,7 @@ anya (1.0.2-1) stable; urgency=medium
   * CI consolidated from 7 jobs to 4.
   * Bug fixes and minor improvements.
 
- -- Daniel Iwugo <daniel@themalwarefiles.com>  Sat, 15 Mar 2026 00:00:00 +0000
+ -- Daniel Iwugo <ops@themalwarefiles.com>  Sat, 15 Mar 2026 00:00:00 +0000
 
 anya (1.0.1-1) stable; urgency=medium
 
@@ -20,14 +20,14 @@ anya (1.0.1-1) stable; urgency=medium
   * Added draggable Teacher Mode sidebar.
   * Minor fixes and improvements.
 
- -- Daniel Iwugo <daniel@themalwarefiles.com>  Sat, 14 Mar 2026 00:00:00 +0000
+ -- Daniel Iwugo <ops@themalwarefiles.com>  Sat, 14 Mar 2026 00:00:00 +0000
 
 anya (1.0.0-1) stable; urgency=medium
 
   * Release v1.0.0.
   * First stable release.
 
- -- Daniel Iwugo <daniel@themalwarefiles.com>  Sat, 14 Mar 2026 00:00:00 +0000
+ -- Daniel Iwugo <ops@themalwarefiles.com>  Sat, 14 Mar 2026 00:00:00 +0000
 
 anya (0.3.2-1) unstable; urgency=medium
 
@@ -41,10 +41,10 @@ anya (0.3.2-1) unstable; urgency=medium
   * Added MITRE ATT&CK technique tab in desktop GUI.
   * Added Teacher Mode contextual learning sidebar.
 
- -- Daniel Iwugo <daniel@themalwarefiles.com>  Sat, 14 Mar 2026 00:00:00 +0000
+ -- Daniel Iwugo <ops@themalwarefiles.com>  Sat, 14 Mar 2026 00:00:00 +0000
 
 anya (0.3.1-1) unstable; urgency=low
 
   * Initial Debian packaging.
 
- -- Daniel Iwugo <daniel@themalwarefiles.com>  Mon, 01 Jan 2026 00:00:00 +0000
+ -- Daniel Iwugo <ops@themalwarefiles.com>  Mon, 01 Jan 2026 00:00:00 +0000
